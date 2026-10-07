@@ -68,7 +68,7 @@ choices resolve refs once; named groups resolve/check before omission. Refs reta
 QName/RefLoc/TargetID/order without expansion; broader forms reject consumers.
 Valid `0/0` omits; non-`0/0` inline long-family locals fail at type/simpleType `Loc`.
 Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
-built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`short`/`byte` locals,
+built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0
 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Resolved anonymous simple-type `0/0` terms omit; inline complexes and `all` consumers reject.

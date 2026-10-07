@@ -188,7 +188,6 @@ func TestDirectAllLongOmissionAndExclusions(t *testing.T) {
 			{"named string", `<xs:element name="v" type="r:Text"/>`, `<xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Text"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), errSchemaAllMemberScalar},
 			{"named list", `<xs:element name="v" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:long"/></xs:simpleType>`, `type="r:List"`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
 			{"named union", `<xs:element name="v" type="r:Union"/>`, `<xs:simpleType name="Union"><xs:union memberTypes="xs:long"/></xs:simpleType>`, `type="r:Union"`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
-			{"builtin int", `<xs:element name="v" type="xs:int"/>`, "", `type="xs:int"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), errSchemaAllMemberScalar},
 			{"inline complex", `<xs:element name="v"><xs:complexType/></xs:element>`, "", `<xs:complexType/>`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
 		} {
 			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
@@ -310,7 +309,7 @@ func TestDirectAllLongReferenceTargetAndConsumers(t *testing.T) {
 			{"builtin", `<xs:element name="v" type="xs:long"/>`, "", false},
 			{"named", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:long"/></xs:simpleType>`, false},
 			{"ref to long", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:long"/>`, true},
-			{"ref to excluded target", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:int"/>`, true},
+			{"ref to int target", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:int"/>`, true},
 		} {
 			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
 				root := allParticleTestRoot(`<xs:all>`+test.member+`</xs:all>`, `<xs:element name="root" type="r:Record"/>`+test.defs)

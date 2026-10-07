@@ -164,7 +164,6 @@ func TestDirectAllByteOmissionAndDiagnostics(t *testing.T) {
 			{"malformed type QName", `<xs:element name="v" type="r:bad:Byte"/>`, "", `type="r:bad:Byte"`, "", invalidSchemaConditionalCode, "", 1, FailureInvalid, nil},
 			{"inline anonymous byte", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"named string", `<xs:element name="v" type="r:Text"/>`, `<xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Text"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
-			{"built-in int", `<xs:element name="v" type="xs:int"/>`, "", `type="xs:int"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
 			{"inline complex", `<xs:element name="v"><xs:complexType/></xs:element>`, "", `<xs:complexType/>`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"named list", `<xs:element name="v" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:byte"/></xs:simpleType>`, `type="r:List"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"named union", `<xs:element name="v" type="r:Union"/>`, `<xs:simpleType name="Union"><xs:union memberTypes="xs:byte"/></xs:simpleType>`, `type="r:Union"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
@@ -242,7 +241,7 @@ func TestDirectAllByteConsumersByMemberShape(t *testing.T) {
 			{"built-in byte", `<xs:element name="v" type="xs:byte"/>`, ""},
 			{"named byte", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:byte"/></xs:simpleType>`},
 			{"ref to byte", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:byte"/>`},
-			{"ref to excluded int", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:int"/>`},
+			{"ref to int", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:int"/>`},
 		} {
 			t.Run(string(profile.policy)+"/"+sample.label, func(t *testing.T) {
 				root := allParticleTestRoot(`<xs:all>`+sample.member+`</xs:all>`, `<xs:element name="root" type="r:Record"/>`+sample.definition)
