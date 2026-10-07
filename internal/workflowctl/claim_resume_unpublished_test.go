@@ -312,3 +312,207 @@ func TestClaimResumeUnpublishedMergeMetadataRaceAndProjectRetry(t *testing.T) {
 		t.Fatal("Project retry duplicated marker/integration or failed convergence")
 	}
 }
+
+func claimResumeTestGitPath(t *testing.T, root, name string) string {
+	t.Helper()
+	path := runGitTest(t, root, "rev-parse", "--git-path", name)
+	if !filepath.IsAbs(path) {
+		return filepath.Join(root, path)
+	}
+	return path
+}
+
+//nolint:gocognit // Each merge control file uses the same remote-push mutation boundary.
+func TestClaimResumeUnpublishedPreservesSealAcrossRemotePush(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data func(claimResumeFixture) []byte
+	}{
+		{name: "MERGE_HEAD", data: func(f claimResumeFixture) []byte { return []byte(f.expected + "\n") }},
+		{name: "MERGE_MSG", data: func(claimResumeFixture) []byte { return []byte("changed merge message\n") }},
+		{name: "MERGE_MODE", data: func(claimResumeFixture) []byte { return []byte("no-ff\n") }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, source, backend := unpublishedClaimFixture(t, true)
+			path := claimResumeTestGitPath(t, fixture.worktree, test.name)
+			before, readErr := os.ReadFile(path) // #nosec G304 -- Git resolves fixture merge metadata.
+			if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+				t.Fatalf("read preserved %s: %v", test.name, readErr)
+			}
+			backend.afterPush = func() {
+				// #nosec G703 -- Git resolves fixture merge metadata.
+				if err := os.WriteFile(path, test.data(fixture), 0o600); err != nil {
+					t.Fatalf("change %s during push: %v", test.name, err)
+				}
+			}
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.run(unpublishedClaimArgs(fixture, source, true))
+			if err == nil || !strings.Contains(err.Error(), "preserved state changed") {
+				t.Fatalf("%s push mutation error = %v", test.name, err)
+			}
+			if runGitTest(t, fixture.worktree, "rev-parse", "HEAD") != source || len(claimResumeGitHubMutations(backend.calls)) != 0 ||
+				!backend.needsHuman || backend.projectStatus != "Backlog" {
+				t.Fatal("changed merge seal allowed local integration or metadata mutation")
+			}
+			if remote := runGitTest(t, fixture.worktree, "ls-remote", "origin", "refs/heads/"+claimBranch(fixture.issue)); strings.HasPrefix(remote, fixture.expected+"\t") {
+				t.Fatal("remote-only renewal was not retained for retry")
+			}
+			if readErr == nil {
+				// #nosec G703 -- Git resolves fixture merge metadata.
+				if err := os.WriteFile(path, before, 0o600); err != nil {
+					t.Fatalf("restore %s: %v", test.name, err)
+				}
+			}
+			if readErr != nil {
+				if err := os.Remove(path); err != nil {
+					t.Fatalf("remove newly created %s: %v", test.name, err)
+				}
+			}
+			if err := application.run(unpublishedClaimArgs(fixture, source, true)); err != nil {
+				t.Fatalf("retry after restoring %s: %v", test.name, err)
+			}
+			if countClaimResumePushes(backend.calls) != 1 || backend.projectStatus != "Picked" {
+				t.Fatal("retry duplicated remote marker or failed reconciliation")
+			}
+		})
+	}
+}
+
+func TestClaimResumeUnpublishedPreservesAuthorityAcrossPush(t *testing.T) {
+	fixture, source, backend := unpublishedClaimFixture(t, false)
+	backend.afterPush = func() { backend.comments[0].ID = 3 }
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(unpublishedClaimArgs(fixture, source, true))
+	if err == nil || !strings.Contains(err.Error(), "authority or preserved state changed") {
+		t.Fatalf("changed authenticated claim comment identity = %v", err)
+	}
+	if runGitTest(t, fixture.worktree, "rev-parse", "HEAD") != source || len(claimResumeGitHubMutations(backend.calls)) != 0 ||
+		!backend.needsHuman || backend.projectStatus != "Backlog" {
+		t.Fatal("changed authority allowed local integration or metadata mutation")
+	}
+}
+
+func TestClaimResumeUnpublishedPreservesSealAcrossIntegrationCAS(t *testing.T) {
+	fixture, source, backend := unpublishedClaimFixture(t, true)
+	path := claimResumeTestGitPath(t, fixture.worktree, "MERGE_MSG")
+	backend.afterLocalRenewal = func() {
+		// #nosec G703 -- Git resolves fixture merge metadata.
+		if err := os.WriteFile(path, []byte("changed during local CAS\n"), 0o600); err != nil {
+			t.Fatalf("change MERGE_MSG during local CAS: %v", err)
+		}
+	}
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	err := application.run(unpublishedClaimArgs(fixture, source, true))
+	if err == nil || !strings.Contains(err.Error(), "merge metadata changed") {
+		t.Fatalf("local CAS merge metadata race = %v", err)
+	}
+	if len(claimResumeGitHubMutations(backend.calls)) != 0 || !backend.needsHuman || backend.projectStatus != "Backlog" {
+		t.Fatal("changed merge seal allowed GitHub metadata mutation")
+	}
+	if runGitTest(t, fixture.worktree, "rev-parse", "HEAD") == source {
+		t.Fatal("fixture did not reach local integration CAS")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("restore absent MERGE_MSG: %v", err)
+	}
+	if err := application.run(unpublishedClaimArgs(fixture, source, true)); err != nil {
+		t.Fatalf("retry after local CAS race: %v", err)
+	}
+	if countClaimResumePushes(backend.calls) != 1 || backend.projectStatus != "Picked" {
+		t.Fatal("local CAS retry duplicated marker or failed reconciliation")
+	}
+}
+
+func TestClaimResumePublishedIntegrationAllowsFollowupPublicationAndRenewal(t *testing.T) {
+	fixture, source, backend := unpublishedClaimFixture(t, false)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(unpublishedClaimArgs(fixture, source, true)); err != nil {
+		t.Fatalf("integrate recovered source: %v", err)
+	}
+	integration := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if err := application.renewClaim(); err == nil || !strings.Contains(err.Error(), "unpublished integrated source") {
+		t.Fatalf("prepublication renew = %v, want source-publication guard", err)
+	}
+	runGitTest(t, fixture.worktree, "push", "origin", integration+":refs/heads/"+claimBranch(fixture.issue))
+	writeFixtureFile(t, fixture.worktree, "followup.go", "valid follow-up source\n")
+	runGitTest(t, fixture.worktree, "add", "followup.go")
+	runGitTest(t, fixture.worktree, "commit", "--no-gpg-sign", "-m", "fix(workflow): publish follow-up")
+	followup := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	if err := application.verifyClaimForPush(fixture.worktree, claimLocalBranch(fixture.issue, fixture.runID), fixture.issue); err != nil {
+		t.Fatalf("published integration did not authorize follow-up push: %v", err)
+	}
+	runGitTest(t, fixture.worktree, "push", "origin", followup+":refs/heads/"+claimBranch(fixture.issue))
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("verify published follow-up: %v", err)
+	}
+	if err := application.renewClaim(); err != nil {
+		t.Fatalf("renew after published follow-up: %v", err)
+	}
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("verify normal renewal after follow-up: %v", err)
+	}
+}
+
+//nolint:gocognit // Each authority variant checks the same public claim verification result.
+func TestClaimResumeIntegratedAuthoritySelectsLatestMonotoneLease(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, test := range []struct {
+		name           string
+		historical     time.Time
+		latest         time.Time
+		latestIssue    int
+		latestRun      string
+		wantDiagnostic string
+	}{
+		{name: "expired historical with live latest", historical: now.Add(-time.Minute), latest: now.Add(time.Hour), latestIssue: 643, latestRun: "run-643-source"},
+		{name: "same-second renewal lease", historical: now.Add(time.Hour), latest: now.Add(time.Hour), latestIssue: 643, latestRun: "run-643-source"},
+		{name: "expired latest", historical: now.Add(-time.Hour), latest: now.Add(-time.Minute), latestIssue: 643, latestRun: "run-643-source", wantDiagnostic: "expired at"},
+		{name: "regressing latest", historical: now.Add(2 * time.Hour), latest: now.Add(time.Hour), latestIssue: 643, latestRun: "run-643-source", wantDiagnostic: "regressing lease"},
+		{name: "conflicting run", historical: now.Add(-time.Minute), latest: now.Add(time.Hour), latestIssue: 643, latestRun: "run-other", wantDiagnostic: "metadata binds issue"},
+		{name: "conflicting issue", historical: now.Add(-time.Minute), latest: now.Add(time.Hour), latestIssue: 644, latestRun: "run-643-source", wantDiagnostic: "metadata binds issue"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, source, backend := unpublishedClaimFixture(t, false)
+			marker := createResumeTestCommit(t, fixture.worktree, fixture.expected, claimMessage(fixture.issue, fixture.runID, test.historical))
+			tree := runGitTest(t, fixture.worktree, "rev-parse", source+"^{tree}")
+			integration := runGitTest(t, fixture.worktree, "commit-tree", tree, "-p", source, "-p", marker,
+				"-m", strings.TrimSuffix(claimResumeIntegrationMessage(fixture.issue), "\n"))
+			latest := createResumeTestCommit(t, fixture.worktree, integration, claimMessage(test.latestIssue, test.latestRun, test.latest))
+			runGitTest(t, fixture.worktree, "update-ref", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID), latest, source)
+			runGitTest(t, fixture.worktree, "push", "origin", latest+":refs/heads/"+claimBranch(fixture.issue))
+			application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+			err := application.verifyClaim()
+			if test.wantDiagnostic == "" {
+				if err != nil {
+					t.Fatalf("live latest marker rejected due to historical expiry: %v", err)
+				}
+			}
+			if test.wantDiagnostic != "" && (err == nil || !strings.Contains(err.Error(), test.wantDiagnostic)) {
+				t.Fatalf("authority error = %v, want %q", err, test.wantDiagnostic)
+			}
+			if backend.mutations != 0 || len(claimResumeGitHubMutations(backend.calls)) != 0 {
+				t.Fatal("authority verification mutated claim state")
+			}
+		})
+	}
+}
+
+func TestClaimResumeIntegratedAuthorityRejectsIntermediateLeaseRegression(t *testing.T) {
+	fixture, source, backend := unpublishedClaimFixture(t, false)
+	now := time.Now().UTC().Truncate(time.Second)
+	marker := createResumeTestCommit(t, fixture.worktree, fixture.expected, claimMessage(fixture.issue, fixture.runID, now.Add(-time.Minute)))
+	tree := runGitTest(t, fixture.worktree, "rev-parse", source+"^{tree}")
+	integration := runGitTest(t, fixture.worktree, "commit-tree", tree, "-p", source, "-p", marker,
+		"-m", strings.TrimSuffix(claimResumeIntegrationMessage(fixture.issue), "\n"))
+	intermediate := createResumeTestCommit(t, fixture.worktree, integration, claimMessage(fixture.issue, fixture.runID, now.Add(2*time.Hour)))
+	latest := createResumeTestCommit(t, fixture.worktree, intermediate, claimMessage(fixture.issue, fixture.runID, now.Add(time.Hour)))
+	runGitTest(t, fixture.worktree, "update-ref", "refs/heads/"+claimLocalBranch(fixture.issue, fixture.runID), latest, source)
+	runGitTest(t, fixture.worktree, "push", "origin", latest+":refs/heads/"+claimBranch(fixture.issue))
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.verifyClaim(); err == nil || !strings.Contains(err.Error(), "regressing lease") {
+		t.Fatalf("intermediate lease regression = %v, want rejection", err)
+	}
+	if backend.mutations != 0 {
+		t.Fatal("lease regression verification mutated claim")
+	}
+}
