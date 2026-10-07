@@ -129,26 +129,15 @@ func TestDirectAllShortOmissionAndExclusions(t *testing.T) {
 				t.Fatalf("members after 0/0 = %#v", members)
 			}
 		})
-		for _, test := range []struct {
-			name, member, defs, marker, code, spec string
-			cause                                  error
-		}{
-			{"inline short", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
-			{"named string", `<xs:element name="v" type="r:Text"/>`, `<xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Text"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), errSchemaAllMemberScalar},
-			{"named list", `<xs:element name="v" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:short"/></xs:simpleType>`, `type="r:List"`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
-			{"named union", `<xs:element name="v" type="r:Union"/>`, `<xs:simpleType name="Union"><xs:union memberTypes="xs:short"/></xs:simpleType>`, `type="r:Union"`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
-			{"builtin int", `<xs:element name="v" type="xs:int"/>`, "", `type="xs:int"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), errSchemaAllMemberScalar},
-			{"named int", `<xs:element name="v" type="r:Int"/>`, `<xs:simpleType name="Int"><xs:restriction base="xs:int"/></xs:simpleType>`, `type="r:Int"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), errSchemaAllMemberScalar},
-			{"inline complex", `<xs:element name="v"><xs:complexType/></xs:element>`, "", `<xs:complexType/>`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
+		for _, test := range []allScalarDiagnosticCase{
+			{"inline short", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
+			{"named string", `<xs:element name="v" type="r:Text"/>`, `<xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Text"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
+			{"named list", `<xs:element name="v" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:short"/></xs:simpleType>`, `type="r:List"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
+			{"named union", `<xs:element name="v" type="r:Union"/>`, `<xs:simpleType name="Union"><xs:union memberTypes="xs:short"/></xs:simpleType>`, `type="r:Union"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
+			{"inline complex", `<xs:element name="v"><xs:complexType/></xs:element>`, "", `<xs:complexType/>`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 		} {
 			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
-				root := allParticleTestRoot(`<xs:all>`+test.member+`</xs:all>`, test.defs)
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				assertZeroSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != test.code || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, test.marker, 1) || diagnostic.SpecRef() != test.spec || len(diagnostic.Related()) != 0 || !errors.Is(err, test.cause) {
-					t.Fatalf("excluded %s = %s/%v", test.name, diagnostic, err)
-				}
+				checkAllScalarDiagnostic(t, profile.policy, test)
 			})
 		}
 	}
@@ -265,7 +254,7 @@ func TestDirectAllShortReferenceTargetAndConsumers(t *testing.T) {
 			{"named", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:short"/></xs:simpleType>`, false},
 			{"ref to short", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:short"/>`, true},
 			{"ref to named short", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="r:Named"/><xs:simpleType name="Named"><xs:restriction base="xs:short"/></xs:simpleType>`, true},
-			{"ref to excluded target", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:int"/>`, true},
+			{"ref to int target", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:int"/>`, true},
 		} {
 			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
 				root := allParticleTestRoot(`<xs:all>`+test.member+`</xs:all>`, `<xs:element name="root" type="r:Record"/>`+test.defs)
