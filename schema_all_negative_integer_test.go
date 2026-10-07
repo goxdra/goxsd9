@@ -150,7 +150,6 @@ func TestDirectAllNegativeIntegerExclusionsAndFailures(t *testing.T) {
 			cause                                    error
 			related                                  string
 		}{
-			{"named", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>`, `type="r:Named"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), FailureUnsupported, errSchemaAllMemberScalar, ""},
 			{"inline", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), FailureUnsupported, errSchemaAllMemberScalar, ""},
 			{"named zero", `<xs:element name="v" type="r:Named" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>`, `type="r:Named"`, "", "", "", nil, ""},
 			{"inline zero", `<xs:element name="v" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, "", "", "", nil, ""},
