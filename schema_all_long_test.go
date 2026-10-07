@@ -64,43 +64,8 @@ func TestDirectAllLongGraphFacts(t *testing.T) {
 			if !ok || !builtinRef.IsBuiltin() || builtinRef.Name() != mustTestQName(t, testXSDNamespace, "long") || builtinRef.QName() != builtinRef.Name() || builtinRef.Loc() != builtinLoc || builtinRef.VarietyLoc() != builtinLoc || hasBuiltinID || hasRefID || !builtinID.IsZero() || !refID.IsZero() {
 				t.Fatalf("builtin type provenance = %#v/%v/%v", builtinRef, builtinID, refID)
 			}
-			assertAllLongBounds(t, builtinRef, profile.version, "-9223372036854775808", "9223372036854775807", Loc{}, Loc{})
-			for index, want := range []struct{ local, namespace, typeName, source, variety string }{
-				{"direct", "urn:all", "Direct", "root.xsd", `<xs:restriction base="xs:long"`},
-				{"forward", "urn:all", "Forward", "root.xsd", `<xs:restriction base="r:Direct"`},
-				{"included", "urn:all", "Included", "included.xsd", `<xs:restriction base="xs:long"`},
-				{"imported", "urn:other", "Imported", "other.xsd", `<xs:restriction base="xs:long"`},
-				{"chameleon", "urn:all", "Chameleon", "chameleon.xsd", `<xs:restriction base="xs:long"`},
-			} {
-				member, isElement := members[index+1].(ElementParticle)
-				if !isElement || member.Name().Local() != want.local || member.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `<xs:element name="`+want.local+`"`, 1) {
-					t.Fatalf("member %d = %#v", index+1, members[index+1])
-				}
-				name := mustTestQName(t, want.namespace, want.typeName)
-				id := componentIDForName(t, schema, name)
-				reference, hasReference := member.TypeReference()
-				memberID, hasMemberID := member.TypeID()
-				referenceID, hasReferenceID := reference.ComponentID()
-				prefix := "r:"
-				if want.namespace == "urn:other" {
-					prefix = "o:"
-				}
-				declaration := root
-				if want.source != "root.xsd" {
-					declaration = fixtures[want.source].contents
-				}
-				if !hasReference || !reference.IsNamed() || member.DeclaredType() != name || reference.Name() != name || reference.QName() != name || !hasMemberID || !hasReferenceID || memberID != id || referenceID != id || id.Source() != SourceID(want.source) || reference.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `type="`+prefix+want.typeName+`"`, 1) || reference.VarietyLoc() != allParticleTestTokenLoc(t, SourceID(want.source), declaration, want.variety, 1) {
-					t.Fatalf("%s type provenance = %#v/%v/%v", want.local, reference, memberID, referenceID)
-				}
-				minimum, maximum := "-9223372036854775808", "9223372036854775807"
-				var minLoc, maxLoc Loc
-				if index < 2 {
-					minimum, maximum = "-100", "100"
-					minLoc = allParticleTestTokenLoc(t, "root.xsd", root, `value="-100"`, 1)
-					maxLoc = allParticleTestTokenLoc(t, "root.xsd", root, `value="100"`, 1)
-				}
-				assertAllLongBounds(t, reference, profile.version, minimum, maximum, minLoc, maxLoc)
-			}
+			assertAllIntegerBounds(t, builtinRef, profile.version, "-9223372036854775808", "9223372036854775807", Loc{}, Loc{})
+			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "long", "-9223372036854775808", "9223372036854775807")
 			direct, isElement := members[1].(ElementParticle)
 			if !isElement {
 				t.Fatalf("direct member = %T", members[1])
@@ -135,13 +100,13 @@ func TestDirectAllLongGraphFacts(t *testing.T) {
 				t.Fatal("caller changed completed schema facts")
 			}
 			freshRef, _ := fresh.TypeReference()
-			assertAllLongBounds(t, freshRef, profile.version, "-100", "100", allParticleTestTokenLoc(t, "root.xsd", root, `value="-100"`, 1), allParticleTestTokenLoc(t, "root.xsd", root, `value="100"`, 1))
+			assertAllIntegerBounds(t, freshRef, profile.version, "-100", "100", allParticleTestTokenLoc(t, "root.xsd", root, `value="-100"`, 1), allParticleTestTokenLoc(t, "root.xsd", root, `value="100"`, 1))
 			assertDirectAllConsumerRejection(t, schema, all, profile.version)
 		})
 	}
 }
 
-func assertAllLongBounds(t *testing.T, reference SimpleTypeReference, version XSDVersion, wantMin, wantMax string, minLoc, maxLoc Loc) {
+func assertAllIntegerBounds(t *testing.T, reference SimpleTypeReference, version XSDVersion, wantMin, wantMax string, minLoc, maxLoc Loc) {
 	t.Helper()
 	bounds, ok := reference.IntegerBounds()
 	if !ok || bounds.Version() != version {
@@ -151,6 +116,46 @@ func assertAllLongBounds(t *testing.T, reference SimpleTypeReference, version XS
 	maximum, hasMaximum := bounds.MaxInclusiveFacet()
 	if !hasMinimum || !hasMaximum || minimum.Value().Canonical() != wantMin || maximum.Value().Canonical() != wantMax || minimum.Loc() != minLoc || maximum.Loc() != maxLoc || minimum.Version() != version || maximum.Version() != version {
 		t.Fatalf("long bounds = %s at %s / %s at %s; want %s at %s / %s at %s", minimum.Value().Canonical(), minimum.Loc(), maximum.Value().Canonical(), maximum.Loc(), wantMin, minLoc, wantMax, maxLoc)
+	}
+}
+
+func assertAllIntegerNamedGraphMembers(t *testing.T, schema Schema, members []Particle, root string, fixtures map[string]discoveryFixture, version XSDVersion, atomic, intrinsicMin, intrinsicMax string) {
+	t.Helper()
+	for index, want := range []struct{ local, namespace, typeName, source, variety string }{
+		{"direct", "urn:all", "Direct", "root.xsd", `<xs:restriction base="xs:` + atomic + `"`},
+		{"forward", "urn:all", "Forward", "root.xsd", `<xs:restriction base="r:Direct"`},
+		{"included", "urn:all", "Included", "included.xsd", `<xs:restriction base="xs:` + atomic + `"`},
+		{"imported", "urn:other", "Imported", "other.xsd", `<xs:restriction base="xs:` + atomic + `"`},
+		{"chameleon", "urn:all", "Chameleon", "chameleon.xsd", `<xs:restriction base="xs:` + atomic + `"`},
+	} {
+		member, isElement := members[index+1].(ElementParticle)
+		if !isElement || member.Name().Local() != want.local || member.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `<xs:element name="`+want.local+`"`, 1) {
+			t.Fatalf("member %d = %#v", index+1, members[index+1])
+		}
+		name := mustTestQName(t, want.namespace, want.typeName)
+		id := componentIDForName(t, schema, name)
+		reference, hasReference := member.TypeReference()
+		memberID, hasMemberID := member.TypeID()
+		referenceID, hasReferenceID := reference.ComponentID()
+		prefix := "r:"
+		if want.namespace == "urn:other" {
+			prefix = "o:"
+		}
+		declaration := root
+		if want.source != "root.xsd" {
+			declaration = fixtures[want.source].contents
+		}
+		if !hasReference || !reference.IsNamed() || member.DeclaredType() != name || reference.Name() != name || reference.QName() != name || !hasMemberID || !hasReferenceID || memberID != id || referenceID != id || id.Source() != SourceID(want.source) || reference.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `type="`+prefix+want.typeName+`"`, 1) || reference.VarietyLoc() != allParticleTestTokenLoc(t, SourceID(want.source), declaration, want.variety, 1) {
+			t.Fatalf("%s type provenance = %#v/%v/%v", want.local, reference, memberID, referenceID)
+		}
+		minimum, maximum := intrinsicMin, intrinsicMax
+		var minLoc, maxLoc Loc
+		if index < 2 {
+			minimum, maximum = "-100", "100"
+			minLoc = allParticleTestTokenLoc(t, "root.xsd", root, `value="-100"`, 1)
+			maxLoc = allParticleTestTokenLoc(t, "root.xsd", root, `value="100"`, 1)
+		}
+		assertAllIntegerBounds(t, reference, version, minimum, maximum, minLoc, maxLoc)
 	}
 }
 
@@ -332,10 +337,15 @@ func TestDirectAllLongReferenceTargetAndConsumers(t *testing.T) {
 }
 
 func TestDirectAllLongHiddenGraphTypeRemainsUnresolved(t *testing.T) {
+	assertAllIntegerHiddenGraphTypeUnresolved(t, "long")
+}
+
+func assertAllIntegerHiddenGraphTypeUnresolved(t *testing.T, atomic string) {
+	t.Helper()
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:h="urn:hidden" targetNamespace="urn:all"><xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/><xs:complexType name="Record"><xs:all><xs:element name="v" type="h:Hidden"/></xs:all></xs:complexType></xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"bridge.xsd": {id: "bridge.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge"><xs:import namespace="urn:hidden" schemaLocation="hidden.xsd"/></xs:schema>`},
-		"hidden.xsd": {id: "hidden.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:hidden"><xs:simpleType name="Hidden"><xs:restriction base="xs:long"/></xs:simpleType></xs:schema>`},
+		"hidden.xsd": {id: "hidden.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:hidden"><xs:simpleType name="Hidden"><xs:restriction base="xs:` + atomic + `"/></xs:simpleType></xs:schema>`},
 	}
 	for _, profile := range []struct {
 		policy  LanguagePolicy
@@ -346,7 +356,7 @@ func TestDirectAllLongHiddenGraphTypeRemainsUnresolved(t *testing.T) {
 			assertZeroSchema(t, schema)
 			diagnostic := requireDiagnostic(t, err)
 			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaElementTypeUnresolvedCode || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `type="h:Hidden"`, 1) || diagnostic.SpecRef() != schemaElementTypeSpecRef(profile.version) || len(diagnostic.Related()) != 0 || !errors.Is(err, errSchemaElementTypeUnresolved) {
-				t.Fatalf("hidden long diagnostic = %s/%v", diagnostic, err)
+				t.Fatalf("hidden integer diagnostic = %s/%v", diagnostic, err)
 			}
 		})
 	}
