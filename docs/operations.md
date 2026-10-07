@@ -6,13 +6,13 @@ Paseo schedules jobs from clean coordination checkout in America/New_York.
 | Develop | 00:00, then every 3 hours | GPT-6 Sol/medium | `Run $develop for this repository.` |
 | Backlog | 10:30 daily | GPT-6 Sol/medium | `Run $backlog for this repository.` |
 | Retro | 13:30 Sunday | GPT-6 Astra/xhigh | `Run $retro for this repository.` |
-Jobs are non-interactive. Develop needs clean canonical `main`/`origin/main`
-and recursive pins; `doctor` enforces; stale jobs run `base-sync`. Claim one
-Ready issue, open draft PR, squash-merge evaluated head. Managed-document/
-source-trigger heads require exact audit and fresh read-only Curator pass;
-repeat after remediation. Renew four-hour claims at durable boundaries/pushes
-only. Preserve no-PR worktrees; archive expired PR-free claims; escalate
-open-PR expirations.
+Jobs require clean canonical `main`/`origin/main`, recursive pins (`doctor`);
+stale jobs use `base-sync`. Claim Ready, draft PR, squash-merge evaluated
+head. Managed-document/source-trigger heads need exact audit, fresh read-only
+Curator after remediation. Renew at boundaries/before ordinary pushes.
+Recovered `--integrate`: checked `pr open` first under live marker lease; renew
+after fixed-remote publication. Preserve no-PR worktrees; archive
+expired PR-free claims; escalate expired PRs.
 Claim resume:
 `go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--unpublished-local-head SHA] [--integrate] [--dry-run]`.
 Archived sibling: current claimant runs `go tool workflowctl claim release-archived ISSUE --run-id RUN --expected-head SHA [--dry-run]`; exact clean/unlocked proof including submodules preserves refs/comments.
