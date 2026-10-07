@@ -23,7 +23,7 @@ blocker/evidence Markdown; run
 `go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
 OPEN/Project identity, applies `needs-human`/Backlog, then posts last.
 Reread incomplete/ambiguous phases.
-Claim resume binds handoff/comment/run/head, expired lease, no-PR, Project, unique unlocked same-run worktree.
+Resume binds handoff/run/head, lease, no-PR, Project, worktree. Unpublished source uses `--unpublished-local-head SHA`: empty remote renewal; `--integrate` creates a two-parent local commit before reconciliation, preserving staged merge.
 Clean no-source/no-PR forms cover all PR/pull-request/workflow-path mentions; exceptions are issue-scoped.
 Head labels: one full SHA. Same-run markers: exact messages, unchanged trees,
 one parent, valid refs to oldest acquisition lease. Reject source-bearing
@@ -31,11 +31,8 @@ markers/merges/malformed refs; source commits may intervene; leases may differ.
 Dirty handoff: `# Dirty no-PR claim handoff: issue #N`, blank, then `Run:`,
 `Original claim head:`, `Current claim head:`, `Fixed branch:`, `Local branch:`,
 `Worktree:`, `Preserved state SHA-256:` with backticked values; both heads equal
-`--expected-head`; end `No source commit or PR was published.` and LF. From preserved run-local
-worktree, `go tool workflowctl claim resume-state` reports digest of logical index,
-tracked, nonignored untracked bytes; recheck before mutation. Keep `needs-human`
-through verified renewal, then Project `Picked`; initially require
-OPEN+needs-human+Backlog. Child converges idempotently.
+`--expected-head`; end `No source commit or PR was published.` and LF.
+`claim resume-state` digests index, tracked and untracked bytes; recheck before mutation. Require OPEN+needs-human+Backlog; reconcile after verified renewal and integration. Retry converges.
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
 run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.

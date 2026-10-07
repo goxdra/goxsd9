@@ -21,7 +21,15 @@ import (
 	"unicode/utf8"
 )
 
-const claimResumeRecoveryTemplate = "Run `go tool workflowctl claim resume %d --expected-head %s --run-id %s --handoff-comment %d --acknowledge-needs-human` again"
+func claimResumeRecoveryCommand(proof claimResumeProof) string {
+	preflight := proof.preflight
+	command := fmt.Sprintf("go tool workflowctl claim resume %d --expected-head %s --run-id %s --handoff-comment %d --acknowledge-needs-human",
+		preflight.issue, preflight.expectedHead, preflight.runID, preflight.handoffCommentID)
+	if source, ok := proof.renewal.(claimResumeUnpublished); ok {
+		command += " --unpublished-local-head " + source.source + " --integrate"
+	}
+	return "Run `" + command + "` again"
+}
 
 // claimResumeProof is the sealed preflight proof plus its explicit renewal
 // state. It is passed by value through each phase and never mutated.
@@ -50,6 +58,7 @@ type claimResumePreflight struct {
 	projectStatus    string
 	needsHuman       bool
 	localState       string
+	mergeState       string
 }
 
 // claimResumeRenewalPlan is a closed set of proof states. A missing renewal
@@ -67,6 +76,15 @@ type claimResumeExistingRenewal struct {
 }
 
 func (claimResumeExistingRenewal) claimResumeRenewalPlan() {}
+
+// claimResumeUnpublished keeps the source branch at its explicitly bound head.
+// head is empty before the remote-only renewal marker has been published.
+type claimResumeUnpublished struct {
+	head   string
+	source string
+}
+
+func (claimResumeUnpublished) claimResumeRenewalPlan() {}
 
 // claimResumeRenewalProof is a canonical commit proven as the renewal child
 // of the expected claim. It is the input to local adoption.
@@ -157,6 +175,7 @@ func (a app) resumeClaimStateCommand(args []string) error {
 	return writeLine(a.stdout, "issue #%d branch %s local state %s SHA-256 %s", issue, branch, condition, state.digest)
 }
 
+//nolint:gocognit // Flags and authority proof checks are one CLI boundary.
 func (a app) resumeClaimCommand(args []string) error {
 	if len(args) == 0 {
 		return usageError("usage: workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]")
@@ -172,6 +191,8 @@ func (a app) resumeClaimCommand(args []string) error {
 	handoffComment := flags.String("handoff-comment", "", "exact terminal handoff comment ID")
 	acknowledged := flags.Bool("acknowledge-needs-human", false, "acknowledge needs-human recovery")
 	dryRun := flags.Bool("dry-run", false, "print the proof without mutation")
+	unpublished := flags.String("unpublished-local-head", "", "exact unpublished local source head")
+	integrate := flags.Bool("integrate", false, "integrate the verified remote renewal locally")
 	if parseErr := flags.Parse(args[1:]); parseErr != nil {
 		return usageError("claim resume: %v", parseErr)
 	}
@@ -187,11 +208,17 @@ func (a app) resumeClaimCommand(args []string) error {
 	if !validRunID(*runID) {
 		return usageError("claim resume: --run-id must be a valid run ID")
 	}
+	if *unpublished != "" && !validExactCommitSHA(*unpublished) {
+		return usageError("claim resume: --unpublished-local-head must be a full 40-character commit SHA")
+	}
+	if *integrate && *unpublished == "" {
+		return usageError("claim resume: --integrate requires --unpublished-local-head")
+	}
 	commentID, parseErr := strconv.ParseInt(*handoffComment, 10, 64)
 	if parseErr != nil || commentID < 1 || strconv.FormatInt(commentID, 10) != *handoffComment {
 		return usageError("claim resume: --handoff-comment must be a positive decimal comment ID")
 	}
-	proof, err := a.readClaimResumeProof(issue, *expected, *runID, commentID)
+	proof, err := a.readClaimResumeProof(issue, *expected, *runID, commentID, *unpublished)
 	if err != nil {
 		return retryableOperationIfRecoverable("claim resume proof", err)
 	}
@@ -202,14 +229,14 @@ func (a app) resumeClaimCommand(args []string) error {
 	if *dryRun {
 		return writeLine(a.stdout, "dry-run: preflight complete; no mutation performed")
 	}
-	return a.applyClaimResume(proof)
+	return a.applyClaimResume(proof, *integrate)
 }
 
 // readClaimResumeProof is the read-only proof for an acknowledged terminal
 // no-PR handoff. A valid renewal child is accepted only for retry convergence.
 //
 //nolint:gocognit,funlen // The proof intentionally keeps every authority in one ordered seal.
-func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoffCommentID int64) (claimResumeProof, error) {
+func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoffCommentID int64, unpublishedHead ...string) (claimResumeProof, error) {
 	root, localBranch, currentIssue, err := a.currentClaim()
 	if err != nil {
 		return claimResumeProof{}, err
@@ -227,6 +254,13 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	}
 	if !validExactCommitSHA(localHead) {
 		return claimResumeProof{}, stateError("local claim head %q is not a full commit SHA; preserve the claim worktree", localHead)
+	}
+	sourceHead := ""
+	if len(unpublishedHead) != 0 {
+		sourceHead = unpublishedHead[0]
+	}
+	if sourceHead != "" && !validExactCommitSHA(sourceHead) {
+		return claimResumeProof{}, stateError("unpublished local head %q is malformed", sourceHead)
 	}
 	if validateErr := a.validateLocalAgentCommit(root, localHead, "local claim head"); validateErr != nil {
 		return claimResumeProof{}, validateErr
@@ -255,7 +289,11 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	if prErr := a.validateNoOpenClaimResumePR(root, fixedBranch, issue); prErr != nil {
 		return claimResumeProof{}, prErr
 	}
-	renewal, err := a.claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead, issue, runID)
+	unpublished := sourceHead != ""
+	if unpublished && !strings.HasPrefix(evidence.handoffBody, dirtyClaimResumeTitlePrefix) {
+		return claimResumeProof{}, stateError("unpublished local recovery requires an exact preserved-state handoff; no mutation performed")
+	}
+	renewal, err := a.claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead, issue, runID, sourceHead)
 	if err != nil {
 		return claimResumeProof{}, err
 	}
@@ -277,14 +315,18 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 		if parseErr != nil {
 			return claimResumeProof{}, stateError("dirty claim handoff is malformed: %w", parseErr)
 		}
-		if !localState.dirty || handoff.localState != localState.digest {
+		if (!unpublished && !localState.dirty) || handoff.localState != localState.digest {
 			return claimResumeProof{}, stateError("claim worktree local state does not match the preserved dirty handoff; no mutation performed")
 		}
 	}
 	if !dirtyHandoff && localState.dirty {
 		return claimResumeProof{}, stateError("claim worktree %s is dirty; preserve its staged, unstaged, and untracked changes", localBranch)
 	}
-	if refErr := a.validateClaimResumeRefs(root, inventory, issue, fixedBranch, localBranch, runID, expectedHead, localHead, remoteHead); refErr != nil {
+	mergeState, err := a.claimResumeMergeState(root)
+	if err != nil {
+		return claimResumeProof{}, fmt.Errorf("inspect preserved merge state: %w", err)
+	}
+	if refErr := a.validateClaimResumeRefs(root, inventory, issue, fixedBranch, localBranch, localHead, remoteHead); refErr != nil {
 		return claimResumeProof{}, refErr
 	}
 	issueStatus, err := a.readIssueStatus(root, issue)
@@ -306,7 +348,14 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 		return claimResumeProof{}, stateError("issue #%d Project status %q is not a resumable Backlog/Picked state; preserve external state", issue, item.Status)
 	}
 	needsHuman := issueNeedsHuman(issueStatus)
-	if _, existing := renewal.(claimResumeExistingRenewal); !existing && (!needsHuman || item.Status != "Backlog") {
+	_, existing := renewal.(claimResumeExistingRenewal)
+	if source, ok := renewal.(claimResumeUnpublished); ok && source.head != "" {
+		existing = true
+	}
+	if source, ok := renewal.(claimResumeUnpublished); ok && localHead == source.source && (!needsHuman || item.Status != "Backlog") {
+		return claimResumeProof{}, stateError("issue #%d unpublished source still requires needs-human and Project Backlog until local integration", issue)
+	}
+	if !existing && (!needsHuman || item.Status != "Backlog") {
 		return claimResumeProof{}, stateError("issue #%d requires needs-human and Project Backlog before no-PR claim recovery; no mutation performed", issue)
 	}
 	return claimResumeProof{
@@ -316,7 +365,7 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 			runID: runID, issue: issue, handoffCommentID: handoffCommentID,
 			claimCommentID: evidence.claimCommentID, handoffBody: evidence.handoffBody,
 			claimLease: evidence.claimLease, projectItemID: item.ID, projectStatus: item.Status,
-			needsHuman: needsHuman, localState: localState.digest,
+			needsHuman: needsHuman, localState: localState.digest, mergeState: mergeState,
 		},
 		renewal: renewal,
 	}, nil
@@ -829,7 +878,61 @@ func (a app) verifyClaimResumeLocalState(proof claimResumeProof) error {
 	if state.digest != proof.preflight.localState {
 		return stateError("claim worktree local state changed during renewal; preserve its staged, unstaged, and untracked changes")
 	}
+	mergeState, err := a.claimResumeMergeState(proof.preflight.root)
+	if err != nil {
+		return fmt.Errorf("reread preserved merge state: %w", err)
+	}
+	if mergeState != proof.preflight.mergeState {
+		return stateError("claim pending merge metadata changed during renewal; preserve local state")
+	}
 	return nil
+}
+
+//nolint:gocognit // The three merge control files form one snapshot record.
+func (a app) claimResumeMergeState(root string) (string, error) {
+	h := sha256.New()
+	for _, name := range []string{"MERGE_HEAD", "MERGE_MSG", "MERGE_MODE"} {
+		path, err := a.command(root, "git", "rev-parse", "--git-path", name)
+		if err != nil {
+			return "", fmt.Errorf("locate %s: %w", name, err)
+		}
+		if path == "" {
+			return "", stateError("merge metadata path %s is empty", name)
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		// #nosec G304 -- Git resolves this worktree's own merge metadata path.
+		data, err := os.ReadFile(path)
+		exists := true
+		if errors.Is(err, os.ErrNotExist) {
+			data = nil
+			exists = false
+		}
+		if err != nil && exists {
+			return "", fmt.Errorf("read %s: %w", name, err)
+		}
+		if name == "MERGE_HEAD" && exists {
+			value := strings.TrimSuffix(string(data), "\n")
+			if !validExactCommitSHA(value) || string(data) != value+"\n" {
+				return "", stateError("claim MERGE_HEAD is malformed; preserve pending integration")
+			}
+		}
+		if err := writeClaimResumeSnapshotRecord(h, []byte(name)); err != nil {
+			return "", err
+		}
+		state := "absent"
+		if exists {
+			state = "present"
+		}
+		if err := writeClaimResumeSnapshotRecord(h, []byte(state)); err != nil {
+			return "", err
+		}
+		if err := writeClaimResumeSnapshotRecord(h, data); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // claimResumeLocalState seals index identities and local bytes independently
@@ -2289,7 +2392,31 @@ func canonicalClaimResumeProjectItem(list projectList, issue int) (projectItem, 
 	return matches[0], nil
 }
 
-func (a app) claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead string, issue int, runID string) (claimResumeRenewalPlan, error) {
+//nolint:gocognit // Original and unpublished renewal lanes share one closed plan proof.
+func (a app) claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead string, issue int, runID, sourceHead string) (claimResumeRenewalPlan, error) {
+	if sourceHead != "" {
+		if sourceHead == expectedHead {
+			return nil, stateError("unpublished handoff has no local source descendant; preserve claim artifacts")
+		}
+		if err := a.validateUnpublishedClaimAncestry(root, expectedHead, sourceHead); err != nil {
+			return nil, err
+		}
+		if remoteHead == expectedHead {
+			if localHead != sourceHead {
+				return nil, stateError("local claim head %s moved before remote renewal; expected unpublished source %s", localHead, sourceHead)
+			}
+			return claimResumeUnpublished{source: sourceHead}, nil
+		}
+		if err := a.validateExistingResumeCommit(root, remoteHead, expectedHead, issue, runID); err != nil {
+			return nil, fmt.Errorf("remote fixed claim head %s is not the unique renewal child: %w", remoteHead, err)
+		}
+		if localHead != sourceHead {
+			if err := a.validateClaimResumeIntegration(root, localHead, sourceHead, remoteHead, expectedHead, issue, runID); err != nil {
+				return nil, err
+			}
+		}
+		return claimResumeUnpublished{head: remoteHead, source: sourceHead}, nil
+	}
 	if localHead == expectedHead && remoteHead == expectedHead {
 		return claimResumeNoRenewal{}, nil
 	}
@@ -2317,10 +2444,47 @@ func (a app) claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead st
 	return claimResumeExistingRenewal{head: renewal}, nil
 }
 
+// validateUnpublishedClaimAncestry admits only a single-parent, source-bearing
+// local chain from the exact original remote anchor. Marker-like commits and
+// merges cannot borrow recovery authority from source ancestry.
+func (a app) validateUnpublishedClaimAncestry(root, anchor, head string) error {
+	for current := head; current != anchor; {
+		if current == "" {
+			return stateError("unpublished local head %s does not descend from original claim %s", head, anchor)
+		}
+		object, err := a.gitRaw(root, "cat-file", "commit", current)
+		if err != nil {
+			return fmt.Errorf("read unpublished claim commit %s: %w", current, err)
+		}
+		commit, err := parseCommitObject(object)
+		if err != nil {
+			return stateError("unpublished claim commit %s is malformed: %w", current, err)
+		}
+		if len(commit.parents) != 1 {
+			return stateError("unpublished claim commit %s has %d parents; merge ancestry is ambiguous", current, len(commit.parents))
+		}
+		if claimResumeLooksLikeMarker(commit.message) {
+			return stateError("unpublished claim commit %s alleges a claim marker; preserve source ancestry", current)
+		}
+		parentTree, err := a.command(root, "git", "rev-parse", commit.parents[0]+"^{tree}")
+		if err != nil {
+			return fmt.Errorf("read unpublished parent tree %s: %w", commit.parents[0], err)
+		}
+		if commit.tree == strings.TrimSpace(parentTree) {
+			return stateError("unpublished claim commit %s has an empty tree change without canonical marker metadata", current)
+		}
+		current = commit.parents[0]
+	}
+	return nil
+}
+
 func claimResumeProtectedHeads(expected string, plan claimResumeRenewalPlan) []string {
 	heads := []string{expected}
 	if existing, ok := plan.(claimResumeExistingRenewal); ok {
 		heads = append(heads, existing.head)
+	}
+	if source, ok := plan.(claimResumeUnpublished); ok && source.head != "" {
+		heads = append(heads, source.head)
 	}
 	return heads
 }
@@ -2394,7 +2558,7 @@ func sourceName(source claimRefSource) string {
 }
 
 //nolint:gocognit,funlen // Ref sources must be checked as one immutable proof.
-func (a app) validateClaimResumeRefs(root string, remoteInventory agentRefInventory, issue int, fixedBranch, localBranch, runID, expectedHead, localHead, remoteHead string) error {
+func (a app) validateClaimResumeRefs(root string, remoteInventory agentRefInventory, issue int, fixedBranch, localBranch, localHead, remoteHead string) error {
 	if len(remoteInventory.malformed) != 0 {
 		return stateError("remote agent ref %s is malformed; preserve all claim artifacts", remoteInventory.malformed[0].branch)
 	}
@@ -2480,11 +2644,6 @@ func (a app) validateClaimResumeRefs(root string, remoteInventory agentRefInvent
 			return stateError("issue #%d has a moved remote-tracking run-local ref %s; preserve it before recovery", issue, ref.branch)
 		}
 	}
-	if remoteHead == expectedHead && localHead != expectedHead {
-		if err := a.validateExistingResumeCommit(root, localHead, expectedHead, issue, runID); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -2510,6 +2669,7 @@ func sameClaimResumeProof(before, after claimResumeProof) error {
 		beforePreflight.handoffBody != afterPreflight.handoffBody || !beforePreflight.claimLease.Equal(afterPreflight.claimLease) ||
 		beforePreflight.projectItemID != afterPreflight.projectItemID || beforePreflight.projectStatus != afterPreflight.projectStatus ||
 		beforePreflight.needsHuman != afterPreflight.needsHuman || beforePreflight.localState != afterPreflight.localState ||
+		beforePreflight.mergeState != afterPreflight.mergeState ||
 		!sameClaimResumeRenewalPlan(before.renewal, after.renewal) {
 		return stateError("bound issue, handoff, ref, claim, Project, or worktree proof no longer matches")
 	}
@@ -2524,20 +2684,30 @@ func sameClaimResumeRenewalPlan(before, after claimResumeRenewalPlan) bool {
 	case claimResumeExistingRenewal:
 		afterPlan, ok := after.(claimResumeExistingRenewal)
 		return ok && beforePlan.head == afterPlan.head
+	case claimResumeUnpublished:
+		afterPlan, ok := after.(claimResumeUnpublished)
+		return ok && beforePlan.head == afterPlan.head && beforePlan.source == afterPlan.source
 	default:
 		return false
 	}
 }
 
-func (a app) applyClaimResume(proof claimResumeProof) error {
+func (a app) applyClaimResume(proof claimResumeProof, integrate ...bool) error {
 	// This is the fresh read-only seal. No ref or GitHub mutation precedes it.
-	fresh, err := a.readClaimResumeProof(proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID, proof.preflight.handoffCommentID)
+	sourceHead := ""
+	if source, ok := proof.renewal.(claimResumeUnpublished); ok {
+		sourceHead = source.source
+	}
+	fresh, err := a.readClaimResumeProof(proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID, proof.preflight.handoffCommentID, sourceHead)
 	if err != nil {
 		err = retryableOperationIfRecoverable("claim resume fresh proof", err)
 		return claimResumeProofFailure(proof, "claim resume proof changed before renewal; no mutation performed", err)
 	}
 	if proofErr := sameClaimResumeProof(proof, fresh); proofErr != nil {
 		return stateError("issue #%d claim resume proof changed before renewal; no mutation performed: %w", proof.preflight.issue, proofErr)
+	}
+	if _, source := fresh.renewal.(claimResumeUnpublished); source {
+		return a.applyUnpublishedClaimResume(fresh, len(integrate) != 0 && integrate[0])
 	}
 	var renewalProof claimResumeRenewalProof
 	switch plan := fresh.renewal.(type) {
@@ -2567,8 +2737,7 @@ func (a app) applyClaimResume(proof claimResumeProof) error {
 	}
 	if err := a.verifyClaimResumeRenewal(fresh, renewal); err != nil {
 		verificationErr := retryableOperationIfRecoverable("claim resume renewal verification", err)
-		return claimResumeProofFailure(fresh, "claim renewal needs reconciliation", fmt.Errorf("%w. "+claimResumeRecoveryTemplate,
-			verificationErr, fresh.preflight.issue, fresh.preflight.expectedHead, fresh.preflight.runID, fresh.preflight.handoffCommentID))
+		return claimResumeProofFailure(fresh, "claim renewal needs reconciliation", fmt.Errorf("%w. %s", verificationErr, claimResumeRecoveryCommand(fresh)))
 	}
 	if err := a.reconcileClaimResumeIssue(fresh, renewal); err != nil {
 		return err
@@ -2711,8 +2880,8 @@ func (a app) verifyClaimResumeRenewal(proof claimResumeProof, renewal claimResum
 	if err := a.validateNoOpenClaimResumePR(proof.preflight.root, proof.preflight.fixedBranch, proof.preflight.issue); err != nil {
 		return err
 	}
-	return a.validateClaimResumeRefs(proof.preflight.root, inventory, proof.preflight.issue, proof.preflight.fixedBranch, proof.preflight.localBranch, proof.preflight.runID,
-		proof.preflight.expectedHead, renewal.head, renewal.head)
+	return a.validateClaimResumeRefs(proof.preflight.root, inventory, proof.preflight.issue, proof.preflight.fixedBranch, proof.preflight.localBranch,
+		renewal.head, renewal.head)
 }
 
 type claimResumeReconciliationTarget struct {
@@ -2746,8 +2915,25 @@ func (state claimResumeReconciliationState) afterLabel() claimResumeReconciliati
 // readClaimResumeReconciliationTarget is the immutable read-only target used
 // immediately before every GitHub mutation.  It binds issue state, the
 // no-open-PR condition, and canonical Project identity/status together.
+//
+//nolint:gocognit // Every metadata mutation requires the full live claim and source seal.
 func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliationState) (claimResumeReconciliationTarget, error) {
 	proof := state.proof
+	if source, ok := proof.renewal.(claimResumeUnpublished); ok {
+		fresh, err := a.readClaimResumeProof(proof.preflight.issue, proof.preflight.expectedHead,
+			proof.preflight.runID, proof.preflight.handoffCommentID, source.source)
+		if err != nil {
+			return claimResumeReconciliationTarget{}, fmt.Errorf("reread integrated claim proof: %w", err)
+		}
+		observed, ok := fresh.renewal.(claimResumeUnpublished)
+		if !ok || observed != source || fresh.preflight.localHead != proof.preflight.localHead ||
+			fresh.preflight.localState != proof.preflight.localState || fresh.preflight.mergeState != proof.preflight.mergeState ||
+			fresh.preflight.handoffBody != proof.preflight.handoffBody || fresh.preflight.claimCommentID != proof.preflight.claimCommentID ||
+			!fresh.preflight.claimLease.Equal(proof.preflight.claimLease) || fresh.preflight.projectItemID != proof.preflight.projectItemID ||
+			fresh.preflight.localHead == source.source {
+			return claimResumeReconciliationTarget{}, stateError("integrated claim, remote marker, or preserved state changed before metadata mutation")
+		}
+	}
 	if stateErr := a.verifyClaimResumeLocalState(proof); stateErr != nil {
 		return claimResumeReconciliationTarget{}, stateErr
 	}
@@ -2888,7 +3074,7 @@ func claimResumeRetry(proof claimResumeProof, operation string, err error) error
 	if err == nil {
 		err = errors.New("external response was ambiguous")
 	}
-	message := fmt.Errorf("issue #%d claim resume %s needs reconciliation: %w. "+claimResumeRecoveryTemplate,
-		proof.preflight.issue, operation, err, proof.preflight.issue, proof.preflight.expectedHead, proof.preflight.runID, proof.preflight.handoffCommentID)
+	message := fmt.Errorf("issue #%d claim resume %s needs reconciliation: %w. %s",
+		proof.preflight.issue, operation, err, claimResumeRecoveryCommand(proof))
 	return retryableOperationIfRecoverable("claim resume "+operation, message)
 }

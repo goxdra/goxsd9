@@ -106,7 +106,7 @@ and under 50% effective root context before review are optimization signals, nev
 gates. Quality must not regress; require no sessions or telemetry.
 ## Failure behavior
 
-- Dirty no-PR: run `go tool workflowctl claim resume-state`; follow
-  `docs/operations.md`. Clean proof stays strict; never infer.
+- Dirty no-PR: use `claim resume-state` and `docs/operations.md`.
+  Unpublished descendants require `--unpublished-local-head`, then `--integrate`.
 - Preserve worktrees; never force-push/bypass checks. One bounded reselection;
   no widening.
