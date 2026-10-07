@@ -133,7 +133,7 @@
 // forms use the admission-then-absence rule under every policy.
 // A direct xs:all on a named complex type retains one immutable ordered
 // AllParticle member view of local integer/decimal/Boolean declarations,
-// built-in string, built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/byte
+// built-in string, built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/short/byte
 // declarations, and element references. Member order is lexical
 // for queries; matching remains unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
 // exact general member bounds. Resolved 0/0 terms omit after their gates;
@@ -586,13 +586,16 @@
 // validation and generation consumers reject.
 // Direct built-in and supported named atomic-byte global roots validate;
 // global inline byte roots and admitted local/reference byte uses reject validation.
-// Local inline byte particles reject schema admission; GenerateGo rejects byte-bearing components.
+// Nonzero local inline byte particles reject schema admission; valid 0/0 terms
+// omit after applicable semantic gates. GenerateGo rejects byte-bearing components.
 // Direct built-in and supported named atomic-short global roots validate;
 // global inline short roots and admitted local/reference short uses reject validation.
-// Local inline short particles reject schema admission; GenerateGo rejects short-bearing components.
+// Nonzero local inline short particles reject schema admission; valid 0/0 terms
+// omit after applicable semantic gates. GenerateGo rejects short-bearing components.
 // Direct built-in and supported named atomic-int global roots validate;
 // global inline int roots and admitted local/reference int uses reject validation.
-// Local inline int particles reject schema admission; GenerateGo rejects int-bearing components.
+// Nonzero local inline int particles reject schema admission; valid 0/0 terms
+// omit after applicable semantic gates. GenerateGo rejects int-bearing components.
 // Direct built-in and supported named atomic-long global roots validate;
 // global inline long roots and admitted local/reference long uses reject validation.
 // Nonzero inline local long particles reject schema admission; valid 0/0 omits.

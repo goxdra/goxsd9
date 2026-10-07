@@ -165,7 +165,6 @@ func TestDirectAllByteOmissionAndDiagnostics(t *testing.T) {
 			{"inline anonymous byte", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"named string", `<xs:element name="v" type="r:Text"/>`, `<xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Text"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
 			{"built-in int", `<xs:element name="v" type="xs:int"/>`, "", `type="xs:int"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
-			{"named short", `<xs:element name="v" type="r:Short"/>`, `<xs:simpleType name="Short"><xs:restriction base="xs:short"/></xs:simpleType>`, `type="r:Short"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
 			{"inline complex", `<xs:element name="v"><xs:complexType/></xs:element>`, "", `<xs:complexType/>`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"named list", `<xs:element name="v" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:byte"/></xs:simpleType>`, `type="r:List"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"named union", `<xs:element name="v" type="r:Union"/>`, `<xs:simpleType name="Union"><xs:union memberTypes="xs:byte"/></xs:simpleType>`, `type="r:Union"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
@@ -272,6 +271,7 @@ func TestDirectAllByteHiddenGraphTypeIsUnresolved(t *testing.T) {
 	assertAllIntegerHiddenGraphTypeUnresolved(t, "byte")
 }
 
+//nolint:dupl // Bounded integer categories check their own public owner exclusions.
 func TestDirectAllByteOtherOwnerShapesRemainUnsupported(t *testing.T) {
 	for _, profile := range []struct {
 		policy  LanguagePolicy
