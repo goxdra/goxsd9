@@ -252,6 +252,7 @@ func (a app) recordClaim(root string, number int, branch, localBranch, worktree,
 	return a.setIssueProjectStatus(root, number, "Picked")
 }
 
+//nolint:gocognit // Renewal must prove divergence and unpublished integration before push.
 func (a app) renewClaim() error {
 	root, localBranch, number, err := a.currentClaim()
 	if err != nil {
@@ -268,6 +269,19 @@ func (a app) renewClaim() error {
 	if local != remote {
 		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
 			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
+		}
+		authority, integrated, integratedErr := a.readIntegratedClaimMetadata(root)
+		if integratedErr != nil {
+			return integratedErr
+		}
+		if integrated {
+			published, publishErr := a.claimIntegrationPublished(root, authority.integration, remote)
+			if publishErr != nil {
+				return publishErr
+			}
+			if !published {
+				return stateError("unpublished integrated source remains local; complete checked PR publication before claim renew")
+			}
 		}
 	}
 	lease, runID, err := a.readClaimMetadata(root)
@@ -328,6 +342,7 @@ func (a app) verifyClaim() error {
 	return writeLine(a.stdout, "claim #%d valid until %s", number, lease.Format(time.RFC3339))
 }
 
+//nolint:gocognit // Push authority distinguishes unpublished integration from proved remote ancestry.
 func (a app) verifyClaimForPush(root, branch string, number int) error {
 	remoteBranch := claimBranch(number)
 	if err := a.fetchClaim(root, remoteBranch); err != nil {
@@ -340,6 +355,19 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 	if local != remote {
 		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
 			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
+		}
+		authority, integrated, integratedErr := a.readIntegratedClaimMetadata(root)
+		if integratedErr != nil {
+			return integratedErr
+		}
+		if integrated {
+			published, publishErr := a.claimIntegrationPublished(root, authority.integration, remote)
+			if publishErr != nil {
+				return publishErr
+			}
+			if !published && remote != authority.marker {
+				return stateError("claim remote head %s is neither the verified integration marker %s nor a published integration descendant; preserve unpublished source", remote, authority.marker)
+			}
 		}
 	}
 	lease, runID, err := a.readClaimMetadata(root)
@@ -357,11 +385,23 @@ func (a app) readClaimMetadata(root string) (time.Time, string, error) {
 	if err != nil {
 		return time.Time{}, "", retryableOperation("read claim metadata", fmt.Errorf("read claim metadata: %w", err))
 	}
-	lease, err := trailerTime(text)
+	if strings.Contains(text, "chore(workflow): integrate renewed claim #") {
+		authority, integrated, integratedErr := a.readIntegratedClaimMetadata(root)
+		if integratedErr != nil {
+			return time.Time{}, "", integratedErr
+		}
+		if !integrated {
+			return time.Time{}, "", stateError("claim log alleges integration without a canonical first-parent integration")
+		}
+		return authority.lease, authority.runID, nil
+	}
+	var lease time.Time
+	var runID string
+	lease, err = trailerTime(text)
 	if err != nil {
 		return time.Time{}, "", terminalOperation("read claim metadata", err)
 	}
-	runID, err := trailerValue(text, "Agent-Run-ID")
+	runID, err = trailerValue(text, "Agent-Run-ID")
 	if err != nil {
 		return time.Time{}, "", terminalOperation("read claim metadata", err)
 	}
