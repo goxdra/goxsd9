@@ -142,7 +142,7 @@ func TestDirectAllNonNegativeIntegerExclusionsAndFailures(t *testing.T) {
 			cause                                    error
 			related                                  []string
 		}{
-			{"named", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`, `type="r:Named"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), errSchemaAllMemberScalar, nil},
+			{"named excluded", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Named"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), errSchemaAllMemberScalar, nil},
 			{"inline", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported, nil},
 			{"bad lexical", `<xs:element name="v" type="xs:nonNegativeInteger" maxOccurs="maybe"/>`, "", `maxOccurs="maybe"`, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.version), nil, nil},
 			{"bad range", `<xs:element name="v" type="xs:nonNegativeInteger" minOccurs="2" maxOccurs="1"/>`, "", `<xs:element name="v"`, invalidSchemaCompositionCode, schemaParticleCorrectSpecRef(profile.version), errParticleOccurrenceMinimumExceedsMaximum, []string{`minOccurs="2"`, `maxOccurs="1"`}},
@@ -165,7 +165,7 @@ func TestDirectAllNonNegativeIntegerExclusionsAndFailures(t *testing.T) {
 					t.Fatalf("diagnostic = %s, want %s at %s with cause %v", diagnostic, test.code, test.primary, test.cause)
 				}
 				wantClass := FailureInvalid
-				if test.name == "named" || test.name == "inline" {
+				if test.name == "named excluded" || test.name == "inline" {
 					wantClass = FailureUnsupported
 				}
 				if diagnostic.Class() != wantClass {

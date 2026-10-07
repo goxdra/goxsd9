@@ -8281,7 +8281,7 @@ func resolveSchemaAllParticle(
 			if memberInput.typeInput != nil {
 				loc = memberInput.typeInput.typeLoc
 			}
-			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string, built-in/named token/NMTOKEN/negativeInteger, and built-in nonNegativeInteger scalars", version)
+			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string, and built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger scalars", version)
 			diagnostic.specRef = schemaAllLimitedSpecRef(version)
 			diagnostic.cause = errSchemaAllMemberScalar
 			return nil, diagnostic
@@ -8323,7 +8323,7 @@ func schemaAllScalarAllowed(reference schemaSimpleTypeReferenceComponent) bool {
 	case schemaSimpleTypeAtomicNegativeInteger:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNonNegativeInteger:
-		return reference.kind == SimpleTypeReferenceBuiltin
+		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt,
 		schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte,
