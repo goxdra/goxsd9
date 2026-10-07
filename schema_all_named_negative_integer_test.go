@@ -264,7 +264,7 @@ func TestDirectAllNamedNegativeIntegerBoundaryFailures(t *testing.T) {
 			{"duplicate", `<xs:element name="v" type="r:Named"/><xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>`, `<xs:element name="v"`, `<xs:element name="v"`, diagnosticSchemaElementReferenceDuplicateCode, schemaAllLimitedSpecRef(profile.version), 2, FailureInvalid, errSchemaAllMemberDuplicate},
 			{"inline", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
 			{"direct excluded", `<xs:element name="v" type="xs:nonPositiveInteger"/>`, "", `type="xs:nonPositiveInteger"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
-			{"named excluded", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType>`, `type="r:Named"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
+			{"named excluded", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Named"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
 		} {
 			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
 				root := allParticleTestRoot(`<xs:all>`+test.member+`</xs:all>`, test.extra)

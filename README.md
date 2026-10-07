@@ -32,7 +32,7 @@ built-in/named long locals for queries; valid inline `0/0` omits, nonzero reject
 default integer/decimal sequence refs; other targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger, built-in
-string/nonNegativeInteger, and refs with exact bounds; consumers reject it.
+string, built-in/named nonNegativeInteger, and refs with exact bounds; consumers reject it.
 Compatibility/Strict11 expose QName `notQName` on direct strict `xs:any`; consumers reject wildcards.
 
 ## CLI
