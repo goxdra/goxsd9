@@ -291,18 +291,22 @@ func TestNamedNonNegativeIntegerAllOtherOwnersStayExcluded(t *testing.T) {
 		if policy == Strict10 {
 			version = XSDVersion10
 		}
-		for _, test := range []struct{ name, body, primary string }{
-			{"inline owner", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`},
-			{"extension owner", `<xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:extension></xs:complexContent></xs:complexType>`, `<xs:extension`},
-			{"named group", `<xs:group name="Group"><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:group>`, `<xs:all>`},
+		extensionSpec := "xsd11-structures#cos-ct-extends"
+		if version == XSDVersion10 {
+			extensionSpec = "xsd10-structures#cos-ct-extends"
+		}
+		for _, test := range []struct{ name, body, primary, spec string }{
+			{"inline owner", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, "xsd10-structures#schema-document"},
+			{"extension owner", `<xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:extension></xs:complexContent></xs:complexType>`, `<xs:extension`, extensionSpec},
+			{"named group", `<xs:group name="Group"><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:group>`, `<xs:all>`, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", version).SpecRef()},
 		} {
 			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:all" targetNamespace="urn:all">` + test.body + `<xs:simpleType name="Count"><xs:restriction base="xs:nonNegativeInteger"/></xs:simpleType></xs:schema>`
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 				assertZeroSchema(t, schema)
 				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, test.primary, 1) || diagnostic.SpecRef() != newSchemaSyntaxUnsupportedForVersion(Loc{}, "", version).SpecRef() || len(diagnostic.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("owner shape = %s, cause %v", diagnostic, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, test.primary, 1) || diagnostic.SpecRef() != test.spec || len(diagnostic.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("owner shape = %s, spec %s, cause %v", diagnostic, diagnostic.SpecRef(), err)
 				}
 			})
 		}
