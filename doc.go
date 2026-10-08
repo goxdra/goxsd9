@@ -266,19 +266,31 @@
 // sequences and in precisionDecimal-only direct sequences. Generation rejects
 // both. Bounded inline list/union roots
 // validate under admitting policies and remain generation exclusions.
-// Global inline complex types expose stable anonymous ComplexTypeID nodes,
+// Global element inline complex types accept unqualified mixed="false" and
+// mixed="0", with XML whitespace collapse, as omission under Compatibility,
+// Strict10, and Strict11 where the body is already supported. They expose no
+// lexical-presence fact. True/1 returns located unsupported diagnostics with
+// the selected edition's specification reference; malformed Boolean values
+// return located invalid diagnostics with their lexical cause. Both return no
+// Schema.
+// Supported inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
-// entering the global component walk. Named or inline global precisionDecimal
+// entering the global component walk. Selected inline precisionDecimal sequences
+// and attribute uses validate; GenerateGo still rejects inline complex types.
+// Named or inline global precisionDecimal
 // list/union elements and direct-sequence local/ref links retain immutable
 // variety, ordered item/member facts, locations, and identities. Global inline
 // anonymous precisionDecimal atomic declarations retain query facts and identities.
-// Particle-plus-use bodies, direct model-group references, grouped extensions,
-// attribute-only bodies, and scalar simpleContent extensions expose ordered defensive
+// Particle-plus-use bodies, attribute-only bodies, and scalar simpleContent
+// extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
 // anonymous atomic uses retain AnonymousID/NodeID. One named complexContent
 // extension composes a direct opaque named-group reference, ordered local uses,
 // and the supported named empty base; broader attribute-bearing extensions
-// remain unsupported. Local and referenced
+// remain unsupported. Direct model-group references and grouped extensions
+// require supported named complex owners. Global inline direct-group and
+// anonymous grouped-extension owners remain unsupported, including applicable
+// 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
 // Local named/inline lists with atomic precisionDecimal items and two-member
 // unions of precisionDecimal then negativeInteger are also admitted; other
