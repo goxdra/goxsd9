@@ -273,6 +273,11 @@
 // the selected edition's specification reference; malformed Boolean values
 // return located invalid diagnostics with their lexical cause. Both return no
 // Schema.
+// On supported global inline complex types, unqualified defaultAttributesApply
+// true/false/1/0 is inert under Compatibility/Strict11 after XML whitespace
+// collapse. Strict10 reports a located edition mismatch; malformed Boolean
+// values are located invalid input. Schema defaultAttributes stays unsupported.
+// No presence fact is retained, and existing shape and consumer limits apply.
 // Supported inline complex types expose stable anonymous ComplexTypeID nodes,
 // exact ordered sequence/reference particles, and attribute uses without
 // entering the global component walk. Selected inline precisionDecimal sequences
