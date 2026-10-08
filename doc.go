@@ -297,6 +297,12 @@
 // anonymous grouped-extension owners remain unsupported, including applicable
 // 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
+// Named complex owners with empty, direct choice, direct sequence, or grouped
+// extension bodies also admit explicit built-in or facet-free named effective
+// xs:ID local uses for queries.
+// Strict10 rejects a second effective ID. Global ID refs, inline ID, ID
+// default/fixed/facets/lists/unions, other owners, validation, and generation
+// remain unsupported.
 // Local named/inline lists with atomic precisionDecimal items and two-member
 // unions of precisionDecimal then negativeInteger are also admitted; other
 // local varieties and explicit xs:int remain unsupported. Strict10 rejects

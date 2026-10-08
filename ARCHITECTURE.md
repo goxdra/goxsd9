@@ -72,15 +72,16 @@ built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0
 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Resolved anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members reject even at `0/0`, and `all` consumers reject.
-AttributeUse preserves order, ownership, locations, and targets; grouped extensions resolve group/uses/base and omit valid `0/0` groups.
-Forms select local names; XSD 1.1 `targetNamespace` must match the container;
-chameleon adopts; prohibited uses omit. Local values/inheritable and
-attributeGroup/broader extensions reject; refs locate failures.
+AttributeUse keeps order, names, use/type/form `Loc`s, and target IDs; grouped
+extensions resolve uses. Prohibited uses and `0/0` groups
+omit. Chameleon adopts; XSD 1.1 `targetNamespace` must match the container.
+Named empty/choice/sequence and grouped extensions admit built-in/facet-free
+named `xs:ID` locals. Strict10 rejects a second effective ID; inline/ref/value
+forms and consumers reject.
 Global typed attributes include built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
-Global inline restriction/list/union keeps anonymous IDs/ordered refs/`Loc`s/facets/`finalDefault`;
-`normalizedString` leaves exclude; `string` is admitted below top inline type as
-list items/union members. Forward/imported resolve.
+Global inline varieties retain anonymous IDs, ordered refs/`Loc`s, facets, and
+`finalDefault`; `normalizedString` leaves reject, while `string` members admit.
 Default/fixed covers built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong and policy-gated `precisionDecimal`.
 Integer facets/values exact; unsignedLong values/bounds/enumerations use digits-only
 Strict10 versus optional plus/signed zero Compatibility/Strict11.
