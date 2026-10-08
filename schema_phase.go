@@ -4297,6 +4297,22 @@ func validateInlineSchemaTypeWithFacetBridge(element *syntaxElement, version XSD
 			switch attribute.name.local {
 			case "abstract", "block", "final":
 				return newSchemaCompositionDiagnostic(attribute.loc, "inline complexType cannot specify "+attribute.name.local)
+			case "mixed":
+				mixed, err := schemaBooleanValue(attribute)
+				if err != nil {
+					return newDiagnostic(
+						FailureInvalid,
+						invalidSchemaCompositionCode,
+						attribute.loc,
+						"inline complexType mixed has an invalid boolean value",
+						err,
+					)
+				}
+				if !mixed {
+					continue
+				}
+				candidate.considerAtVersion(attribute.loc, "inline complexType attribute \"mixed\" is not implemented", version)
+				continue
 			}
 		}
 		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
