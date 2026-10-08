@@ -2915,7 +2915,8 @@ func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliation
 			fresh.preflight.localState != proof.preflight.localState || fresh.preflight.mergeState != proof.preflight.mergeState ||
 			fresh.preflight.handoffBody != proof.preflight.handoffBody || fresh.preflight.claimCommentID != proof.preflight.claimCommentID ||
 			!fresh.preflight.claimLease.Equal(proof.preflight.claimLease) || fresh.preflight.projectItemID != proof.preflight.projectItemID ||
-			fresh.preflight.projectOptionID != proof.preflight.projectOptionID || fresh.preflight.projectIssueID != proof.preflight.projectIssueID ||
+			claimResumeProjectOptionChanged(fresh.preflight.projectStatus, fresh.preflight.projectOptionID, proof.preflight) ||
+			fresh.preflight.projectIssueID != proof.preflight.projectIssueID ||
 			fresh.preflight.projectRepoID != proof.preflight.projectRepoID ||
 			fresh.preflight.localHead == source.source {
 			return claimResumeReconciliationTarget{}, stateError("integrated claim, remote marker, or preserved state changed before metadata mutation")
@@ -2940,7 +2941,7 @@ func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliation
 	}
 	if item.ID != proof.preflight.projectItemID || item.IssueID != proof.preflight.projectIssueID ||
 		item.RepositoryID != proof.preflight.projectRepoID ||
-		(item.Status == proof.preflight.projectStatus && item.StatusOptionID != proof.preflight.projectOptionID) {
+		claimResumeProjectOptionChanged(item.Status, item.StatusOptionID, proof.preflight) {
 		return claimResumeReconciliationTarget{}, stateError("issue #%d canonical Project item changed from %s to %s; preserve renewed artifacts", proof.preflight.issue, proof.preflight.projectItemID, item.ID)
 	}
 	if item.Status != "Backlog" && item.Status != "Picked" {
@@ -2952,6 +2953,10 @@ func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliation
 		}
 	}
 	return claimResumeReconciliationTarget{status: status, item: item}, nil
+}
+
+func claimResumeProjectOptionChanged(status, optionID string, sealed claimResumePreflight) bool {
+	return status == sealed.projectStatus && optionID != sealed.projectOptionID
 }
 
 //nolint:gocognit // Label and Project convergence are ordered mutation boundaries.

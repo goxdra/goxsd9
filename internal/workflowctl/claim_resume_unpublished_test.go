@@ -111,6 +111,60 @@ func TestClaimResumeUnpublishedSourceRemoteOnlyThenIntegration(t *testing.T) {
 	}
 }
 
+func TestClaimResumeUnpublishedAmbiguousProjectResponseAndRetry(t *testing.T) {
+	fixture, source, backend := unpublishedClaimFixture(t, false)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(unpublishedClaimArgs(fixture, source, false)); err != nil {
+		t.Fatalf("remote-only renewal: %v", err)
+	}
+	backend.ambiguousProject = true
+	if err := application.run(unpublishedClaimArgs(fixture, source, true)); err != nil {
+		t.Fatalf("integrate after ambiguous Project response: %v", err)
+	}
+	if backend.needsHuman || backend.projectStatus != "Picked" {
+		t.Fatalf("ambiguous Project state = needs-human %t, status %s", backend.needsHuman, backend.projectStatus)
+	}
+	integrated := runGitTest(t, fixture.worktree, "rev-parse", "HEAD")
+	mutations := len(claimResumeGitHubMutations(backend.calls))
+	if mutations != 2 || countClaimResumePushes(backend.calls) != 1 {
+		t.Fatalf("ambiguous Project mutations/pushes = %d/%d, want 2/1", mutations, countClaimResumePushes(backend.calls))
+	}
+	if err := application.run(unpublishedClaimArgs(fixture, source, true)); err != nil {
+		t.Fatalf("idempotent integration retry: %v", err)
+	}
+	if runGitTest(t, fixture.worktree, "rev-parse", "HEAD") != integrated ||
+		len(claimResumeGitHubMutations(backend.calls)) != mutations || countClaimResumePushes(backend.calls) != 1 {
+		t.Fatal("idempotent retry repeated integration, GitHub mutation, or push")
+	}
+}
+
+func TestClaimResumeUnpublishedIntegratedProofRejectsSameStatusOptionDrift(t *testing.T) {
+	fixture, source, backend := unpublishedClaimFixture(t, false)
+	application := app{ctx: context.Background(), executeCommand: backend.execute, stdout: io.Discard}
+	if err := application.run(unpublishedClaimArgs(fixture, source, true)); err != nil {
+		t.Fatalf("integrate source: %v", err)
+	}
+	proof, err := application.readClaimResumeProof(fixture.issue, fixture.expected, fixture.runID, fixture.handoff, source)
+	if err != nil {
+		t.Fatalf("read integrated proof: %v", err)
+	}
+	if proof.preflight.projectStatus != "Picked" || proof.preflight.projectOptionID != "Picked-option" {
+		t.Fatalf("sealed integrated status/option = %s/%s", proof.preflight.projectStatus, proof.preflight.projectOptionID)
+	}
+	mutations := len(claimResumeGitHubMutations(backend.calls))
+	backend.projectPage = func(_ int, _ string) (string, error) {
+		page := claimResumeProjectPageJSON(fixture.issue, backend.projectStatus)
+		return strings.Replace(page, `"optionId":"Picked-option"`, `"optionId":"replacement-option"`, 1), nil
+	}
+	_, err = application.readClaimResumeReconciliationTarget(claimResumeReconciliationState{proof: proof, phase: claimResumeProjectPhase})
+	if err == nil || !strings.Contains(err.Error(), "integrated claim, remote marker, or preserved state changed") {
+		t.Fatalf("same-status option drift = %v, want integrated proof rejection", err)
+	}
+	if len(claimResumeGitHubMutations(backend.calls)) != mutations {
+		t.Fatal("same-status option drift caused GitHub mutation")
+	}
+}
+
 func TestClaimResumeUnpublishedRejectsChangedProofBeforeMutation(t *testing.T) {
 	for _, test := range []struct {
 		name   string

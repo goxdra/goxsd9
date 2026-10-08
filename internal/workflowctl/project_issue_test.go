@@ -38,6 +38,14 @@ func TestClaimResumeUsesFreshBoundedProjectProofs(t *testing.T) {
 	}
 }
 
+func TestClaimResumeProjectFixtureUsesDistinctStatusOptions(t *testing.T) {
+	backlog := claimResumeProjectPageJSON(14, "Backlog")
+	picked := claimResumeProjectPageJSON(14, "Picked")
+	if !strings.Contains(backlog, `"optionId":"Backlog-option"`) || !strings.Contains(picked, `"optionId":"Picked-option"`) {
+		t.Fatal("claim recovery fixture must model distinct Project Status options")
+	}
+}
+
 func TestClaimResumePaginatesEveryFreshProjectProof(t *testing.T) {
 	fixture := newClaimResumeFixture(t)
 	backend := newClaimResumeBackend(t, fixture)
@@ -88,7 +96,7 @@ func TestClaimResumeProjectProofChangesBeforeMutationFailClosed(t *testing.T) {
 			return strings.Replace(page, `"name":"Backlog"`, `"name":"Ready"`, 1)
 		}},
 		{name: "status option", change: func(page string, _ int) string {
-			return strings.Replace(page, `"optionId":"option-id"`, `"optionId":"replacement-option"`, 1)
+			return strings.Replace(page, `"optionId":"Backlog-option"`, `"optionId":"replacement-option"`, 1)
 		}},
 	}
 	for _, test := range tests {

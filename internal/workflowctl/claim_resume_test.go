@@ -1753,7 +1753,7 @@ func claimResumeProjectAfter(args []string) string {
 }
 
 func claimResumeProjectPageJSON(number int, status string) string {
-	return fmt.Sprintf(`{"data":{"repository":{"id":"repo-id","nameWithOwner":"goxdra/goxsd9","issue":{"id":"issue-%d","number":%d,"projectItems":{"totalCount":1,"nodes":[{"id":"item-%d","type":"ISSUE","isArchived":false,"project":{"id":%q,"number":1},"content":{"__typename":"Issue","id":"issue-%d","number":%d,"repository":{"id":"repo-id","nameWithOwner":"goxdra/goxsd9"}},"fieldValueByName":{"__typename":"ProjectV2ItemFieldSingleSelectValue","name":%q,"optionId":"option-id","field":{"id":%q}}}],"pageInfo":{"hasNextPage":false,"endCursor":"one"}}}}}}`, number, number, number, projectID, number, number, status, claimResumeStatusFieldID)
+	return fmt.Sprintf(`{"data":{"repository":{"id":"repo-id","nameWithOwner":"goxdra/goxsd9","issue":{"id":"issue-%d","number":%d,"projectItems":{"totalCount":1,"nodes":[{"id":"item-%d","type":"ISSUE","isArchived":false,"project":{"id":%q,"number":1},"content":{"__typename":"Issue","id":"issue-%d","number":%d,"repository":{"id":"repo-id","nameWithOwner":"goxdra/goxsd9"}},"fieldValueByName":{"__typename":"ProjectV2ItemFieldSingleSelectValue","name":%q,"optionId":%q,"field":{"id":%q}}}],"pageInfo":{"hasNextPage":false,"endCursor":"one"}}}}}}`, number, number, number, projectID, number, number, status, status+"-option", claimResumeStatusFieldID)
 }
 
 func claimResumeGitHubMutations(calls []string) []string {
