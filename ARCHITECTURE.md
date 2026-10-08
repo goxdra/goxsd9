@@ -77,11 +77,11 @@ Grouped extensions resolve group/uses/base; `0/0` omits group.
 Forms select local names; XSD 1.1 `targetNamespace` must match the container;
 chameleon adopts; prohibited uses omit. Local values/inheritable and
 attributeGroup/broader extensions reject; refs locate failures.
-Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
+Global typed attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
 Global inline restriction/list/union retains anonymous IDs, ordered refs,
-`Loc`s, effective facets, `finalDefault`; supported atomics are
-leaves, `string` only in lists/unions. Forward/imported resolve before publication.
+`Loc`s, effective facets, `finalDefault`; inline leaves exclude
+`normalizedString`, `string` only in lists/unions. Forward/imported resolve.
 Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong; policy-gated `precisionDecimal`.
 Integer facets/values are exact; unsignedLong values and bound/enumeration facets
 use digits-only Strict10 and optional plus/signed zero Compatibility/Strict11.
