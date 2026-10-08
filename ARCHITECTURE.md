@@ -78,9 +78,9 @@ chameleon adopts; prohibited uses omit. Local values/inheritable and
 attributeGroup/broader extensions reject; refs locate failures.
 Global typed attributes include built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
-Global inline restriction/list/union retains anonymous IDs, ordered refs, `Loc`s,
-facets, and `finalDefault`; leaves exclude `normalizedString`, and lists/unions
-exclude `string`. Forward/imported references resolve.
+Global inline restriction/list/union keeps anonymous IDs/ordered refs/`Loc`s/facets/`finalDefault`;
+`normalizedString` leaves exclude; `string` is admitted below top inline type as
+list items/union members. Forward/imported resolve.
 Default/fixed covers built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong and policy-gated `precisionDecimal`.
 Integer facets/values are exact; unsignedLong bounds/enumerations use digits-only
 Strict10 versus optional plus/signed zero Compatibility/Strict11.
