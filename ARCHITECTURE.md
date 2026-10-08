@@ -82,7 +82,7 @@ Global inline restriction/list/union keeps anonymous IDs/ordered refs/`Loc`s/fac
 `normalizedString` leaves exclude; `string` is admitted below top inline type as
 list items/union members. Forward/imported resolve.
 Default/fixed covers built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong and policy-gated `precisionDecimal`.
-Integer facets/values are exact; unsignedLong bounds/enumerations use digits-only
+Integer facets/values exact; unsignedLong values/bounds/enumerations use digits-only
 Strict10 versus optional plus/signed zero Compatibility/Strict11.
 Unsupported types/local refs to global inline lists/unions have located diagnostics;
 local refs to inline atomics stay query-only. Global inline defaults/fixed fail at
@@ -121,14 +121,14 @@ targets/inline roots; Strict10 rejects before publication. Lists split XML
 whitespace; unions preserve member order. Selected variety attributes validate
 on empty/sequence roots. Bounded variety sequences accept typed string/integer/
 negativeInteger/precisionDecimal locals, anonymous integer/negativeInteger
-locals, and refs with exact child ranges. Local Boolean/integer/decimal
+locals, and refs. Outer occurrences default; child ranges exact. Local Boolean/integer/decimal
 sequences/default choices honor ranges; token/NMTOKEN sequences retain large/
 unbounded occurrences. Default direct-choice refs to unconstrained global
 Boolean/integer/decimal validate; constrained targets relate `Loc`.
 SimpleContent accepts built-in string with selected precisionDecimal attributes
 or built-in/named effective precisionDecimal; named effective string excludes.
-Selected inline roots validate precisionDecimal-only sequences and supported precisionDecimal attribute uses.
-Other inline/mixed-content uses reject; `GenerateGo` rejects inline complex roots.
+Inline roots use supported sequences (including bounded list/union), attributes/simpleContent.
+Mixed-content validation is unsupported; `GenerateGo` rejects inline complex roots.
 Nonzero `xs:any` is query-only. Identity-constrained roots reject at instance-use `Loc`,
 relating first constraint. QName globals/refs reject validation/generation with
 located diagnostics. Structure precedes facets; first failure retains instance/
@@ -140,8 +140,8 @@ Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-atomic
 and named/global `nonNegativeInteger`/`long`. Local Boolean/integer/decimal
 default choices/sequences and all-token choices generate; other locals/attributes
 reject. Standalone `normalizedString` and global `int`/`short`/`byte`/`unsignedLong`/
-`positiveInteger`/`nonNegativeInteger`/`long` refs reject. Global abstract/nillable and identity constraints return located
-`GOXSD9029` with nil output. Default integer/decimal sequence refs retain
+`positiveInteger`/`nonNegativeInteger`/`long` refs reject. Abstract/nillable globals and identity constraints (first constraint `Loc`) yield
+`GOXSD9029`, nil output. Default integer/decimal sequence refs retain
 TargetID/order. `nonNegativeInteger` uses `StrictInteger`; `IntegerBounds()`
 copies built-in/named bounds. Unsupported final/variety/effective facets yield
 `GOXSD9029`, malformed facts `GOXSD9030`. Nonzero inline `nonNegativeInteger`
