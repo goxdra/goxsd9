@@ -68,7 +68,7 @@ choices resolve refs once; named groups resolve/check before omission. Refs reta
 QName/RefLoc/TargetID/order without expansion; broader forms reject consumers.
 Valid `0/0` omits; non-`0/0` inline long-family locals fail at type/simpleType `Loc`.
 Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
-built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte` locals,
+built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0
 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Resolved anonymous simple-type `0/0` terms omit; inline complexes and `all` consumers reject.
@@ -79,11 +79,12 @@ chameleon adopts; prohibited uses omit. Local values/inheritable and
 attributeGroup/broader extensions reject; refs locate failures.
 Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
-One global inline restriction/list/union retains anonymous IDs, ordered item/member
-refs, `Loc`s, effective facets, document `finalDefault`; supported atomics are
-leaves, `string` only in lists/unions. Forward/imported members resolve before publication.
+Global inline restriction/list/union retains anonymous IDs, ordered refs,
+`Loc`s, effective facets, `finalDefault`; supported atomics are
+leaves, `string` only in lists/unions. Forward/imported resolve before publication.
 Default/fixed: built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong; policy-gated `precisionDecimal`.
-Integer values/facets exact; unsignedLong lexical: digits-only XSD 1.0, signed/-0 XSD 1.1.
+Integer facets/values are exact; unsignedLong values and bound/enumeration facets
+use digits-only Strict10 and optional plus/signed zero Compatibility/Strict11.
 Unsupported types/local refs to global inline lists/unions have located diagnostics;
 local refs to inline atomics stay query-only. Global inline defaults/fixed fail
 at value `Loc` without schema; invalid values retain lexical/facet causes/related

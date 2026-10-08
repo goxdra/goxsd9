@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -64,7 +65,7 @@ func TestDirectAllIntGraphFacts(t *testing.T) {
 				t.Fatalf("built-in reference = %#v", builtinRef)
 			}
 			assertAllIntegerBounds(t, builtinRef, profile.version, "-2147483648", "2147483647", Loc{}, Loc{})
-			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "int", "-2147483648", "2147483647")
+			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "int", "-2147483648", "2147483647", "-100")
 			direct, ok := members[1].(ElementParticle)
 			if !ok {
 				t.Fatalf("direct member = %T", members[1])
@@ -160,8 +161,6 @@ func TestDirectAllIntBoundaryDiagnostics(t *testing.T) {
 			{"wrong-kind ref", `<xs:element ref="r:Wrong"/>`, `<xs:simpleType name="Wrong"><xs:restriction base="xs:int"/></xs:simpleType>`, `ref="r:Wrong"`, `<xs:simpleType name="Wrong"`, diagnosticSchemaElementReferenceWrongKindCode, schemaElementReferenceSpecRef(profile.version), 1, FailureInvalid, errSchemaElementReferenceWrongKind},
 			{"inline nonzero", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:int"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"named string", `<xs:element name="v" type="r:Text"/>`, `<xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Text"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
-			{"builtin unsignedLong", `<xs:element name="v" type="xs:unsignedLong"/>`, "", `type="xs:unsignedLong"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
-			{"named unsignedLong", `<xs:element name="v" type="r:Wide"/>`, `<xs:simpleType name="Wide"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>`, `type="r:Wide"`, "", UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), 1, FailureUnsupported, errSchemaAllMemberScalar},
 			{"named list", `<xs:element name="v" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:int"/></xs:simpleType>`, `type="r:List"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"named union", `<xs:element name="v" type="r:Union"/>`, `<xs:simpleType name="Union"><xs:union memberTypes="xs:int"/></xs:simpleType>`, `type="r:Union"`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
 			{"inline complex", `<xs:element name="v"><xs:complexType/></xs:element>`, "", `<xs:complexType/>`, "", UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1, FailureUnsupported, ErrUnsupported},
@@ -236,8 +235,13 @@ func TestDirectAllIntHiddenTypeRemainsUnresolved(t *testing.T) {
 	assertAllIntegerHiddenGraphTypeUnresolved(t, "int")
 }
 
-//nolint:gocognit // Each excluded owner and member shape needs a located public diagnostic.
 func TestDirectAllIntExcludedOwners(t *testing.T) {
+	assertAllIntegerExcludedOwners(t, "int")
+}
+
+//nolint:gocognit // Each excluded owner and member shape needs a located public diagnostic.
+func assertAllIntegerExcludedOwners(t *testing.T, atomic string) {
+	t.Helper()
 	for _, profile := range []struct {
 		policy  LanguagePolicy
 		version XSDVersion
@@ -257,6 +261,7 @@ func TestDirectAllIntExcludedOwners(t *testing.T) {
 			} {
 				t.Run(string(profile.policy)+"/"+owner.name+"/"+member.name, func(t *testing.T) {
 					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:all" targetNamespace="urn:all">` + fmt.Sprintf(owner.format, member.xml) + `<xs:simpleType name="Named"><xs:restriction base="xs:int"/></xs:simpleType><xs:element name="target" type="xs:int"/></xs:schema>`
+					root = strings.ReplaceAll(root, "xs:int", "xs:"+atomic)
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 					assertZeroSchema(t, schema)
 					diagnostic := requireDiagnostic(t, err)

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-//nolint:dupl,gocognit,funlen // Bounded integer categories require parallel public fact assertions.
-func TestDirectAllLongGraphFacts(t *testing.T) {
+//nolint:dupl,gocognit,funlen // The public graph facts and copy checks belong together.
+func TestDirectAllUnsignedLongGraphFacts(t *testing.T) {
 	for _, profile := range []struct {
 		policy               LanguagePolicy
 		version              XSDVersion
@@ -21,14 +21,14 @@ func TestDirectAllLongGraphFacts(t *testing.T) {
 		t.Run(string(profile.policy), func(t *testing.T) {
 			root := fmt.Sprintf(`<xs:schema xmlns:xs="%s" xmlns:r="urn:all" xmlns:o="urn:other" targetNamespace="urn:all" version="1.0">
 <xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/>
-<xs:simpleType name="Direct"><xs:restriction base="xs:long"><xs:minInclusive value="-100"/><xs:maxInclusive value="100"/><xs:totalDigits value="3"/><xs:enumeration value="7"/></xs:restriction></xs:simpleType>
-<xs:complexType name="Record"><xs:all><xs:element name="builtin" type="xs:long"/><xs:element name="direct" type="r:Direct" %s/><xs:element name="forward" type="r:Forward"/><xs:element name="included" type="r:Included"/><xs:element name="imported" type="o:Imported"/><xs:element name="chameleon" type="r:Chameleon"/><xs:element ref="r:reference"/></xs:all></xs:complexType>
-<xs:element name="root" type="r:Record"/><xs:element name="reference" type="xs:long"/><xs:simpleType name="Forward"><xs:restriction base="r:Direct"/></xs:simpleType></xs:schema>`, testXSDNamespace, profile.rangeText)
+<xs:simpleType name="Direct"><xs:restriction base="xs:unsignedLong"><xs:minInclusive value="0"/><xs:maxInclusive value="100"/><xs:totalDigits value="3"/><xs:enumeration value="7"/></xs:restriction></xs:simpleType>
+<xs:complexType name="Record"><xs:all><xs:element name="builtin" type="xs:unsignedLong"/><xs:element name="direct" type="r:Direct" %s/><xs:element name="forward" type="r:Forward"/><xs:element name="included" type="r:Included"/><xs:element name="imported" type="o:Imported"/><xs:element name="chameleon" type="r:Chameleon"/><xs:element ref="r:reference"/></xs:all></xs:complexType>
+<xs:element name="root" type="r:Record"/><xs:element name="reference" type="xs:unsignedLong"/><xs:simpleType name="Forward"><xs:restriction base="r:Direct"/></xs:simpleType></xs:schema>`, testXSDNamespace, profile.rangeText)
 			fixtures := map[string]discoveryFixture{
 				"root.xsd":      {id: "root.xsd", contents: root},
-				"included.xsd":  {id: "included.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:all"><xs:include schemaLocation="root.xsd"/><xs:simpleType name="Included"><xs:restriction base="xs:long"/></xs:simpleType></xs:schema>`},
-				"chameleon.xsd": {id: "chameleon.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Chameleon"><xs:restriction base="xs:long"/></xs:simpleType></xs:schema>`},
-				"other.xsd":     {id: "other.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Imported"><xs:restriction base="xs:long"/></xs:simpleType></xs:schema>`},
+				"included.xsd":  {id: "included.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:all"><xs:include schemaLocation="root.xsd"/><xs:simpleType name="Included"><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:schema>`},
+				"chameleon.xsd": {id: "chameleon.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:simpleType name="Chameleon"><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:schema>`},
+				"other.xsd":     {id: "other.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Imported"><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:schema>`},
 			}
 			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
 			if err != nil {
@@ -54,18 +54,18 @@ func TestDirectAllLongGraphFacts(t *testing.T) {
 				t.Fatalf("all location/member count = %s/%d", all.Loc(), len(members))
 			}
 			builtin, ok := members[0].(ElementParticle)
-			if !ok || builtin.Name() != mustTestQName(t, "", "builtin") || builtin.DeclaredType() != mustTestQName(t, testXSDNamespace, "long") || builtin.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `<xs:element name="builtin"`, 1) {
+			if !ok || builtin.Name() != mustTestQName(t, "", "builtin") || builtin.DeclaredType() != mustTestQName(t, testXSDNamespace, "unsignedLong") || builtin.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `<xs:element name="builtin"`, 1) {
 				t.Fatalf("builtin = %#v", members[0])
 			}
 			builtinRef, ok := builtin.TypeReference()
 			builtinID, hasBuiltinID := builtin.TypeID()
 			refID, hasRefID := builtinRef.ComponentID()
-			builtinLoc := allParticleTestTokenLoc(t, "root.xsd", root, `type="xs:long"`, 1)
-			if !ok || !builtinRef.IsBuiltin() || builtinRef.Name() != mustTestQName(t, testXSDNamespace, "long") || builtinRef.QName() != builtinRef.Name() || builtinRef.Loc() != builtinLoc || builtinRef.VarietyLoc() != builtinLoc || hasBuiltinID || hasRefID || !builtinID.IsZero() || !refID.IsZero() {
+			builtinLoc := allParticleTestTokenLoc(t, "root.xsd", root, `type="xs:unsignedLong"`, 1)
+			if !ok || !builtinRef.IsBuiltin() || builtinRef.Name() != mustTestQName(t, testXSDNamespace, "unsignedLong") || builtinRef.QName() != builtinRef.Name() || builtinRef.Loc() != builtinLoc || builtinRef.VarietyLoc() != builtinLoc || hasBuiltinID || hasRefID || !builtinID.IsZero() || !refID.IsZero() {
 				t.Fatalf("builtin type provenance = %#v/%v/%v", builtinRef, builtinID, refID)
 			}
-			assertAllIntegerBounds(t, builtinRef, profile.version, "-9223372036854775808", "9223372036854775807", Loc{}, Loc{})
-			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "long", "-9223372036854775808", "9223372036854775807", "-100")
+			assertAllIntegerBounds(t, builtinRef, profile.version, "0", "18446744073709551615", Loc{}, Loc{})
+			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "unsignedLong", "0", "18446744073709551615", "0")
 			direct, isElement := members[1].(ElementParticle)
 			if !isElement {
 				t.Fatalf("direct member = %T", members[1])
@@ -100,73 +100,20 @@ func TestDirectAllLongGraphFacts(t *testing.T) {
 				t.Fatal("caller changed completed schema facts")
 			}
 			freshRef, _ := fresh.TypeReference()
-			assertAllIntegerBounds(t, freshRef, profile.version, "-100", "100", allParticleTestTokenLoc(t, "root.xsd", root, `value="-100"`, 1), allParticleTestTokenLoc(t, "root.xsd", root, `value="100"`, 1))
+			assertAllIntegerBounds(t, freshRef, profile.version, "0", "100", allParticleTestTokenLoc(t, "root.xsd", root, `value="0"`, 1), allParticleTestTokenLoc(t, "root.xsd", root, `value="100"`, 1))
 			assertDirectAllConsumerRejection(t, schema, all, profile.version)
 		})
 	}
 }
 
-func assertAllIntegerBounds(t *testing.T, reference SimpleTypeReference, version XSDVersion, wantMin, wantMax string, minLoc, maxLoc Loc) {
-	t.Helper()
-	bounds, ok := reference.IntegerBounds()
-	if !ok || bounds.Version() != version {
-		t.Fatalf("integer bounds/version = %v/%v", bounds, ok)
-	}
-	minimum, hasMinimum := bounds.MinInclusiveFacet()
-	maximum, hasMaximum := bounds.MaxInclusiveFacet()
-	if !hasMinimum || !hasMaximum || minimum.Value().Canonical() != wantMin || maximum.Value().Canonical() != wantMax || minimum.Loc() != minLoc || maximum.Loc() != maxLoc || minimum.Version() != version || maximum.Version() != version {
-		t.Fatalf("long bounds = %s at %s / %s at %s; want %s at %s / %s at %s", minimum.Value().Canonical(), minimum.Loc(), maximum.Value().Canonical(), maximum.Loc(), wantMin, minLoc, wantMax, maxLoc)
-	}
-}
-
-func assertAllIntegerNamedGraphMembers(t *testing.T, schema Schema, members []Particle, root string, fixtures map[string]discoveryFixture, version XSDVersion, atomic, intrinsicMin, intrinsicMax, effectiveMin string) {
-	t.Helper()
-	for index, want := range []struct{ local, namespace, typeName, source, variety string }{
-		{"direct", "urn:all", "Direct", "root.xsd", `<xs:restriction base="xs:` + atomic + `"`},
-		{"forward", "urn:all", "Forward", "root.xsd", `<xs:restriction base="r:Direct"`},
-		{"included", "urn:all", "Included", "included.xsd", `<xs:restriction base="xs:` + atomic + `"`},
-		{"imported", "urn:other", "Imported", "other.xsd", `<xs:restriction base="xs:` + atomic + `"`},
-		{"chameleon", "urn:all", "Chameleon", "chameleon.xsd", `<xs:restriction base="xs:` + atomic + `"`},
-	} {
-		member, isElement := members[index+1].(ElementParticle)
-		if !isElement || member.Name().Local() != want.local || member.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `<xs:element name="`+want.local+`"`, 1) {
-			t.Fatalf("member %d = %#v", index+1, members[index+1])
-		}
-		name := mustTestQName(t, want.namespace, want.typeName)
-		id := componentIDForName(t, schema, name)
-		reference, hasReference := member.TypeReference()
-		memberID, hasMemberID := member.TypeID()
-		referenceID, hasReferenceID := reference.ComponentID()
-		prefix := "r:"
-		if want.namespace == "urn:other" {
-			prefix = "o:"
-		}
-		declaration := root
-		if want.source != "root.xsd" {
-			declaration = fixtures[want.source].contents
-		}
-		if !hasReference || !reference.IsNamed() || member.DeclaredType() != name || reference.Name() != name || reference.QName() != name || !hasMemberID || !hasReferenceID || memberID != id || referenceID != id || id.Source() != SourceID(want.source) || reference.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `type="`+prefix+want.typeName+`"`, 1) || reference.VarietyLoc() != allParticleTestTokenLoc(t, SourceID(want.source), declaration, want.variety, 1) {
-			t.Fatalf("%s type provenance = %#v/%v/%v", want.local, reference, memberID, referenceID)
-		}
-		minimum, maximum := intrinsicMin, intrinsicMax
-		var minLoc, maxLoc Loc
-		if index < 2 {
-			minimum, maximum = effectiveMin, "100"
-			minLoc = allParticleTestTokenLoc(t, "root.xsd", root, `value="`+effectiveMin+`"`, 1)
-			maxLoc = allParticleTestTokenLoc(t, "root.xsd", root, `value="100"`, 1)
-		}
-		assertAllIntegerBounds(t, reference, version, minimum, maximum, minLoc, maxLoc)
-	}
-}
-
 //nolint:gocognit // Keep the omission and excluded-shape matrix beside its policy cases.
-func TestDirectAllLongOmissionAndExclusions(t *testing.T) {
+func TestDirectAllUnsignedLongOmissionAndExclusions(t *testing.T) {
 	for _, profile := range []struct {
 		policy  LanguagePolicy
 		version XSDVersion
 	}{{Compatibility, XSDVersion11}, {Strict10, XSDVersion10}, {Strict11, XSDVersion11}} {
 		t.Run(string(profile.policy)+" omitted member", func(t *testing.T) {
-			root := allParticleTestRoot(`<xs:all><xs:element name="drop" type="xs:long" minOccurs="0" maxOccurs="0"/><xs:element name="inline" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element><xs:element name="keep" type="xs:long"/></xs:all>`, "")
+			root := allParticleTestRoot(`<xs:all><xs:element name="drop" type="xs:unsignedLong" minOccurs="0" maxOccurs="0"/><xs:element name="namedDrop" type="r:Named" minOccurs="0" maxOccurs="0"/><xs:element name="inline" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element><xs:element name="keep" type="xs:unsignedLong"/></xs:all>`, `<xs:simpleType name="Named"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>`)
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			if err != nil {
 				t.Fatal(err)
@@ -184,10 +131,10 @@ func TestDirectAllLongOmissionAndExclusions(t *testing.T) {
 			name, member, defs, marker, code, spec string
 			cause                                  error
 		}{
-			{"inline long", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
+			{"inline unsignedLong", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
 			{"named string", `<xs:element name="v" type="r:Text"/>`, `<xs:simpleType name="Text"><xs:restriction base="xs:string"/></xs:simpleType>`, `type="r:Text"`, UnsupportedSchemaSyntaxCode, schemaAllLimitedSpecRef(profile.version), errSchemaAllMemberScalar},
-			{"named list", `<xs:element name="v" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:long"/></xs:simpleType>`, `type="r:List"`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
-			{"named union", `<xs:element name="v" type="r:Union"/>`, `<xs:simpleType name="Union"><xs:union memberTypes="xs:long"/></xs:simpleType>`, `type="r:Union"`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
+			{"named list", `<xs:element name="v" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:unsignedLong"/></xs:simpleType>`, `type="r:List"`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
+			{"named union", `<xs:element name="v" type="r:Union"/>`, `<xs:simpleType name="Union"><xs:union memberTypes="xs:unsignedLong"/></xs:simpleType>`, `type="r:Union"`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
 			{"inline complex", `<xs:element name="v"><xs:complexType/></xs:element>`, "", `<xs:complexType/>`, UnsupportedSchemaSyntaxCode, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
 		} {
 			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
@@ -203,7 +150,7 @@ func TestDirectAllLongOmissionAndExclusions(t *testing.T) {
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		t.Run(string(policy)+" owner zero", func(t *testing.T) {
-			root := allParticleTestRoot(`<xs:all minOccurs="0" maxOccurs="0"><xs:element name="v" type="xs:long"/></xs:all>`, "")
+			root := allParticleTestRoot(`<xs:all minOccurs="0" maxOccurs="0"><xs:element name="v" type="xs:unsignedLong"/></xs:all>`, "")
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 			if err != nil {
 				t.Fatal(err)
@@ -217,7 +164,7 @@ func TestDirectAllLongOmissionAndExclusions(t *testing.T) {
 }
 
 //nolint:dupl,gocognit // Alternate exits at the all-member boundary retain their own diagnostics.
-func TestDirectAllLongBoundaryDiagnostics(t *testing.T) {
+func TestDirectAllUnsignedLongBoundaryDiagnostics(t *testing.T) {
 	for _, profile := range []struct {
 		policy  LanguagePolicy
 		version XSDVersion
@@ -230,12 +177,13 @@ func TestDirectAllLongBoundaryDiagnostics(t *testing.T) {
 		}{
 			{"unresolved", `<xs:element name="v" type="r:Missing"/>`, "", `type="r:Missing"`, "", diagnosticSchemaElementTypeUnresolvedCode, schemaElementTypeSpecRef(profile.version), 1, FailureInvalid, errSchemaElementTypeUnresolved},
 			{"zero unresolved", `<xs:element name="v" type="r:Missing" minOccurs="0" maxOccurs="0"/>`, "", `type="r:Missing"`, "", diagnosticSchemaElementTypeUnresolvedCode, schemaElementTypeSpecRef(profile.version), 1, FailureInvalid, errSchemaElementTypeUnresolved},
-			{"wrong kind", `<xs:element name="v" type="r:Wrong"/>`, `<xs:element name="Wrong" type="xs:long"/>`, `type="r:Wrong"`, `<xs:element name="Wrong"`, diagnosticSchemaElementTypeWrongKindCode, schemaElementTypeSpecRef(profile.version), 1, FailureInvalid, errSchemaElementTypeWrongKind},
-			{"invalid long facet before zero", `<xs:element name="v" type="r:Bad" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="Bad"><xs:restriction base="xs:long"><xs:maxInclusive value="9223372036854775808"/></xs:restriction></xs:simpleType>`, `value="9223372036854775808"`, "", InvalidBoundRestrictionCode, boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule), 1, FailureInvalid, errInvalidBoundRestriction},
-			{"malformed long facet before zero", `<xs:element name="v" type="r:Bad" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="Bad"><xs:restriction base="xs:long"><xs:maxInclusive value="bad"/></xs:restriction></xs:simpleType>`, `value="bad"`, "", InvalidBoundCode, boundSpecRef(profile.version, BoundMaxInclusive, boundDefinitionRule), 1, FailureInvalid, errInvalidBoundValue},
-			{"invalid inline facet before zero", `<xs:element name="v" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:long"><xs:maxInclusive value="9223372036854775808"/></xs:restriction></xs:simpleType></xs:element>`, "", `value="9223372036854775808"`, "", InvalidBoundRestrictionCode, boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule), 1, FailureInvalid, errInvalidBoundRestriction},
-			{"invalid member occurrence", `<xs:element name="v" type="xs:long" maxOccurs="maybe"/>`, "", `maxOccurs="maybe"`, "", invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.version), 1, FailureInvalid, nil},
-			{"duplicate", `<xs:element name="v" type="xs:long"/><xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:long"/></xs:simpleType>`, `<xs:element name="v"`, `<xs:element name="v"`, diagnosticSchemaElementReferenceDuplicateCode, schemaAllLimitedSpecRef(profile.version), 2, FailureInvalid, errSchemaAllMemberDuplicate},
+			{"wrong kind", `<xs:element name="v" type="r:Wrong"/>`, `<xs:element name="Wrong" type="xs:unsignedLong"/>`, `type="r:Wrong"`, `<xs:element name="Wrong"`, diagnosticSchemaElementTypeWrongKindCode, schemaElementTypeSpecRef(profile.version), 1, FailureInvalid, errSchemaElementTypeWrongKind},
+			{"invalid unsignedLong facet before zero", `<xs:element name="v" type="r:Bad" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="Bad"><xs:restriction base="xs:unsignedLong"><xs:maxInclusive value="18446744073709551616"/></xs:restriction></xs:simpleType>`, `value="18446744073709551616"`, "", InvalidBoundRestrictionCode, boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule), 1, FailureInvalid, errInvalidBoundRestriction},
+			{"malformed unsignedLong facet before zero", `<xs:element name="v" type="r:Bad" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="Bad"><xs:restriction base="xs:unsignedLong"><xs:maxInclusive value="bad"/></xs:restriction></xs:simpleType>`, `value="bad"`, "", InvalidBoundCode, boundSpecRef(profile.version, BoundMaxInclusive, boundDefinitionRule), 1, FailureInvalid, errInvalidBoundValue},
+			{"invalid inline facet before zero", `<xs:element name="v" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:unsignedLong"><xs:maxInclusive value="18446744073709551616"/></xs:restriction></xs:simpleType></xs:element>`, "", `value="18446744073709551616"`, "", InvalidBoundRestrictionCode, boundSpecRef(profile.version, BoundMaxInclusive, boundRestrictionRule), 1, FailureInvalid, errInvalidBoundRestriction},
+			{"invalid member occurrence", `<xs:element name="v" type="xs:unsignedLong" maxOccurs="maybe"/>`, "", `maxOccurs="maybe"`, "", invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.version), 1, FailureInvalid, nil},
+			{"duplicate", `<xs:element name="v" type="xs:unsignedLong"/><xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>`, `<xs:element name="v"`, `<xs:element name="v"`, diagnosticSchemaElementReferenceDuplicateCode, schemaAllLimitedSpecRef(profile.version), 2, FailureInvalid, errSchemaAllMemberDuplicate},
+			{"ambiguous type declarations", `<xs:element name="v" type="r:Alias"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:unsignedLong"/></xs:simpleType><xs:simpleType name="Alias"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>`, `<xs:simpleType name="Alias"`, `<xs:simpleType name="Alias"`, diagnosticSchemaGlobalDuplicateCode, schemaGlobalDuplicateSpecRef(profile.version), 2, FailureInvalid, errSchemaGlobalDeclarationDuplicate},
 			{"cycle before zero", `<xs:element name="v" type="r:One" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="One"><xs:restriction base="r:Two"/></xs:simpleType><xs:simpleType name="Two"><xs:restriction base="r:One"/></xs:simpleType>`, `base="r:Two"`, `base="r:One"`, diagnosticSchemaSimpleTypeCycleCode, schemaSimpleTypeSpecRef(profile.version), 1, FailureInvalid, errSchemaSimpleTypeBaseCycle},
 		} {
 			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
@@ -257,9 +205,10 @@ func TestDirectAllLongBoundaryDiagnostics(t *testing.T) {
 			})
 		}
 		for _, test := range []struct{ name, model, marker, code string }{
-			{"repeated long member", `<xs:all><xs:element name="v" type="xs:long" maxOccurs="2"/></xs:all>`, `maxOccurs="2"`, diagnosticSchemaAllOccurrenceVersionCode},
-			{"zero repeated long member", `<xs:all><xs:element name="v" type="xs:long" minOccurs="0" maxOccurs="2"/></xs:all>`, `maxOccurs="2"`, diagnosticSchemaAllOccurrenceVersionCode},
-			{"zero all owner", `<xs:all minOccurs="0" maxOccurs="0"><xs:element name="v" type="xs:long"/></xs:all>`, `maxOccurs="0"`, UnsupportedSchemaSyntaxCode},
+			{"repeated unsignedLong member", `<xs:all><xs:element name="v" type="xs:unsignedLong" maxOccurs="2"/></xs:all>`, `maxOccurs="2"`, diagnosticSchemaAllOccurrenceVersionCode},
+			{"unbounded unsignedLong member", `<xs:all><xs:element name="v" type="xs:unsignedLong" maxOccurs="unbounded"/></xs:all>`, `maxOccurs="unbounded"`, diagnosticSchemaAllOccurrenceVersionCode},
+			{"zero repeated unsignedLong member", `<xs:all><xs:element name="v" type="xs:unsignedLong" minOccurs="0" maxOccurs="2"/></xs:all>`, `maxOccurs="2"`, diagnosticSchemaAllOccurrenceVersionCode},
+			{"zero all owner", `<xs:all minOccurs="0" maxOccurs="0"><xs:element name="v" type="xs:unsignedLong"/></xs:all>`, `maxOccurs="0"`, UnsupportedSchemaSyntaxCode},
 		} {
 			if profile.policy != Strict10 {
 				continue
@@ -281,7 +230,7 @@ func TestDirectAllLongBoundaryDiagnostics(t *testing.T) {
 			cause                                  error
 		}{
 			{"owner zero unresolved", `<xs:element name="v" type="r:Missing"/>`, "", `type="r:Missing"`, diagnosticSchemaElementTypeUnresolvedCode, schemaElementTypeSpecRef(XSDVersion11), errSchemaElementTypeUnresolved},
-			{"owner zero bad facet", `<xs:element name="v" type="r:Bad"/>`, `<xs:simpleType name="Bad"><xs:restriction base="xs:long"><xs:maxInclusive value="9223372036854775808"/></xs:restriction></xs:simpleType>`, `value="9223372036854775808"`, InvalidBoundRestrictionCode, boundSpecRef(XSDVersion11, BoundMaxInclusive, boundRestrictionRule), errInvalidBoundRestriction},
+			{"owner zero bad facet", `<xs:element name="v" type="r:Bad"/>`, `<xs:simpleType name="Bad"><xs:restriction base="xs:unsignedLong"><xs:maxInclusive value="18446744073709551616"/></xs:restriction></xs:simpleType>`, `value="18446744073709551616"`, InvalidBoundRestrictionCode, boundSpecRef(XSDVersion11, BoundMaxInclusive, boundRestrictionRule), errInvalidBoundRestriction},
 		} {
 			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
 				root := allParticleTestRoot(`<xs:all minOccurs="0" maxOccurs="0">`+test.member+`</xs:all>`, test.defs)
@@ -297,7 +246,7 @@ func TestDirectAllLongBoundaryDiagnostics(t *testing.T) {
 }
 
 //nolint:dupl,gocognit // Each bounded integer category checks its public query and consumer boundaries.
-func TestDirectAllLongReferenceTargetAndConsumers(t *testing.T) {
+func TestDirectAllUnsignedLongReferenceTargetAndConsumers(t *testing.T) {
 	for _, profile := range []struct {
 		policy  LanguagePolicy
 		version XSDVersion
@@ -306,9 +255,9 @@ func TestDirectAllLongReferenceTargetAndConsumers(t *testing.T) {
 			name, member, defs string
 			wantReference      bool
 		}{
-			{"builtin", `<xs:element name="v" type="xs:long"/>`, "", false},
-			{"named", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:long"/></xs:simpleType>`, false},
-			{"ref to long", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:long"/>`, true},
+			{"builtin", `<xs:element name="v" type="xs:unsignedLong"/>`, "", false},
+			{"named", `<xs:element name="v" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>`, false},
+			{"ref to unsignedLong", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:unsignedLong"/>`, true},
 			{"ref to int target", `<xs:element ref="r:target"/>`, `<xs:element name="target" type="xs:int"/>`, true},
 		} {
 			t.Run(string(profile.policy)+"/"+test.name, func(t *testing.T) {
@@ -334,28 +283,43 @@ func TestDirectAllLongReferenceTargetAndConsumers(t *testing.T) {
 	}
 }
 
-func TestDirectAllLongHiddenGraphTypeRemainsUnresolved(t *testing.T) {
-	assertAllIntegerHiddenGraphTypeUnresolved(t, "long")
+func TestDirectAllUnsignedLongHiddenGraphTypeRemainsUnresolved(t *testing.T) {
+	assertAllIntegerHiddenGraphTypeUnresolved(t, "unsignedLong")
 }
 
-func assertAllIntegerHiddenGraphTypeUnresolved(t *testing.T, atomic string) {
-	t.Helper()
-	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:h="urn:hidden" targetNamespace="urn:all"><xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/><xs:complexType name="Record"><xs:all><xs:element name="v" type="h:Hidden"/></xs:all></xs:complexType></xs:schema>`
-	fixtures := map[string]discoveryFixture{
-		"bridge.xsd": {id: "bridge.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge"><xs:import namespace="urn:hidden" schemaLocation="hidden.xsd"/></xs:schema>`},
-		"hidden.xsd": {id: "hidden.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:hidden"><xs:simpleType name="Hidden"><xs:restriction base="xs:` + atomic + `"/></xs:simpleType></xs:schema>`},
-	}
+//nolint:gocognit // Compare the adjacent public value rule across all policies.
+func TestDirectAllUnsignedLongAdjacentValueLexicalPolicy(t *testing.T) {
 	for _, profile := range []struct {
 		policy  LanguagePolicy
 		version XSDVersion
 	}{{Compatibility, XSDVersion11}, {Strict10, XSDVersion10}, {Strict11, XSDVersion11}} {
-		t.Run(string(profile.policy), func(t *testing.T) {
-			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
-			assertZeroSchema(t, schema)
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaElementTypeUnresolvedCode || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, `type="h:Hidden"`, 1) || diagnostic.SpecRef() != schemaElementTypeSpecRef(profile.version) || len(diagnostic.Related()) != 0 || !errors.Is(err, errSchemaElementTypeUnresolved) {
-				t.Fatalf("hidden integer diagnostic = %s/%v", diagnostic, err)
-			}
-		})
+		for _, lexical := range []string{"0", "+0", "-0", "+7"} {
+			t.Run(string(profile.policy)+"/"+lexical, func(t *testing.T) {
+				root := allParticleTestRoot(`<xs:all><xs:element name="v" type="xs:unsignedLong"/></xs:all>`, `<xs:attribute name="value" type="xs:unsignedLong" default="`+lexical+`"/>`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				loc := allParticleTestTokenLoc(t, "root.xsd", root, `default="`+lexical+`"`, 1)
+				if profile.policy == Strict10 && lexical != "0" {
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaAttributeValueConstraintCode || diagnostic.Loc() != loc || diagnostic.SpecRef() != schemaAttributeValueSpecRef(profile.version) || len(diagnostic.Related()) != 0 || requireNestedDiagnostic(t, diagnostic).Code() != InvalidIntegerLexicalCode {
+						t.Fatalf("Strict10 facet diagnostic = %s/%v", diagnostic, err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				member, ok := directAllFromSchema(t, schema).Members()[0].(ElementParticle)
+				if !ok || member.DeclaredType() != mustTestQName(t, testXSDNamespace, "unsignedLong") {
+					t.Fatalf("all member = %#v", member)
+				}
+				reference, _ := member.TypeReference()
+				assertAllIntegerBounds(t, reference, profile.version, "0", "18446744073709551615", Loc{}, Loc{})
+			})
+		}
 	}
+}
+
+func TestDirectAllUnsignedLongExcludedOwners(t *testing.T) {
+	assertAllIntegerExcludedOwners(t, "unsignedLong")
 }

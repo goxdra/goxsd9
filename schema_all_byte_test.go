@@ -66,7 +66,7 @@ func TestDirectAllByteGraphFacts(t *testing.T) {
 			}
 			assertAllIntegerBounds(t, builtinRef, profile.version, "-128", "127", Loc{}, Loc{})
 			assertByteParticleBuiltinBounds(t, builtinRef, profile.version)
-			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "byte", "-128", "127")
+			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "byte", "-128", "127", "-100")
 			direct, isElement := members[1].(ElementParticle)
 			if !isElement {
 				t.Fatalf("direct member = %T", members[1])

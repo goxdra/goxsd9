@@ -150,6 +150,7 @@ var (
 	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
 	errSchemaAllMemberDuplicate                  = errors.New("all particle member has a duplicate expanded name")
 	errSchemaAllMemberScalar                     = errors.New("all particle member has an unsupported scalar type")
+	errSchemaUnsignedLong10FacetLexical          = errors.New("XSD 1.0 unsignedLong facet has a signed lexical value")
 	errSchemaAllMemberInlineComplex              = errors.New("all particle member has an unsupported inline complex type")
 	errSchemaElementReferenceBlock               = errors.New("element reference cannot specify block")
 	errSchemaModelGroupReferenceUnresolved       = errors.New("model-group reference is unresolved")
@@ -8281,7 +8282,7 @@ func resolveSchemaAllParticle(
 			if memberInput.typeInput != nil {
 				loc = memberInput.typeInput.typeLoc
 			}
-			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string, and built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/int/short/byte scalars", version)
+			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string, and built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/int/short/byte/unsignedLong scalars", version)
 			diagnostic.specRef = schemaAllLimitedSpecRef(version)
 			diagnostic.cause = errSchemaAllMemberScalar
 			return nil, diagnostic
@@ -8324,10 +8325,9 @@ func schemaAllScalarAllowed(reference schemaSimpleTypeReferenceComponent) bool {
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNonNegativeInteger:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
-	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte:
+	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNormalizedString,
-		schemaSimpleTypeAtomicUnsignedLong,
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
@@ -10179,7 +10179,7 @@ func restrictSchemaSimpleTypeFacets(
 			if typed.integerBounds.Version() == version {
 				baseBounds = typed.integerBounds
 			}
-			return restrictSchemaIntegerFacets(typed.value, baseBounds, baseEnumeration, inputs, version)
+			return restrictSchemaIntegerFacets(typed.value, baseBounds, baseEnumeration, atomicKind, inputs, version)
 		case DigitDatatypeDecimal:
 			baseEnumeration, err := NewDecimalEnumerationFacets(nil, version)
 			if err != nil {
@@ -10197,7 +10197,7 @@ func restrictSchemaSimpleTypeFacets(
 			return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown digit datatype")
 		}
 	case schemaIntegerFacetVariant:
-		return restrictSchemaIntegerFacets(typed.digits, typed.bounds, typed.enumeration, inputs, version)
+		return restrictSchemaIntegerFacets(typed.digits, typed.bounds, typed.enumeration, atomicKind, inputs, version)
 	case schemaDecimalFacetVariant:
 		return restrictSchemaDecimalFacets(typed.digits, typed.bounds, typed.enumeration, inputs, version)
 	case schemaPrecisionDecimalFacetVariant:
@@ -10279,10 +10279,11 @@ func restrictSchemaIntegerFacets(
 	base DigitFacets,
 	baseBounds IntegerBoundFacets,
 	baseEnumeration IntegerEnumerationFacets,
+	atomicKind schemaSimpleTypeAtomicKind,
 	inputs []schemaFacetInput,
 	version XSDVersion,
 ) (schemaSimpleTypeFacetVariant, error) {
-	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeInteger, version)
+	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeInteger, atomicKind, version)
 	if err != nil {
 		return nil, err
 	}
@@ -10308,6 +10309,31 @@ func restrictSchemaIntegerFacets(
 	return schemaIntegerFacetVariant{digits: digits, enumeration: enumeration, bounds: bounds}, nil
 }
 
+func validateSchemaUnsignedLong10FacetLexical(atomicKind schemaSimpleTypeAtomicKind, input schemaFacetInput, version XSDVersion) error {
+	if atomicKind != schemaSimpleTypeAtomicUnsignedLong || version != XSDVersion10 {
+		return nil
+	}
+	lexical := collapseXMLWhitespace(input.lexical)
+	if len(lexical) < 2 || lexical[0] != '+' && lexical[0] != '-' || !schemaUnsignedLong10Lexical(lexical[1:]) {
+		return nil
+	}
+	loc := schemaFacetValueLocation(input)
+	cause := Diagnostic{
+		class: FailureInvalid, code: InvalidIntegerLexicalCode, loc: loc,
+		message: "invalid XSD 1.0 xs:unsignedLong lexical representation",
+		specRef: "xsd10-datatypes#unsignedLong-lexical-representation",
+		cause:   errSchemaUnsignedLong10FacetLexical,
+	}
+	if input.kind == schemaFacetEnumeration {
+		return invalidEnumerationLexicalDiagnostic("unsignedLong", version, input.loc, cause)
+	}
+	boundKind, ok := schemaBoundKindFromFacet(input.kind)
+	if ok {
+		return invalidBoundLexicalDiagnostic(boundKind, loc, version, cause)
+	}
+	return nil
+}
+
 func restrictSchemaDecimalFacets(
 	base DigitFacets,
 	baseBounds DecimalBoundFacets,
@@ -10315,7 +10341,7 @@ func restrictSchemaDecimalFacets(
 	inputs []schemaFacetInput,
 	version XSDVersion,
 ) (schemaSimpleTypeFacetVariant, error) {
-	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeDecimal, version)
+	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeDecimal, schemaSimpleTypeAtomicDecimal, version)
 	if err != nil {
 		return nil, err
 	}
@@ -10691,6 +10717,7 @@ func schemaBooleanDatatypeSpecRef(version XSDVersion) string {
 func schemaNumericFacetDeclarations(
 	inputs []schemaFacetInput,
 	kind DigitDatatype,
+	atomicKind schemaSimpleTypeAtomicKind,
 	version XSDVersion,
 ) (schemaNumericFacetDeclarationSet, error) {
 	var totalDigits *TotalDigitsFacet
@@ -10704,6 +10731,9 @@ func schemaNumericFacetDeclarations(
 		return schemaNumericFacetDeclarationSet{}, newSchemaBridgeInvariant(Loc{}, "simple type facet collection has an unknown digit datatype")
 	}
 	for _, input := range inputs {
+		if err := validateSchemaUnsignedLong10FacetLexical(atomicKind, input, version); err != nil {
+			return schemaNumericFacetDeclarationSet{}, err
+		}
 		loc := schemaFacetValueLocation(input)
 		switch input.kind {
 		case schemaFacetTotalDigits:
