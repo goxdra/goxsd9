@@ -1022,6 +1022,16 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
+	if kind == ComponentKindElementDeclaration && attribute.name.local == "abstract" && inlineComplexTypeChild(element) != nil {
+		value, err := schemaBooleanValue(attribute)
+		if err != nil {
+			return "", newDiagnostic(FailureInvalid, invalidSchemaCompositionCode, attribute.loc, "global inline complex element abstract has an invalid boolean value", err)
+		}
+		if !value {
+			return "", nil
+		}
+		return "", newSchemaSyntaxUnsupportedForVersion(attribute.loc, "global element attribute \"abstract\" is not implemented", version)
+	}
 	if implementedGlobalComplexTypeBooleanAttribute(kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
