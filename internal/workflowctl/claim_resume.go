@@ -56,6 +56,9 @@ type claimResumePreflight struct {
 	claimLease       time.Time
 	projectItemID    string
 	projectStatus    string
+	projectOptionID  string
+	projectIssueID   string
+	projectRepoID    string
 	needsHuman       bool
 	localState       string
 	mergeState       string
@@ -336,11 +339,7 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 	if issueStatus.State != "OPEN" {
 		return claimResumeProof{}, stateError("issue #%d is %s; claim recovery requires OPEN and no mutation was performed", issue, issueStatus.State)
 	}
-	items, err := a.projectItems(root)
-	if err != nil {
-		return claimResumeProof{}, err
-	}
-	item, err := canonicalClaimResumeProjectItem(items, issue)
+	item, err := a.readClaimResumeProjectItem(root, issue)
 	if err != nil {
 		return claimResumeProof{}, err
 	}
@@ -365,6 +364,7 @@ func (a app) readClaimResumeProof(issue int, expectedHead, runID string, handoff
 			runID: runID, issue: issue, handoffCommentID: handoffCommentID,
 			claimCommentID: evidence.claimCommentID, handoffBody: evidence.handoffBody,
 			claimLease: evidence.claimLease, projectItemID: item.ID, projectStatus: item.Status,
+			projectOptionID: item.StatusOptionID, projectIssueID: item.IssueID, projectRepoID: item.RepositoryID,
 			needsHuman: needsHuman, localState: localState.digest, mergeState: mergeState,
 		},
 		renewal: renewal,
@@ -2375,23 +2375,6 @@ func (a app) validateNoOpenClaimResumePR(root, fixedBranch string, issue int) er
 	return nil
 }
 
-func canonicalClaimResumeProjectItem(list projectList, issue int) (projectItem, error) {
-	matches := make([]projectItem, 0, 1)
-	for _, item := range list.Items {
-		if item.Content.Number != issue || item.Content.Repository != repositoryKey {
-			continue
-		}
-		if item.Content.Type != "Issue" || strings.TrimSpace(item.ID) == "" {
-			return projectItem{}, stateError("issue #%d has a malformed or non-Issue canonical Project item; preserve external state", issue)
-		}
-		matches = append(matches, item)
-	}
-	if len(matches) != 1 {
-		return projectItem{}, stateError("issue #%d has %d canonical Project items; expected exactly one and preserved external state", issue, len(matches))
-	}
-	return matches[0], nil
-}
-
 //nolint:gocognit // Original and unpublished renewal lanes share one closed plan proof.
 func (a app) claimResumeRenewalPlan(root, expectedHead, localHead, remoteHead string, issue int, runID, sourceHead string) (claimResumeRenewalPlan, error) {
 	if sourceHead != "" {
@@ -2668,6 +2651,8 @@ func sameClaimResumeProof(before, after claimResumeProof) error {
 		beforePreflight.handoffCommentID != afterPreflight.handoffCommentID || beforePreflight.claimCommentID != afterPreflight.claimCommentID ||
 		beforePreflight.handoffBody != afterPreflight.handoffBody || !beforePreflight.claimLease.Equal(afterPreflight.claimLease) ||
 		beforePreflight.projectItemID != afterPreflight.projectItemID || beforePreflight.projectStatus != afterPreflight.projectStatus ||
+		beforePreflight.projectOptionID != afterPreflight.projectOptionID || beforePreflight.projectIssueID != afterPreflight.projectIssueID ||
+		beforePreflight.projectRepoID != afterPreflight.projectRepoID ||
 		beforePreflight.needsHuman != afterPreflight.needsHuman || beforePreflight.localState != afterPreflight.localState ||
 		beforePreflight.mergeState != afterPreflight.mergeState ||
 		!sameClaimResumeRenewalPlan(before.renewal, after.renewal) {
@@ -2886,7 +2871,7 @@ func (a app) verifyClaimResumeRenewal(proof claimResumeProof, renewal claimResum
 
 type claimResumeReconciliationTarget struct {
 	status issueStatus
-	item   projectItem
+	item   claimResumeProjectItem
 }
 
 type claimResumeReconciliationPhase uint8
@@ -2930,6 +2915,8 @@ func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliation
 			fresh.preflight.localState != proof.preflight.localState || fresh.preflight.mergeState != proof.preflight.mergeState ||
 			fresh.preflight.handoffBody != proof.preflight.handoffBody || fresh.preflight.claimCommentID != proof.preflight.claimCommentID ||
 			!fresh.preflight.claimLease.Equal(proof.preflight.claimLease) || fresh.preflight.projectItemID != proof.preflight.projectItemID ||
+			fresh.preflight.projectOptionID != proof.preflight.projectOptionID || fresh.preflight.projectIssueID != proof.preflight.projectIssueID ||
+			fresh.preflight.projectRepoID != proof.preflight.projectRepoID ||
 			fresh.preflight.localHead == source.source {
 			return claimResumeReconciliationTarget{}, stateError("integrated claim, remote marker, or preserved state changed before metadata mutation")
 		}
@@ -2947,15 +2934,13 @@ func (a app) readClaimResumeReconciliationTarget(state claimResumeReconciliation
 	if noPRErr := a.validateNoOpenClaimResumePR(proof.preflight.root, proof.preflight.fixedBranch, proof.preflight.issue); noPRErr != nil {
 		return claimResumeReconciliationTarget{}, noPRErr
 	}
-	items, err := a.projectItems(proof.preflight.root)
+	item, err := a.readClaimResumeProjectItem(proof.preflight.root, proof.preflight.issue)
 	if err != nil {
 		return claimResumeReconciliationTarget{}, claimResumeRetry(proof, "Project read", err)
 	}
-	item, err := canonicalClaimResumeProjectItem(items, proof.preflight.issue)
-	if err != nil {
-		return claimResumeReconciliationTarget{}, err
-	}
-	if item.ID != proof.preflight.projectItemID {
+	if item.ID != proof.preflight.projectItemID || item.IssueID != proof.preflight.projectIssueID ||
+		item.RepositoryID != proof.preflight.projectRepoID ||
+		(item.Status == proof.preflight.projectStatus && item.StatusOptionID != proof.preflight.projectOptionID) {
 		return claimResumeReconciliationTarget{}, stateError("issue #%d canonical Project item changed from %s to %s; preserve renewed artifacts", proof.preflight.issue, proof.preflight.projectItemID, item.ID)
 	}
 	if item.Status != "Backlog" && item.Status != "Picked" {

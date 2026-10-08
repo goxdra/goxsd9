@@ -1565,6 +1565,7 @@ type claimResumeBackend struct {
 	afterLocalRenewal          func()
 	afterPush                  func()
 	projectFailure             error
+	projectPage                func(read int, after string) (string, error)
 	mutations                  int
 	calls                      []string
 }
@@ -1684,11 +1685,14 @@ func (b *claimResumeBackend) executeGH(args ...string) (string, error) {
 			return "", errors.New("simulated lost label response")
 		}
 		return "", nil
-	case strings.HasPrefix(joined, "project item-list "):
+	case len(args) > 3 && args[0] == "api" && args[1] == "graphql" && slices.Contains(args, "query="+claimResumeProjectIssueQuery):
 		if b.raceProjectPicked && b.projectItemReads() == 3 {
 			b.projectStatus = "Picked"
 		}
-		return fmt.Sprintf(`{"items":[{"id":"item-%d","status":%q,"content":{"number":%d,"repository":"goxdra/goxsd9","type":"Issue"}}],"totalCount":1}`, b.fixture.issue, b.projectStatus, b.fixture.issue), nil
+		if b.projectPage != nil {
+			return b.projectPage(b.projectItemReads(), claimResumeProjectAfter(args))
+		}
+		return claimResumeProjectPageJSON(b.fixture.issue, b.projectStatus), nil
 	case strings.HasPrefix(joined, "project field-list "):
 		return `{"fields":[{"id":"status-field","name":"Status","options":[{"id":"backlog-id","name":"Backlog"},{"id":"picked-id","name":"Picked"}]}]}`, nil
 	case strings.Contains(joined, "project item-edit"):
@@ -1732,11 +1736,24 @@ func (b *claimResumeBackend) issueStatusReads() int {
 func (b *claimResumeBackend) projectItemReads() int {
 	reads := 0
 	for _, call := range b.calls {
-		if strings.HasPrefix(call, "gh project item-list ") {
+		if strings.HasPrefix(call, "gh api graphql -f query="+claimResumeProjectIssueQuery) {
 			reads++
 		}
 	}
 	return reads
+}
+
+func claimResumeProjectAfter(args []string) string {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "after=") {
+			return strings.TrimPrefix(arg, "after=")
+		}
+	}
+	return ""
+}
+
+func claimResumeProjectPageJSON(number int, status string) string {
+	return fmt.Sprintf(`{"data":{"repository":{"id":"repo-id","nameWithOwner":"goxdra/goxsd9","issue":{"id":"issue-%d","number":%d,"projectItems":{"totalCount":1,"nodes":[{"id":"item-%d","type":"ISSUE","isArchived":false,"project":{"id":%q,"number":1},"content":{"__typename":"Issue","id":"issue-%d","number":%d,"repository":{"id":"repo-id","nameWithOwner":"goxdra/goxsd9"}},"fieldValueByName":{"__typename":"ProjectV2ItemFieldSingleSelectValue","name":%q,"optionId":"option-id","field":{"id":%q}}}],"pageInfo":{"hasNextPage":false,"endCursor":"one"}}}}}}`, number, number, number, projectID, number, number, status, claimResumeStatusFieldID)
 }
 
 func claimResumeGitHubMutations(calls []string) []string {
