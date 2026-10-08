@@ -49,9 +49,6 @@
 // 1.1, a local attribute targetNamespace selects its explicit namespace only
 // when a containing targetNamespace exists and matches; missing or mismatched
 // values are invalid, while Strict10 reports an edition mismatch.
-// Named complex empty/choice/sequence bodies and grouped extensions expose
-// explicit built-in or facet-free named effective xs:ID local attribute uses.
-// Strict10 rejects a second effective ID use; ID-bearing uses remain query-only.
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.
@@ -300,6 +297,12 @@
 // anonymous grouped-extension owners remain unsupported, including applicable
 // 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
+// Named complex owners with empty, direct choice, direct sequence, or grouped
+// extension bodies also admit explicit built-in or facet-free named effective
+// xs:ID local uses for queries.
+// Strict10 rejects a second effective ID. Global ID refs, inline ID, ID
+// default/fixed/facets/lists/unions, other owners, validation, and generation
+// remain unsupported.
 // Local named/inline lists with atomic precisionDecimal items and two-member
 // unions of precisionDecimal then negativeInteger are also admitted; other
 // local varieties and explicit xs:int remain unsupported. Strict10 rejects
