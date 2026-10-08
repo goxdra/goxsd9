@@ -31,7 +31,7 @@ built-in/named long locals for queries; valid inline `0/0` omits, nonzero reject
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
 default integer/decimal sequence refs; other targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
-integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte, built-in
+integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong, built-in
 string, built-in/named nonNegativeInteger, and refs with exact bounds; consumers reject it.
 Compatibility/Strict11 expose QName `notQName` on direct strict `xs:any`; consumers reject wildcards.
 

@@ -67,7 +67,7 @@ func TestDirectAllShortGraphFacts(t *testing.T) {
 				t.Fatalf("builtin type provenance = %#v/%v/%v", builtinRef, builtinID, refID)
 			}
 			assertAllIntegerBounds(t, builtinRef, profile.version, "-32768", "32767", Loc{}, Loc{})
-			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "short", "-32768", "32767")
+			assertAllIntegerNamedGraphMembers(t, schema, members, root, fixtures, profile.version, "short", "-32768", "32767", "-100")
 			direct, isElement := members[1].(ElementParticle)
 			if !isElement {
 				t.Fatalf("direct member = %T", members[1])
