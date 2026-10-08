@@ -137,6 +137,8 @@
 // declarations, and element references. Member order is lexical
 // for queries; matching remains unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
 // exact general member bounds. Resolved 0/0 terms omit after their gates;
+// named effective unsignedLong bound/enumeration facets require digits-only
+// lexical forms under Strict10, including when their members would omit.
 // inline complex members reject even at 0/0. Surviving duplicate names,
 // anonymous simple types, excluded member shapes, and other scalar types
 // return located diagnostics and no Schema.

@@ -406,6 +406,7 @@ func assertUnsignedLongGraphElement(t *testing.T, schema Schema, root string, fi
 	assertUnsignedLongBuiltinReference(t, reference, schemaBuiltinReferenceAttributeLoc(t, test.source, test.needle, root, fixtures), version)
 }
 
+//nolint:gocognit // Preserve existing invalid-reference matrix under the edition-specific facet rule.
 func TestSchemaUnsignedLongRejectsInvalidReferencesAndRestrictions(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		for _, test := range []struct {
@@ -455,6 +456,14 @@ func TestSchemaUnsignedLongRejectsInvalidReferencesAndRestrictions(t *testing.T)
 			},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				if profile.policy == Strict10 {
+					if test.name == "below minimum" {
+						test.cause = errInvalidBoundValue
+					}
+					if test.name == "negative enumeration" {
+						test.cause = errInvalidEnumerationValue
+					}
+				}
 				schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
 				assertUnsignedLongInvalidNoPartialSchema(t, schema, err, test.cause, profile.version)
 			})

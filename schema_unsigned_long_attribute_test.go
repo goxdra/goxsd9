@@ -405,6 +405,10 @@ func TestSchemaUnsignedLongGlobalAttributeInvalidFormsRemainLocated(t *testing.T
 			},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				if profile.policy == Strict10 && test.name == "negative restriction" {
+					test.cause = errInvalidBoundValue
+					test.code = InvalidBoundCode
+				}
 				schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, profile.policy)
 				if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
 					t.Fatal("invalid unsignedLong global attribute form was accepted or returned a partial schema")
