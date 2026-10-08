@@ -140,6 +140,7 @@ var (
 	errSchemaSimpleTypeBaseCycle                 = errors.New("simple type base is cyclic")
 	errSchemaSimpleTypeInvalidDerivation         = errors.New("simple type derivation is invalid")
 	errSchemaNMTOKENValueViolation               = errors.New("NMTOKEN value is invalid")
+	errSchemaNCNameValueViolation                = errors.New("NCName value is invalid")
 	errSchemaSimpleTypeRestrictionUnsupported    = errors.New("simple type restriction variety is not implemented")
 	errSchemaElementTypeUnresolved               = errors.New("element type is unresolved")
 	errSchemaElementTypeWrongKind                = errors.New("element type has the wrong kind")
@@ -9473,6 +9474,13 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 	}
 	facets, err := restrictSchemaSimpleTypeFacets(base.facets, base.atomicKind, model.facets, version)
 	if err != nil {
+		if base.atomicKind == schemaSimpleTypeAtomicNCName && errors.Is(err, errSchemaNCNameValueViolation) {
+			var diagnostic Diagnostic
+			if errors.As(err, &diagnostic) && !model.base.loc.IsZero() && diagnostic.loc != model.base.loc {
+				diagnostic.related = append(diagnostic.Related(), model.base.loc)
+				return schemaSimpleTypeResult{}, diagnostic
+			}
+		}
 		return schemaSimpleTypeResult{}, err
 	}
 	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
@@ -9772,6 +9780,8 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		return resolveBuiltinTokenSchemaSimpleTypeReference(input, version)
 	case "NMTOKEN":
 		return resolveBuiltinNMTOKENSchemaSimpleTypeReference(input, version)
+	case "NCName":
+		return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicNCName, defaultTokenWhiteSpaceFacet())
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, version)
 		if err != nil {
@@ -9963,9 +9973,6 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		result.facets = schemaBooleanFacetVariant{}
 	case "language":
 		result.atomicKind = schemaSimpleTypeAtomicLanguage
-		result.facets = schemaAtomicFacetVariant{}
-	case "NCName":
-		result.atomicKind = schemaSimpleTypeAtomicNCName
 		result.facets = schemaAtomicFacetVariant{}
 	case "anyURI":
 		result.atomicKind = schemaSimpleTypeAtomicAnyURI
@@ -10300,8 +10307,8 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schema
 	if err != nil {
 		return nil, err
 	}
-	if atomicKind == schemaSimpleTypeAtomicNMTOKEN {
-		validationErr := validateSchemaNMTOKENEnumerationBaseValueSpace(local.enumeration, version)
+	if atomicKind == schemaSimpleTypeAtomicNMTOKEN || atomicKind == schemaSimpleTypeAtomicNCName {
+		validationErr := validateSchemaNameEnumerationBaseValueSpace(local.enumeration, atomicKind, version)
 		if validationErr != nil {
 			return nil, validationErr
 		}
@@ -10309,6 +10316,11 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schema
 	enumeration, err := restrictSchemaStringEnumeration(base, local.enumeration)
 	if err != nil {
 		return nil, err
+	}
+	if atomicKind == schemaSimpleTypeAtomicNCName {
+		if whiteSpaceErr := rejectNCNameWhiteSpaceFacets(inputs, version); whiteSpaceErr != nil {
+			return nil, whiteSpaceErr
+		}
 	}
 	whiteSpace, err := restrictStringWhiteSpaceFacet(base.whiteSpace, local.whiteSpace, version)
 	if err != nil {
@@ -10318,6 +10330,15 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schema
 		return nil, local.deferredUnsupported
 	}
 	return schemaStringFacetVariant{enumeration: enumeration, whiteSpace: &whiteSpace}, nil
+}
+
+func rejectNCNameWhiteSpaceFacets(inputs []schemaFacetInput, version XSDVersion) error {
+	for _, input := range inputs {
+		if input.kind == schemaFacetWhiteSpace {
+			return unsupportedSchemaDatatypeFacet(input, version)
+		}
+	}
+	return nil
 }
 
 func restrictSchemaStringEnumeration(base schemaStringFacetVariant, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
@@ -10553,22 +10574,27 @@ func schemaEnumerationBaseValueSpaceDiagnostic(
 	)
 }
 
-func validateSchemaNMTOKENEnumerationBaseValueSpace(local StringEnumerationFacetDeclarations, version XSDVersion) error {
+func validateSchemaNameEnumerationBaseValueSpace(local StringEnumerationFacetDeclarations, kind schemaSimpleTypeAtomicKind, version XSDVersion) error {
 	if local.Values == nil {
 		return nil
 	}
 	for index := range local.Values {
 		declaration := local.Values[index]
 		value := collapseXMLWhitespace(declaration.Value())
-		if validXMLNmtoken(value) {
+		if kind == schemaSimpleTypeAtomicNMTOKEN && validXMLNmtoken(value) || kind == schemaSimpleTypeAtomicNCName && validNCName(value) {
 			continue
 		}
+		datatype := "NMTOKEN"
 		cause := fmt.Errorf("%w: %q", errSchemaNMTOKENValueViolation, value)
+		if kind == schemaSimpleTypeAtomicNCName {
+			datatype = "NCName"
+			cause = fmt.Errorf("%w: %q", errSchemaNCNameValueViolation, value)
+		}
 		return schemaEnumerationBaseValueSpaceDiagnostic(
 			declaration.Loc(),
 			nil,
 			version,
-			"NMTOKEN",
+			datatype,
 			cause,
 		)
 	}

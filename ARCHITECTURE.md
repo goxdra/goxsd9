@@ -80,7 +80,7 @@ named `xs:ID` locals. Strict10 rejects a second effective ID; inline/ref/value
 forms and consumers reject.
 Global typed attributes include built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
-Global inline varieties retain anonymous IDs, ordered refs/`Loc`s, facets, and
+Global inline varieties retain IDs, ordered refs/`Loc`s, NCName enumeration facets, and
 `finalDefault`; `normalizedString` leaves reject, while `string` members admit.
 Default/fixed covers built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong and policy-gated `precisionDecimal`.
 Integer facets/values exact; unsignedLong values/bounds/enumerations use digits-only

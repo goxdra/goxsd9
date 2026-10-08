@@ -4359,7 +4359,7 @@ func inlineSimpleTypeMayHaveStringRestrictionBase(element *syntaxElement) bool {
 			return false
 		}
 		if base.Namespace() == xsdNamespaceURI {
-			return base.Local() == "string" || base.Local() == "normalizedString" || base.Local() == "token" || base.Local() == "NMTOKEN" || base.Local() == "derivationControl"
+			return base.Local() == "string" || base.Local() == "normalizedString" || base.Local() == "token" || base.Local() == "NMTOKEN" || base.Local() == "NCName" || base.Local() == "derivationControl"
 		}
 		return true
 	}
