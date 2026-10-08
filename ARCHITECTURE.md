@@ -95,10 +95,9 @@ chameleon adoption, and `0/0` omission. Compatibility/Strict11 direct strict
 `xs:any` retains normalized `notQName` tokens, bindings, `Loc`, and sorted names.
 Inconsistent exclusions fail before omission; consumers/broader forms reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
-Supported global inline complexes accept whitespace-collapsed unqualified `mixed="false"`/`"0"` as omission under every policy.
-True/1 is located unsupported with edition SpecRef; malformed Boolean input is located invalid with lexical cause.
-No lexical-presence fact; shape/occurrence/consumer boundaries stay fixed.
-Inline IDs stay outside walks; selected precisionDecimal sequences validate. Lists/unions, sequences, and attributes retain order.
+Global inline complexes omit whitespace-collapsed `mixed="false"`/`"0"` under every policy; true/1 is unsupported and malformed values are invalid.
+Compatibility/Strict11 omit valid `defaultAttributesApply` values; Strict10 rejects them. Schema `defaultAttributes` stays unsupported. Diagnostics stay located; no presence state or widened shapes/consumers.
+Inline IDs stay outside walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Strict10 rejects precisionDecimal. Element refs retain ranges. Strings validate
 with bounded varieties; `normalizedString` supports replace whitespace/facets.

@@ -1830,12 +1830,6 @@ func TestSchemaBridgePreflightsReachableInlineSyntax(t *testing.T) {
 			code:    UnsupportedSchemaSyntaxCode,
 		},
 		{
-			name:    "inline complexType defaultAttributesApply is unsupported in XSD 1.1",
-			root:    wrapper(` version="1.1"`, `<xs:complexType defaultAttributesApply="true"><xs:sequence/></xs:complexType>`),
-			class:   FailureUnsupported,
-			feature: FeatureSchemaSyntax,
-		},
-		{
 			name:    "inline complexType mixed remains unsupported",
 			root:    wrapper("", `<xs:complexType mixed="true"><xs:sequence/></xs:complexType>`),
 			class:   FailureUnsupported,

@@ -1035,8 +1035,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if version == XSDVersion11 &&
 		kind == ComponentKindComplexTypeDefinition &&
 		attribute.name.namespace == "" &&
-		attribute.name.local == "defaultAttributesApply" &&
-		len(syntaxAttributesByLocal(element, "name")) == 1 {
+		attribute.name.local == "defaultAttributesApply" {
 		return "", validateSchemaBoolean(attribute)
 	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
