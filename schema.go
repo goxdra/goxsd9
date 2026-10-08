@@ -277,9 +277,9 @@ func (reference SimpleTypeReference) AnonymousType() (SimpleTypeDefinition, bool
 	return SimpleTypeDefinition{facts: reference.facts.anonymous}, true
 }
 
-// StringEnumerationFacets returns the effective lexical string enumeration
-// facets of the referenced type. It returns the zero value for a non-string
-// reference.
+// StringEnumerationFacets returns effective lexical enumeration facts for a
+// referenced string-facet type, including NCName. It returns zero when the
+// reference has no string-facet facts.
 func (reference SimpleTypeReference) StringEnumerationFacets() StringEnumerationFacets {
 	if reference.facts == nil {
 		return StringEnumerationFacets{}
@@ -291,9 +291,9 @@ func (reference SimpleTypeReference) StringEnumerationFacets() StringEnumeration
 	return facets.enumeration
 }
 
-// StringWhiteSpaceFacet returns the effective string whiteSpace facet of the
-// referenced type. It returns false for a non-string reference or incomplete
-// internal facet facts.
+// StringWhiteSpaceFacet returns the effective whiteSpace facet of a referenced
+// string-facet type, including NCName. It returns false when those facts or
+// the whiteSpace value are absent.
 func (reference SimpleTypeReference) StringWhiteSpaceFacet() (StringWhiteSpaceFacet, bool) {
 	if reference.facts == nil {
 		return StringWhiteSpaceFacet{}, false
@@ -936,8 +936,9 @@ func (definition SimpleTypeDefinition) IsBoolean() bool {
 	return ok
 }
 
-// IsString reports whether the simple type is derived from the XSD string
-// datatype.
+// IsString reports whether the simple type is modeled as string,
+// normalizedString, token, or NMTOKEN. NCName returns false even though its
+// string enumeration and whiteSpace facts can be queried separately.
 func (definition SimpleTypeDefinition) IsString() bool {
 	if definition.facts == nil {
 		return false
@@ -991,8 +992,9 @@ func (definition SimpleTypeDefinition) DecimalEnumerationFacets() DecimalEnumera
 	return facets.enumeration
 }
 
-// StringEnumerationFacets returns the effective lexical string enumeration
-// facets. It returns the zero value for a non-string simple type.
+// StringEnumerationFacets returns effective lexical enumeration facts for a
+// string-facet type, including NCName. It returns zero when the type has no
+// string-facet facts.
 func (definition SimpleTypeDefinition) StringEnumerationFacets() StringEnumerationFacets {
 	if definition.facts == nil {
 		return StringEnumerationFacets{}
@@ -1004,8 +1006,9 @@ func (definition SimpleTypeDefinition) StringEnumerationFacets() StringEnumerati
 	return facets.enumeration
 }
 
-// StringWhiteSpaceFacet returns the effective string whiteSpace facet. It
-// returns false for a non-string type or an incomplete internal facet value.
+// StringWhiteSpaceFacet returns the effective whiteSpace facet of a string-facet
+// type, including NCName. It returns false when those facts or the whiteSpace
+// value are absent.
 func (definition SimpleTypeDefinition) StringWhiteSpaceFacet() (StringWhiteSpaceFacet, bool) {
 	if definition.facts == nil {
 		return StringWhiteSpaceFacet{}, false

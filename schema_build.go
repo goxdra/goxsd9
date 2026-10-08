@@ -9545,6 +9545,9 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 	if err := resolver.rejectSchemaSimpleTypeFinal(itemType, schemaSimpleTypeFinalList, "list item type", model.itemType.loc, version); err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
+	if err := unsupportedNCNameEnumerationVarietyMember(itemType, model.itemType.loc, version, "list item"); err != nil {
+		return schemaSimpleTypeResult{}, err
+	}
 	return schemaSimpleTypeResult{
 		loc:         input.loc,
 		variety:     SimpleTypeVarietyList,
@@ -9718,6 +9721,9 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 		if err := resolver.rejectSchemaSimpleTypeFinal(resolved, schemaSimpleTypeFinalUnion, "union member type", member.loc, version); err != nil {
 			return schemaSimpleTypeResult{}, err
 		}
+		if err := unsupportedNCNameEnumerationVarietyMember(resolved, member.loc, version, "union member"); err != nil {
+			return schemaSimpleTypeResult{}, err
+		}
 		members = append(members, resolved)
 	}
 	return schemaSimpleTypeResult{
@@ -9726,6 +9732,33 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 		varietyLoc:  model.loc,
 		memberTypes: members,
 	}, nil
+}
+
+func unsupportedNCNameEnumerationVarietyMember(reference schemaSimpleTypeReferenceComponent, useLoc Loc, version XSDVersion, role string) error {
+	if reference.atomicKind != schemaSimpleTypeAtomicNCName || reference.variety != SimpleTypeVarietyAtomicRestriction {
+		return nil
+	}
+	facets, ok := reference.facets.(schemaStringFacetVariant)
+	if !ok {
+		return newSchemaBridgeInvariant(useLoc, "NCName variety member has no string facet facts")
+	}
+	if !facets.enumeration.HasEnumeration() {
+		return nil
+	}
+	locations := facets.enumeration.Locations()
+	if len(locations) == 0 || locations[0].IsZero() {
+		return newSchemaBridgeInvariant(useLoc, "enumerated NCName variety member has no facet location")
+	}
+	err := unsupportedSchemaDatatypeFacet(schemaFacetInput{kind: schemaFacetEnumeration, loc: locations[0]}, version)
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+		return err
+	}
+	diagnostic.message = "enumerated NCName is not implemented as a " + role
+	if !useLoc.IsZero() && useLoc != diagnostic.loc {
+		diagnostic.related = []Loc{useLoc}
+	}
+	return diagnostic
 }
 
 func (resolver *schemaSimpleTypeResolver) resolveReference(input schemaSimpleTypeReferenceInput, source SourceID, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {

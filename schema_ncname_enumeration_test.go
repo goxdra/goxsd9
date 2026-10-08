@@ -199,6 +199,100 @@ func TestNCNameEnumerationLocalAndVarietyExclusions(t *testing.T) {
 	}
 }
 
+func TestNCNameEnumerationNestedVarietyExclusions(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, test := range []struct {
+			name, body, primary, related string
+		}{
+			{"inline attribute anonymous list", `<xs:attribute name="a"><xs:simpleType><xs:list><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType></xs:list></xs:simpleType></xs:attribute>`, `value="one"`, `<xs:simpleType><xs:restriction base="xs:NCName"`},
+			{"inline attribute anonymous union", `<xs:attribute name="a"><xs:simpleType><xs:union><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType></xs:union></xs:simpleType></xs:attribute>`, `value="one"`, `<xs:simpleType><xs:restriction base="xs:NCName"`},
+			{"named list anonymous item", `<xs:simpleType name="List"><xs:list><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType></xs:list></xs:simpleType>`, `value="one"`, `<xs:simpleType><xs:restriction base="xs:NCName"`},
+			{"named union anonymous member", `<xs:simpleType name="Union"><xs:union><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType></xs:union></xs:simpleType>`, `value="one"`, `<xs:simpleType><xs:restriction base="xs:NCName"`},
+			{"named list forward item", `<xs:simpleType name="List"><xs:list itemType="t:Enum"/></xs:simpleType><xs:simpleType name="Enum"><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `value="one"`, `itemType="t:Enum"`},
+			{"named union forward member", `<xs:simpleType name="Union"><xs:union memberTypes="t:Enum"/></xs:simpleType><xs:simpleType name="Enum"><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `value="one"`, `memberTypes="t:Enum"`},
+			{"named list inherited item", `<xs:simpleType name="List"><xs:list itemType="t:Child"/></xs:simpleType><xs:simpleType name="Child"><xs:restriction base="t:Base"/></xs:simpleType><xs:simpleType name="Base"><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `value="one"`, `itemType="t:Child"`},
+			{"named union inherited member", `<xs:simpleType name="Union"><xs:union memberTypes="t:Child"/></xs:simpleType><xs:simpleType name="Child"><xs:restriction base="t:Base"/></xs:simpleType><xs:simpleType name="Base"><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `value="one"`, `memberTypes="t:Child"`},
+			{"inline attribute named list item", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="t:Enum"/></xs:simpleType></xs:attribute><xs:simpleType name="Enum"><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `value="one"`, `itemType="t:Enum"`},
+			{"inline attribute named union member", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="t:Enum"/></xs:simpleType></xs:attribute><xs:simpleType name="Enum"><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `value="one"`, `memberTypes="t:Enum"`},
+			{"local ref to inline list", `<xs:attribute name="a"><xs:simpleType><xs:list><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType></xs:list></xs:simpleType></xs:attribute><xs:complexType name="Box"><xs:attribute ref="t:a"/></xs:complexType>`, `value="one"`, `<xs:simpleType><xs:restriction base="xs:NCName"`},
+			{"local ref to inline union", `<xs:attribute name="a"><xs:simpleType><xs:union><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType></xs:union></xs:simpleType></xs:attribute><xs:complexType name="Box"><xs:attribute ref="t:a"/></xs:complexType>`, `value="one"`, `<xs:simpleType><xs:restriction base="xs:NCName"`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:n" targetNamespace="urn:n" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedDatatypeFacetCode, elementReferenceTestAttributeLoc(t, root, test.primary), []Loc{elementReferenceTestAttributeLoc(t, root, test.related)}, tokenDiagnosticSpecRef(profile.version, "decimal"), ErrUnsupported)
+				if diagnostic := requireDiagnostic(t, err); diagnostic.Feature() != FeatureDatatypeFacets {
+					t.Fatalf("nested variety feature = %q", diagnostic.Feature())
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Query each formerly admitted NCName variety route through the public model.
+func TestNCNameFacetFreeNestedVarietiesRemainQueryable(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, test := range []struct {
+			name, body string
+			variety    SimpleTypeVariety
+		}{
+			{"named builtin list", `<xs:simpleType name="T"><xs:list itemType="xs:NCName"/></xs:simpleType>`, SimpleTypeVarietyList},
+			{"named builtin union", `<xs:simpleType name="T"><xs:union memberTypes="xs:NCName"/></xs:simpleType>`, SimpleTypeVarietyUnion},
+			{"named derived list", `<xs:simpleType name="T"><xs:list itemType="t:Plain"/></xs:simpleType><xs:simpleType name="Plain"><xs:restriction base="xs:NCName"/></xs:simpleType>`, SimpleTypeVarietyList},
+			{"named derived union", `<xs:simpleType name="T"><xs:union memberTypes="t:Plain"/></xs:simpleType><xs:simpleType name="Plain"><xs:restriction base="xs:NCName"/></xs:simpleType>`, SimpleTypeVarietyUnion},
+			{"named anonymous list", `<xs:simpleType name="T"><xs:list><xs:simpleType><xs:restriction base="xs:NCName"/></xs:simpleType></xs:list></xs:simpleType>`, SimpleTypeVarietyList},
+			{"named anonymous union", `<xs:simpleType name="T"><xs:union><xs:simpleType><xs:restriction base="xs:NCName"/></xs:simpleType></xs:union></xs:simpleType>`, SimpleTypeVarietyUnion},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:n" targetNamespace="urn:n" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatalf("facet-free NCName variety: %v", err)
+				}
+				definition := schemaEnumerationTestDefinitionInNamespace(t, schema, "urn:n", "T")
+				if definition.Variety() != test.variety {
+					t.Fatalf("variety = %q, want %q", definition.Variety(), test.variety)
+				}
+				if test.variety == SimpleTypeVarietyList {
+					item, ok := definition.ItemType()
+					if !ok || item.StringEnumerationFacets().HasEnumeration() {
+						t.Fatalf("facet-free list item = %#v/%t", item, ok)
+					}
+					return
+				}
+				members := definition.MemberTypes()
+				if len(members) != 1 || members[0].StringEnumerationFacets().HasEnumeration() {
+					t.Fatalf("facet-free union members = %#v", members)
+				}
+			})
+		}
+	}
+}
+
+func TestNCNameNestedVarietyAlternateExits(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, test := range []struct {
+			name, body, primary, related, code, spec string
+			cause                                    error
+		}{
+			{"list invalid item", `<xs:simpleType name="T"><xs:list><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="bad:name"/></xs:restriction></xs:simpleType></xs:list></xs:simpleType>`, `value="bad:name"`, `base="xs:NCName"`, InvalidEnumerationRestrictionCode, enumerationSpecRef(profile.version, enumerationRestrictionRule), errSchemaNCNameValueViolation},
+			{"union invalid member", `<xs:simpleType name="T"><xs:union><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="bad:name"/></xs:restriction></xs:simpleType></xs:union></xs:simpleType>`, `value="bad:name"`, `base="xs:NCName"`, InvalidEnumerationRestrictionCode, enumerationSpecRef(profile.version, enumerationRestrictionRule), errSchemaNCNameValueViolation},
+			{"list unresolved item", `<xs:simpleType name="T"><xs:list itemType="t:Missing"/></xs:simpleType>`, `itemType="t:Missing"`, ``, diagnosticSchemaSimpleTypeUnresolvedCode, schemaSimpleTypeSpecRef(profile.version), errSchemaSimpleTypeBaseUnresolved},
+			{"union unresolved member", `<xs:simpleType name="T"><xs:union memberTypes="t:Missing"/></xs:simpleType>`, `memberTypes="t:Missing"`, ``, diagnosticSchemaSimpleTypeUnresolvedCode, schemaSimpleTypeSpecRef(profile.version), errSchemaSimpleTypeBaseUnresolved},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:n" targetNamespace="urn:n" version="` + string(profile.version) + `">` + test.body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				var related []Loc
+				if test.related != "" {
+					related = []Loc{elementReferenceTestAttributeLoc(t, root, test.related)}
+				}
+				assertNCNameDiagnostic(t, schema, err, FailureInvalid, test.code, elementReferenceTestAttributeLoc(t, root, test.primary), related, test.spec, test.cause)
+			})
+		}
+	}
+}
+
 //nolint:gocognit // Check validation and generation independently for each admitted shape.
 func TestNCNameEnumerationElementConsumersRemainUnsupported(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
