@@ -5,14 +5,14 @@ and Go generation. Unsupported features return located diagnostics without parti
 
 ## Library
 
-Use `NewResolvedSource` and `ParseSchema` with a `Resolver` for
+Use `NewResolvedSource`, `ParseSchema`, and a `Resolver` for
 includes/imports. It receives namespace URNs and
 lexical schema locations; the library opens no paths or URLs. `ParseSchema`
 defaults to Compatibility for mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects graph-wide policy. Queries and walks are
-immutable and deterministic. Global elements retain ordered `xs:unique`,
-`xs:key`, and `xs:keyref` facts with XPath, namespaces, and resolved targets;
-consumers reject pending identity semantics. NCName enumerations, including global inline attributes, are query-only.
+immutable and deterministic. Global `xs:unique`, `xs:key`, and `xs:keyref` retain ordered XPath,
+namespaces, and targets;
+consumers reject pending identity semantics. Atomic NCName enumerations, including global inline attributes, are query-only; enumerated list items/union members reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded

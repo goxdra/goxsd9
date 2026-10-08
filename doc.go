@@ -508,7 +508,10 @@
 // types retain copied exact bounds. One inline simpleType may instead declare a
 // restriction, list, or union. Its named and anonymous item/member references
 // retain lexical order; atomic leaves exclude xs:normalizedString, with
-// xs:string admitted only below the top type. InlineSimpleType() and
+// xs:string admitted only below the top type. Effective enumerated NCName
+// list items and union members, whether named, anonymous, or inherited,
+// reject with located unsupported diagnostics and no Schema; facet-free
+// NCName members remain queryable. InlineSimpleType() and
 // TypeReference() expose immutable anonymous identities, source/variety/facet
 // locations, copied facets, ordered references, and effective final/FinalLoc
 // including the containing document's finalDefault. Built-in or supported named
