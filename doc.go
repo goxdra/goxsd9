@@ -481,7 +481,7 @@
 // xs:long, xs:int, xs:short, xs:byte, and xs:unsignedLong. Integer-derived
 // types retain copied exact bounds. One inline simpleType may instead declare a
 // restriction, list, or union. Its named and anonymous item/member references
-// retain lexical order; atomic leaves use supported attribute kinds, with
+// retain lexical order; atomic leaves exclude xs:normalizedString, with
 // xs:string admitted only below the top type. InlineSimpleType() and
 // TypeReference() expose immutable anonymous identities, source/variety/facet
 // locations, copied facets, ordered references, and effective final/FinalLoc
