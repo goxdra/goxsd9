@@ -493,10 +493,11 @@
 // A type attribute and inline child conflict. Unresolved, invisible, ambiguous,
 // wrong-kind, and cyclic member references report located errors without a Schema.
 // Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger, other excluded built-ins,
-// and named list/union attribute types remain unsupported. Inline
-// xs:normalizedString leaves remain unsupported. Supported global
-// xs:normalizedString references retain effective enumeration and intrinsic
-// replace whiteSpace; built-in references have no authored facet Loc or synthetic ID.
+// and named list/union attribute types remain unsupported. Supported global
+// xs:normalizedString references retain effective enumeration and whiteSpace.
+// Built-ins and named references inheriting the intrinsic facet expose unlocated
+// replace; named restrictions may expose authored collapse and its source Loc.
+// Built-in references have no synthetic ID.
 // Unsupported local attribute types
 // without default/fixed report FailureUnsupported/UnsupportedSchemaSyntaxCode/
 // ErrUnsupported at type Loc. Local default/fixed reports at value Loc before
