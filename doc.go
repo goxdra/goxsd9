@@ -180,12 +180,15 @@
 // identities, graph provenance, and exact occurrences. Outside bounded list/union
 // direct sequences, validation rejects negativeInteger and long-family particles;
 // GenerateGo rejects them with FailureUnsupported diagnostics.
-// The supported anonymous Boolean/integer/
-// decimal restriction facet subset remains queryable. Anonymous non-string
-// enumeration other than precisionDecimal is unsupported at its facet location.
-// PrecisionDecimal enumeration passes that facet gate under Compatibility/Strict11:
-// global inline restrictions remain queryable, while mapped nonzero local
-// anonymous restrictions fail at the local type location with no schema.
+// The supported anonymous Boolean/integer/decimal restriction facet subset
+// remains queryable. Anonymous NCName enumeration uses ordered string-facet
+// facts in supported atomic shapes, including global inline attributes, although
+// IsString reports false. PrecisionDecimal enumeration also passes its facet
+// gate under Compatibility/Strict11; other non-string anonymous enumerations
+// return facet-located unsupported diagnostics. Global inline precisionDecimal
+// restrictions remain queryable, while mapped nonzero local anonymous
+// restrictions fail at the local type location with no schema. NCName instance
+// validation and Go generation remain unsupported.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded attribute-free
 // extensions are modeled and queryable. Direct named-complex xs:all also models
@@ -505,7 +508,10 @@
 // types retain copied exact bounds. One inline simpleType may instead declare a
 // restriction, list, or union. Its named and anonymous item/member references
 // retain lexical order; atomic leaves exclude xs:normalizedString, with
-// xs:string admitted only below the top type. InlineSimpleType() and
+// xs:string admitted only below the top type. Effective enumerated NCName
+// list items and union members, whether named, anonymous, or inherited,
+// reject with located unsupported diagnostics and no Schema; facet-free
+// NCName members remain queryable. InlineSimpleType() and
 // TypeReference() expose immutable anonymous identities, source/variety/facet
 // locations, copied facets, ordered references, and effective final/FinalLoc
 // including the containing document's finalDefault. Built-in or supported named

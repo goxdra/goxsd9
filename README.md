@@ -1,18 +1,18 @@
 # goxsd9
 
 goxsd9 parses XML Schema into immutable components for queries, instance validation,
-and Go generation. Unsupported features return located diagnostics and no partial output.
+and Go generation. Unsupported features return located diagnostics without partial output.
 
 ## Library
 
-Create a root with `NewResolvedSource` and call `ParseSchema` with a
-caller-supplied `Resolver` for includes/imports. It receives namespace URNs and
+Use `NewResolvedSource`, `ParseSchema`, and a `Resolver` for
+includes/imports. It receives namespace URNs and
 lexical schema locations; the library opens no paths or URLs. `ParseSchema`
 defaults to Compatibility for mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects graph-wide policy. Queries and walks are
-immutable and deterministic. Global elements retain ordered `xs:unique`,
-`xs:key`, and `xs:keyref` facts with XPath, namespaces, and resolved targets;
-validation and generation reject them pending identity semantics.
+immutable and deterministic. Global `xs:unique`, `xs:key`, and `xs:keyref` retain ordered XPath,
+namespaces, and targets;
+consumers reject pending identity semantics. Atomic NCName enumerations, including global inline attributes, are query-only; enumerated list items/union members reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
