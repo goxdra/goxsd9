@@ -77,7 +77,7 @@ Grouped extensions resolve group/uses/base; `0/0` omits group.
 Forms select local names; XSD 1.1 `targetNamespace` must match the container;
 chameleon adopts; prohibited uses omit. Local values/inheritable and
 attributeGroup/broader extensions reject; refs locate failures.
-Attributes query built-in/named Boolean/integer/decimal/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
+Attributes query built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong; `precisionDecimal` policy-gated.
 Global inline restriction/list/union retains anonymous IDs, ordered refs,
 `Loc`s, effective facets, `finalDefault`; supported atomics are

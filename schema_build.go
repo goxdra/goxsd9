@@ -4330,7 +4330,7 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
-		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicNormalizedString, schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt,
@@ -4338,7 +4338,6 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicQName:
@@ -4352,6 +4351,9 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 func schemaInlineAttributeUnsupportedMember(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver, version XSDVersion, top bool) (Loc, error) {
 	switch reference.variety {
 	case SimpleTypeVarietyAtomicRestriction:
+		if reference.atomicKind == schemaSimpleTypeAtomicNormalizedString {
+			return reference.loc, nil
+		}
 		if schemaAttributeTypeReferenceSupported(reference) || !top && reference.atomicKind == schemaSimpleTypeAtomicString {
 			return Loc{}, nil
 		}

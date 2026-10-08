@@ -18,8 +18,8 @@
 // Restrictions, list items, and union members may reference it. Direct,
 // named-typed, and inline atomic-restriction global elements are queryable;
 // list/union-typed global elements reject. Mapped nonzero local typed particles
-// and xs:normalizedString-typed global attributes reject at schema admission;
-// applicable 0/0 local forms
+// reject at schema admission; explicit built-in and supported named
+// xs:normalizedString global attributes retain query facts. Applicable 0/0 local forms
 // omit after reference, facet, and policy gates. Element-ref particles to
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
 // xs:QName references are distinct context-sensitive atomics in facet-free
@@ -476,7 +476,7 @@
 // and unimplemented semantics remain explicit unsupported behavior.
 // Supported global attribute declarations are query-only. Compatibility,
 // Strict10, and Strict11 admit built-in or supported named atomic xs:boolean,
-// xs:integer, xs:decimal, xs:token, xs:negativeInteger,
+// xs:integer, xs:decimal, xs:normalizedString, xs:token, xs:negativeInteger,
 // xs:positiveInteger, xs:nonPositiveInteger, xs:language, xs:NCName, xs:anyURI, xs:ID,
 // xs:long, xs:int, xs:short, xs:byte, and xs:unsignedLong. Integer-derived
 // types retain copied exact bounds. One inline simpleType may instead declare a
@@ -493,7 +493,11 @@
 // A type attribute and inline child conflict. Unresolved, invisible, ambiguous,
 // wrong-kind, and cyclic member references report located errors without a Schema.
 // Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger, other excluded built-ins,
-// and named list/union attribute types remain unsupported. Unsupported local attribute types
+// and named list/union attribute types remain unsupported. Inline
+// xs:normalizedString leaves remain unsupported. Supported global
+// xs:normalizedString references retain effective enumeration and intrinsic
+// replace whiteSpace; built-in references have no authored facet Loc or synthetic ID.
+// Unsupported local attribute types
 // without default/fixed report FailureUnsupported/UnsupportedSchemaSyntaxCode/
 // ErrUnsupported at type Loc. Local default/fixed reports at value Loc before
 // type mapping. A typeless local declaration reports at declaration Loc unless
