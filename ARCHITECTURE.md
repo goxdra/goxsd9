@@ -78,17 +78,19 @@ omit. Chameleon adopts; XSD 1.1 `targetNamespace` must match the container.
 Named empty/choice/sequence and grouped extensions admit built-in/facet-free
 named `xs:ID` locals. Strict10 rejects a second effective ID; inline/ref/value
 forms and consumers reject.
-Global typed attributes include built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
+Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
-Global inline varieties retain IDs, ordered refs/`Loc`s, NCName enumeration facets, and
-`finalDefault`; `normalizedString` leaves reject, while `string` members admit.
+Inline varieties keep IDs/refs/`Loc`s/facets/`finalDefault`; `string` members admit,
+`normalizedString` leaves reject. NCName built-in/named restrictions and global inline
+atomics retain ordered enumeration, inherited narrowing, fixed collapse;
+explicit whiteSpace/pattern/length, local attributes, list/union attribute refs,
+default/fixed and consumers reject.
 Default/fixed covers built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong and policy-gated `precisionDecimal`.
-Integer facets/values exact; unsignedLong values/bounds/enumerations use digits-only
-Strict10 versus optional plus/signed zero Compatibility/Strict11.
-Unsupported types/local refs to global inline lists/unions have located diagnostics;
-local refs to inline atomics stay query-only. Global inline defaults/fixed fail at
-value `Loc`; invalid values retain lexical/facet causes/related `Loc`s. Conflicts
-locate fixed/default; type-only unconstrained; global attribute consumers reject.
+Integer exact; unsignedLong digits-only Strict10, plus/signed-zero
+Compatibility/Strict11. Local refs to global inline lists/unions reject; atomic
+refs stay query-only. Inline defaults/fixed fail at value `Loc`;
+invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
+type-only unconstrained; global attribute consumers reject.
 
 Complexes retain abstract/final provenance, ordered groups/extensions, and
 wildcards. `xs:any` admits positive sets, XSD 1.1 strict/lax/skip `notNamespace`,
