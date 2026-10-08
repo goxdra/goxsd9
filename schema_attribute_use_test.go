@@ -948,6 +948,7 @@ func TestSchemaBridgeAttributeDiagnosticCodeFamilyIsStable(t *testing.T) {
 		{name: "wrong-kind simpleContent base", code: diagnosticSchemaSimpleContentBaseWrongKindCode, want: "XSD3050"},
 		{name: "ambiguous simpleContent base", code: diagnosticSchemaSimpleContentBaseAmbiguousCode, want: "XSD3051"},
 		{name: "duplicate attribute use", code: diagnosticSchemaAttributeUseDuplicateCode, want: "XSD3052"},
+		{name: "second effective XSD 1.0 ID use", code: diagnosticSchemaAttributeUseIDDuplicateCode, want: "XSD3061"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

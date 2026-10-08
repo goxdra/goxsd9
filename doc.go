@@ -49,6 +49,9 @@
 // 1.1, a local attribute targetNamespace selects its explicit namespace only
 // when a containing targetNamespace exists and matches; missing or mismatched
 // values are invalid, while Strict10 reports an edition mismatch.
+// Named complex empty/choice/sequence bodies and grouped extensions expose
+// explicit built-in or facet-free named effective xs:ID local attribute uses.
+// Strict10 rejects a second effective ID use; ID-bearing uses remain query-only.
 // Redefine/override/defaultOpenContent, assertions, and Boolean facets and
 // datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
 // and optional precisionDecimal boundaries return explicit unsupported diagnostics.

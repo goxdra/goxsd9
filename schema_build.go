@@ -60,6 +60,7 @@ const (
 	diagnosticSchemaSimpleContentBaseWrongKindCode   = diagnosticSchemaModelGroupReferenceNamespaceCode
 	diagnosticSchemaSimpleContentBaseAmbiguousCode   = "XSD3051"
 	diagnosticSchemaAttributeUseDuplicateCode        = "XSD3052"
+	diagnosticSchemaAttributeUseIDDuplicateCode      = "XSD3061"
 )
 
 const (
@@ -171,6 +172,7 @@ var (
 	errSchemaAttributeReferenceNamespace         = errors.New("attribute reference namespace is not imported")
 	errSchemaAttributeReferenceUnsupported       = errors.New("attribute reference target is unsupported")
 	errSchemaAttributeUseDuplicate               = errors.New("attribute use is duplicated")
+	errSchemaAttributeUseIDDuplicate             = errors.New("XSD 1.0 complex type has multiple ID attribute uses")
 	errSchemaSimpleContentBaseUnresolved         = errors.New("simpleContent base is unresolved")
 	errSchemaSimpleContentBaseWrongKind          = errors.New("simpleContent base has the wrong kind")
 	errSchemaSimpleContentBaseAmbiguous          = errors.New("simpleContent base is ambiguous")
@@ -6714,6 +6716,7 @@ func resolveSchemaAttributeUses(
 		return nil, err
 	}
 	uses := make([]AttributeUse, 0, len(inputs))
+	var firstID Loc
 	for _, input := range inputs {
 		use, present, err := resolveSchemaAttributeUse(input, owner, records, byName, visibleSources, simpleTypes, attributes, version)
 		if err != nil {
@@ -6722,9 +6725,27 @@ func resolveSchemaAttributeUses(
 		if !present {
 			continue
 		}
+		firstID, err = schemaAttributeUseIDCardinality(firstID, use, version)
+		if err != nil {
+			return nil, err
+		}
 		uses = append(uses, use)
 	}
 	return uses, nil
+}
+
+func schemaAttributeUseIDCardinality(firstID Loc, use AttributeUse, version XSDVersion) (Loc, error) {
+	if version != XSDVersion10 {
+		return firstID, nil
+	}
+	local, ok := use.(LocalAttributeUse)
+	if !ok || local.facts.typeReference.atomicKind != schemaSimpleTypeAtomicID {
+		return firstID, nil
+	}
+	if !firstID.IsZero() {
+		return Loc{}, newSchemaAttributeUseIDDuplicateDiagnostic(local.Loc(), firstID)
+	}
+	return local.Loc(), nil
 }
 
 func resolveSchemaAttributeUse(
@@ -6783,7 +6804,7 @@ func resolveSchemaAttributeUseType(
 	if err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -6892,6 +6913,32 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 	default:
 		return false
 	}
+}
+
+func schemaDirectLocalIDAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+	if reference.kind != SimpleTypeReferenceBuiltin && reference.kind != SimpleTypeReferenceNamed {
+		return false
+	}
+	if reference.variety != SimpleTypeVarietyAtomicRestriction || reference.atomicKind != schemaSimpleTypeAtomicID {
+		return false
+	}
+	_, ok := reference.facets.(schemaAtomicFacetVariant)
+	if !ok || owner.complexType == nil {
+		return false
+	}
+	switch body := owner.complexType.body.(type) {
+	case *schemaComplexTypeAttributeOnlyBodyInput, *schemaComplexTypeGroupedExtensionBodyInput:
+		return true
+	case *schemaComplexTypeDirectBodyInput:
+		if body == nil {
+			return false
+		}
+		switch body.particle.(type) {
+		case *schemaChoiceParticleInput, *schemaSequenceParticleInput:
+			return true
+		}
+	}
+	return false
 }
 
 func schemaLocalAttributeBoundedPrecisionVariety(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver) bool {
@@ -7366,6 +7413,18 @@ func newSchemaAttributeUseDuplicateDiagnostic(loc Loc, name QName, first Loc, ve
 		related: []Loc{first},
 		specRef: schemaAttributeUseSpecRef(version),
 		cause:   errSchemaAttributeUseDuplicate,
+	}
+}
+
+func newSchemaAttributeUseIDDuplicateDiagnostic(loc, first Loc) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaAttributeUseIDDuplicateCode,
+		loc:     loc,
+		message: "XSD 1.0 complex type has multiple effective ID attribute uses",
+		related: []Loc{first},
+		specRef: "xsd10-structures#cos-ct-props-correct",
+		cause:   errSchemaAttributeUseIDDuplicate,
 	}
 }
 
