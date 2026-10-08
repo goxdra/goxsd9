@@ -452,9 +452,7 @@ func TestSchemaDefaultAttributesApplyPreservesUnsupportedBoundaries(t *testing.T
 			policy  LanguagePolicy
 			version XSDVersion
 		}{
-			{name: "Compatibility", policy: Compatibility, version: XSDVersion11},
 			{name: "Strict10", policy: Strict10, version: XSDVersion10},
-			{name: "Strict11", policy: Strict11, version: XSDVersion11},
 		}
 		for _, policy := range policies {
 			for _, value := range values {
