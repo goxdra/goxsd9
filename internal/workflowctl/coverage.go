@@ -154,34 +154,58 @@ func (a app) buildCoverageReportFromRepository(root, baseRef string) (report cov
 		return coverageReport{}, err
 	}
 
-	temporaryRoot, err := os.MkdirTemp("", "goxsd9-coverage-")
-	if err != nil {
-		return coverageReport{}, fmt.Errorf("create coverage temporary directory: %w", err)
-	}
-	baseRoot := filepath.Join(temporaryRoot, "base")
-	defer func() {
-		cleanupErr := a.removeCoverageWorktreeIfRegistered(root, baseRoot)
-		err = joinCoverageErrors(err, cleanupErr)
-		cleanupErr = os.RemoveAll(temporaryRoot)
-		err = joinCoverageErrors(err, cleanupErr)
-	}()
-
-	addErr := a.addCoverageWorktree(root, baseRoot, base)
-	if addErr != nil {
-		return coverageReport{}, addErr
-	}
-	if initializeErr := a.initializeCoverageWorktree(baseRoot); initializeErr != nil {
-		return coverageReport{}, initializeErr
-	}
-	baseSnapshot, err := a.coverageSnapshot(baseRoot, filepath.Join(temporaryRoot, "base.cover"), "base")
+	var baseSnapshot, headSnapshot coverageSnapshot
+	err = a.withCoverageWorktree(root, base, func(baseRoot string) error {
+		var snapshotErr error
+		baseSnapshot, snapshotErr = a.coverageSnapshot(baseRoot, filepath.Join(filepath.Dir(baseRoot), "base.cover"), "base")
+		return snapshotErr
+	})
 	if err != nil {
 		return coverageReport{}, err
 	}
-	headSnapshot, err := a.coverageSnapshot(root, filepath.Join(temporaryRoot, "head.cover"), "head")
+	err = a.withCoverageWorktree(root, head, func(headRoot string) error {
+		var snapshotErr error
+		headSnapshot, snapshotErr = a.coverageSnapshot(headRoot, filepath.Join(filepath.Dir(headRoot), "head.cover"), "head")
+		return snapshotErr
+	})
 	if err != nil {
 		return coverageReport{}, err
 	}
 	return assembleCoverageReport(base, head, changed, baseSnapshot, headSnapshot), nil
+}
+
+func (a app) withCoverageWorktree(root, revision string, use func(string) error) (err error) {
+	temporaryRoot, err := os.MkdirTemp("", "goxsd9-coverage-")
+	if err != nil {
+		return fmt.Errorf("create coverage temporary directory: %w", err)
+	}
+	worktreeRoot := filepath.Join(temporaryRoot, "source")
+	defer func() {
+		err = joinCoverageErrors(err, a.removeCoverageWorktreeIfRegistered(root, worktreeRoot))
+		err = joinCoverageErrors(err, os.RemoveAll(temporaryRoot))
+	}()
+	if err := a.addCoverageWorktree(root, worktreeRoot, revision); err != nil {
+		return err
+	}
+	if err := a.initializeCoverageWorktree(worktreeRoot); err != nil {
+		return err
+	}
+	if err := a.requireCleanCoverageWorktree(worktreeRoot); err != nil {
+		return err
+	}
+	useErr := use(worktreeRoot)
+	return joinCoverageErrors(useErr, a.requireCleanCoverageWorktree(worktreeRoot))
+}
+
+func (a app) requireCleanCoverageWorktree(root string) error {
+	status, err := a.command(root, "git", "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("read coverage snapshot status: %w", err)
+	}
+	if strings.TrimSpace(status) != "" {
+		return stateError("coverage commit snapshot changed during measurement")
+	}
+	return nil
 }
 
 func joinCoverageErrors(current, cleanup error) error {
@@ -196,21 +220,21 @@ func joinCoverageErrors(current, cleanup error) error {
 
 func (a app) addCoverageWorktree(root, directory, revision string) error {
 	if _, err := a.command(root, "git", "worktree", "add", "--detach", "--quiet", directory, revision); err != nil {
-		return fmt.Errorf("create coverage base worktree: %w", err)
+		return fmt.Errorf("create coverage worktree: %w", err)
 	}
 	return nil
 }
 
 func (a app) initializeCoverageWorktree(directory string) error {
 	if _, err := a.command(directory, "git", "submodule", "update", "--init", "--recursive"); err != nil {
-		return fmt.Errorf("initialize coverage base submodules: %w", err)
+		return fmt.Errorf("initialize coverage worktree submodules: %w", err)
 	}
 	return nil
 }
 
 func (a app) removeCoverageWorktree(root, directory string) error {
 	if _, err := a.command(root, "git", "worktree", "remove", "--force", directory); err != nil {
-		return fmt.Errorf("remove coverage base worktree: %w", err)
+		return fmt.Errorf("remove coverage worktree: %w", err)
 	}
 	return nil
 }
@@ -218,7 +242,7 @@ func (a app) removeCoverageWorktree(root, directory string) error {
 func (a app) removeCoverageWorktreeIfRegistered(root, directory string) error {
 	normalizedDirectory, err := absoluteCleanPath(directory)
 	if err != nil {
-		return fmt.Errorf("resolve coverage base worktree for cleanup: %w", err)
+		return fmt.Errorf("resolve coverage worktree for cleanup: %w", err)
 	}
 	worktrees, err := a.readWorktreeInventory(root)
 	if err != nil {

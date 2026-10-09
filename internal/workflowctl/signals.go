@@ -204,10 +204,31 @@ func (a app) buildDevelopmentSignalsReportFromRepository(root, base, expectedHea
 		return developmentSignalsReport{}, err
 	}
 	report := makeDevelopmentSignalsReport(coverage, canonicalExplanations, automatic, additional)
+	runCampaigns := func(source string) error {
+		return a.runDevelopmentSignalCampaigns(source, duration, automatic, additional, &report)
+	}
+	if len(automatic)+len(additional) == 0 {
+		return report, nil
+	}
+	if a.buildCoverageReport == nil {
+		if err := a.withCoverageWorktree(root, coverage.Head, runCampaigns); err != nil {
+			return developmentSignalsReport{}, err
+		}
+		return report, nil
+	}
+	if err := runCampaigns(root); err != nil {
+		return developmentSignalsReport{}, err
+	}
+	return report, nil
+}
+
+func (a app) runDevelopmentSignalCampaigns(source string, duration time.Duration, automatic []signalFuzzTarget,
+	additional []additionalFuzzTarget, report *developmentSignalsReport,
+) error {
 	for _, target := range automatic {
-		run, err := a.executeDevelopmentFuzz(root, additionalFuzzTarget{Package: target.Package, Target: target.Target}, duration, false)
+		run, err := a.executeDevelopmentFuzz(source, additionalFuzzTarget{Package: target.Package, Target: target.Target}, duration, false)
 		if err != nil {
-			return developmentSignalsReport{}, fmt.Errorf("run fuzz target %s: %w", target.Target, err)
+			return fmt.Errorf("run fuzz target %s: %w", target.Target, err)
 		}
 		report.Fuzz = append(report.Fuzz, signalFuzzReport{
 			Boundary: target.Boundary, Package: target.Package, Target: target.Target,
@@ -215,16 +236,16 @@ func (a app) buildDevelopmentSignalsReportFromRepository(root, base, expectedHea
 		})
 	}
 	for _, target := range additional {
-		run, err := a.executeDevelopmentFuzz(root, target, duration, true)
+		run, err := a.executeDevelopmentFuzz(source, target, duration, true)
 		if err != nil {
-			return developmentSignalsReport{}, fmt.Errorf("run additional fuzz target %s:%s: %w", target.Package, target.Target, err)
+			return fmt.Errorf("run additional fuzz target %s:%s: %w", target.Package, target.Target, err)
 		}
 		report.AdditionalFuzz = append(report.AdditionalFuzz, additionalFuzzReport{
 			Package: target.Package, Target: target.Target, Duration: run.duration.String(),
 			Workers: run.workers, Offline: run.offline, Result: "success",
 		})
 	}
-	return report, nil
+	return nil
 }
 
 func makeDevelopmentSignalsReport(coverage coverageReport, explanations []coverageExplanation,
