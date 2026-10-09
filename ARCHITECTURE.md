@@ -145,7 +145,8 @@ Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-atomic
 and named/global `nonNegativeInteger`/`long`. Local Boolean/integer/decimal
 default choices/sequences and all-token choices generate; other locals/attributes
 reject. Standalone `normalizedString` and global `int`/`short`/`byte`/`unsignedLong`/
-`positiveInteger`/`nonNegativeInteger`/`long` refs reject. Abstract/nillable globals and identity constraints (first constraint `Loc`) yield
+`negativeInteger`/`nonPositiveInteger`/`positiveInteger`/`nonNegativeInteger`/`long`
+refs reject. Abstract/nillable globals and identity constraints (first constraint `Loc`) yield
 `GOXSD9029`, nil output. Default integer/decimal sequence refs retain
 TargetID/order. `nonNegativeInteger` uses `StrictInteger`; `IntegerBounds()`
 copies built-in/named bounds. Unsupported final/variety/effective facets yield
