@@ -530,10 +530,6 @@ func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolic
 		root string
 	}{
 		{
-			name: "local direct particle",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:test"><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="xs:` + atomicName + `"/></xs:sequence></xs:complexType></xs:schema>`,
-		},
-		{
 			name: "local named particle",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:simpleType name="Alias"><xs:restriction base="xs:` + atomicName + `"/></xs:simpleType><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="t:Alias"/></xs:sequence></xs:complexType></xs:schema>`,
 		},

@@ -9,12 +9,12 @@ import (
 )
 
 //nolint:gocognit // Compare the completed public facts for both direct particle models.
-func TestSchemaPositiveIntegerDirectLocalFacts(t *testing.T) {
-	for _, profile := range positiveIntegerPolicyProfiles() {
+func TestSchemaNonPositiveIntegerDirectLocalFacts(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" elementFormDefault="qualified" version="` + string(profile.version) + `">
-<xs:complexType name="Choice"><xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element name="first" type="xs:positiveInteger" form="qualified" minOccurs="0" maxOccurs="18446744073709551616"/><xs:element name="omit" type="xs:positiveInteger" minOccurs="0" maxOccurs="0"/><xs:element name="last" type="xs:positiveInteger" form="unqualified"/></xs:choice></xs:complexType>
-<xs:complexType name="Sequence"><xs:sequence minOccurs="2" maxOccurs="18446744073709551617"><xs:element name="first" type="xs:positiveInteger" form="qualified" minOccurs="0" maxOccurs="unbounded"/><xs:element name="omit" type="xs:positiveInteger" minOccurs="0" maxOccurs="0"/><xs:element name="last" type="xs:positiveInteger" form="unqualified"/></xs:sequence></xs:complexType>
+<xs:complexType name="Choice"><xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element name="first" type="xs:nonPositiveInteger" form="qualified" minOccurs="0" maxOccurs="18446744073709551616"/><xs:element name="omit" type="xs:nonPositiveInteger" minOccurs="0" maxOccurs="0"/><xs:element name="last" type="xs:nonPositiveInteger" form="unqualified"/></xs:choice></xs:complexType>
+<xs:complexType name="Sequence"><xs:sequence minOccurs="2" maxOccurs="18446744073709551617"><xs:element name="first" type="xs:nonPositiveInteger" form="qualified" minOccurs="0" maxOccurs="unbounded"/><xs:element name="omit" type="xs:nonPositiveInteger" minOccurs="0" maxOccurs="0"/><xs:element name="last" type="xs:nonPositiveInteger" form="unqualified"/></xs:sequence></xs:complexType>
 </xs:schema>`
 			first, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			if err != nil {
@@ -24,7 +24,7 @@ func TestSchemaPositiveIntegerDirectLocalFacts(t *testing.T) {
 			if err != nil || !reflect.DeepEqual(first.Components(), second.Components()) {
 				t.Fatalf("repeated components differ: %v", err)
 			}
-			if matches := first.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, testXSDNamespace, "positiveInteger")); len(matches) != 0 {
+			if matches := first.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, testXSDNamespace, "nonPositiveInteger")); len(matches) != 0 {
 				t.Fatalf("built-in type gained %d synthetic components", len(matches))
 			}
 			var walked []string
@@ -68,11 +68,11 @@ func TestSchemaPositiveIntegerDirectLocalFacts(t *testing.T) {
 					}
 					ownerMarker := `<xs:complexType name="` + want.owner + `"`
 					wantElementLoc := unsignedLongParticleTokenLocAfter(t, root, ownerMarker, `<xs:element name="`+name+`"`)
-					wantTypeLoc := positiveIntegerLocalTypeLoc(t, root, ownerMarker, name)
+					wantTypeLoc := nonPositiveIntegerLocalTypeLoc(t, root, ownerMarker, name)
 					if element.Name() != mustTestQName(t, namespace, name) || element.Loc() != wantElementLoc || element.Occurrences().String() != occurrence {
 						t.Fatalf("%s child %d = %s/%s/%s", want.owner, index, element.Name(), element.Loc(), element.Occurrences())
 					}
-					assertPositiveIntegerDirectLocalReference(t, element, wantTypeLoc, profile.version)
+					assertNonPositiveIntegerDirectLocalReference(t, element, wantTypeLoc, profile.version)
 					minimum := element.Occurrences().Minimum()
 					if minimum.value != nil {
 						minimum.value.SetInt64(99)
@@ -95,7 +95,7 @@ func TestSchemaPositiveIntegerDirectLocalFacts(t *testing.T) {
 	}
 }
 
-func positiveIntegerLocalTypeLoc(t *testing.T, root, ownerMarker, name string) Loc {
+func nonPositiveIntegerLocalTypeLoc(t *testing.T, root, ownerMarker, name string) Loc {
 	t.Helper()
 	owner := strings.Index(root, ownerMarker)
 	if owner < 0 {
@@ -106,17 +106,17 @@ func positiveIntegerLocalTypeLoc(t *testing.T, root, ownerMarker, name string) L
 		t.Fatalf("missing local element %q after %q", name, ownerMarker)
 	}
 	start := owner + element
-	typeOffset := strings.Index(root[start:], `type="xs:positiveInteger"`)
+	typeOffset := strings.Index(root[start:], `type="xs:nonPositiveInteger"`)
 	if typeOffset < 0 {
-		t.Fatalf("missing positiveInteger type after local element %q", name)
+		t.Fatalf("missing nonPositiveInteger type after local element %q", name)
 	}
 	return namedGroupLocAt(t, root, start+typeOffset)
 }
 
 //nolint:dupl // Mirror the neighboring built-in's public facts and consumer boundary.
-func assertPositiveIntegerDirectLocalReference(t *testing.T, element ElementParticle, wantTypeLoc Loc, version XSDVersion) {
+func assertNonPositiveIntegerDirectLocalReference(t *testing.T, element ElementParticle, wantTypeLoc Loc, version XSDVersion) {
 	t.Helper()
-	wantType := mustTestQName(t, testXSDNamespace, "positiveInteger")
+	wantType := mustTestQName(t, testXSDNamespace, "nonPositiveInteger")
 	reference, ok := element.TypeReference()
 	if !ok || !reference.IsBuiltin() || reference.Name() != wantType || reference.QName() != wantType || reference.Loc() != wantTypeLoc || element.DeclaredType() != wantType {
 		t.Fatalf("type reference = %#v/%t, declared %s, want built-in at %s", reference, ok, element.DeclaredType(), wantTypeLoc)
@@ -127,28 +127,28 @@ func assertPositiveIntegerDirectLocalReference(t *testing.T, element ElementPart
 		t.Fatalf("built-in gained ID: %v/%t, %v/%t", id, present, refID, refPresent)
 	}
 	bounds, ok := reference.IntegerBounds()
-	minimum, hasMinimum := bounds.MinInclusiveFacet()
-	if !ok || bounds.Version() != version || !hasMinimum || minimum.Value().Canonical() != "1" || !minimum.Loc().IsZero() || len(bounds.Bounds()) != 1 {
+	maximum, hasMaximum := bounds.MaxInclusiveFacet()
+	if !ok || bounds.Version() != version || !hasMaximum || maximum.Value().Canonical() != "0" || !maximum.Loc().IsZero() || len(bounds.Bounds()) != 1 {
 		t.Fatalf("built-in bounds = %#v/%t", bounds, ok)
 	}
 	copyBounds := bounds.Bounds()
 	copyBounds[0] = IntegerBoundFacet{}
-	copyMinimum := minimum.Value()
-	copyMinimum.value.SetInt64(99)
+	copyMaximum := maximum.Value()
+	copyMaximum.value.SetInt64(99)
 	repeated, _ := element.TypeReference()
 	repeatedBounds, _ := repeated.IntegerBounds()
-	repeatedMinimum, _ := repeatedBounds.MinInclusive()
-	if repeatedMinimum.Canonical() != "1" {
-		t.Fatalf("mutating copied bound changed schema to %s", repeatedMinimum.Canonical())
+	repeatedMaximum, _ := repeatedBounds.MaxInclusive()
+	if repeatedMaximum.Canonical() != "0" {
+		t.Fatalf("mutating copied bound changed schema to %s", repeatedMaximum.Canonical())
 	}
 }
 
 //nolint:gocognit // Check both consumer diagnostics at the direct local boundary.
-func TestSchemaPositiveIntegerDirectLocalConsumers(t *testing.T) {
-	for _, profile := range positiveIntegerPolicyProfiles() {
+func TestSchemaNonPositiveIntegerDirectLocalConsumers(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		for _, model := range []string{"choice", "sequence"} {
 			t.Run(profile.name+"/"+model, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:element name="root" type="r:Record"/><xs:complexType name="Record"><xs:` + model + `><xs:element name="value" type="xs:positiveInteger"/></xs:` + model + `></xs:complexType></xs:schema>`
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:element name="root" type="r:Record"/><xs:complexType name="Record"><xs:` + model + `><xs:element name="value" type="xs:nonPositiveInteger"/></xs:` + model + `></xs:complexType></xs:schema>`
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 				if err != nil {
 					t.Fatal(err)
@@ -188,15 +188,15 @@ func TestSchemaPositiveIntegerDirectLocalConsumers(t *testing.T) {
 }
 
 //nolint:gocognit // Keep the admitted built-in in each graph-visible named owner.
-func TestSchemaPositiveIntegerDirectLocalGraphIsDeterministic(t *testing.T) {
-	for _, profile := range positiveIntegerPolicyProfiles() {
+func TestSchemaNonPositiveIntegerDirectLocalGraphIsDeterministic(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/><xs:element name="root" type="r:Forward"/><xs:complexType name="Root"><xs:choice><xs:element name="rootValue" type="xs:positiveInteger"/></xs:choice></xs:complexType><xs:complexType name="Forward"><xs:sequence><xs:element name="forwardValue" type="xs:positiveInteger"/></xs:sequence></xs:complexType></xs:schema>`
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/><xs:element name="root" type="r:Forward"/><xs:complexType name="Root"><xs:choice><xs:element name="rootValue" type="xs:nonPositiveInteger"/></xs:choice></xs:complexType><xs:complexType name="Forward"><xs:sequence><xs:element name="forwardValue" type="xs:nonPositiveInteger"/></xs:sequence></xs:complexType></xs:schema>`
 			fixtures := map[string]discoveryFixture{
 				"root.xsd":      {id: "root.xsd", contents: root},
-				"included.xsd":  {id: "included.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:include schemaLocation="root.xsd"/><xs:complexType name="Included"><xs:choice><xs:element name="includedValue" type="xs:positiveInteger"/></xs:choice></xs:complexType></xs:schema>`},
-				"chameleon.xsd": {id: "chameleon.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(profile.version) + `"><xs:complexType name="Chameleon"><xs:sequence><xs:element name="adoptedValue" type="xs:positiveInteger"/></xs:sequence></xs:complexType></xs:schema>`},
-				"other.xsd":     {id: "other.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="` + string(profile.version) + `"><xs:complexType name="Imported"><xs:choice><xs:element name="importedValue" type="xs:positiveInteger"/></xs:choice></xs:complexType></xs:schema>`},
+				"included.xsd":  {id: "included.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:include schemaLocation="root.xsd"/><xs:complexType name="Included"><xs:choice><xs:element name="includedValue" type="xs:nonPositiveInteger"/></xs:choice></xs:complexType></xs:schema>`},
+				"chameleon.xsd": {id: "chameleon.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="` + string(profile.version) + `"><xs:complexType name="Chameleon"><xs:sequence><xs:element name="adoptedValue" type="xs:nonPositiveInteger"/></xs:sequence></xs:complexType></xs:schema>`},
+				"other.xsd":     {id: "other.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="` + string(profile.version) + `"><xs:complexType name="Imported"><xs:choice><xs:element name="importedValue" type="xs:nonPositiveInteger"/></xs:choice></xs:complexType></xs:schema>`},
 			}
 			first, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
 			if err != nil {
@@ -245,23 +245,23 @@ func TestSchemaPositiveIntegerDirectLocalGraphIsDeterministic(t *testing.T) {
 				if want.source == "root.xsd" {
 					contents = root
 				}
-				wantTypeLoc := positiveIntegerLocalGraphLoc(t, SourceID(want.source), contents, want.member)
+				wantTypeLoc := nonPositiveIntegerLocalGraphLoc(t, SourceID(want.source), contents, want.member)
 				if element.Name().Local() != want.member || element.Occurrences().String() != "1/1" {
 					t.Fatalf("%s member = %s/%s", want.owner, element.Name(), element.Occurrences())
 				}
-				assertPositiveIntegerDirectLocalReference(t, element, wantTypeLoc, profile.version)
+				assertNonPositiveIntegerDirectLocalReference(t, element, wantTypeLoc, profile.version)
 			}
 		})
 	}
 }
 
-func positiveIntegerLocalGraphLoc(t *testing.T, source SourceID, contents, member string) Loc {
+func nonPositiveIntegerLocalGraphLoc(t *testing.T, source SourceID, contents, member string) Loc {
 	t.Helper()
 	memberOffset := strings.Index(contents, `<xs:element name="`+member+`"`)
 	if memberOffset < 0 {
 		t.Fatalf("missing graph member %q", member)
 	}
-	typeOffset := strings.Index(contents[memberOffset:], `type="xs:positiveInteger"`)
+	typeOffset := strings.Index(contents[memberOffset:], `type="xs:nonPositiveInteger"`)
 	if typeOffset < 0 {
 		t.Fatalf("missing graph member %q type", member)
 	}
@@ -272,15 +272,117 @@ func positiveIntegerLocalGraphLoc(t *testing.T, source SourceID, contents, membe
 	return loc
 }
 
-func TestSchemaPositiveIntegerDirectLocalExclusions(t *testing.T) {
-	for _, profile := range positiveIntegerPolicyProfiles() {
-		assertDirectLocalIntegerExclusions(t, profile.name, profile.policy, profile.version, "positiveInteger")
+func TestSchemaNonPositiveIntegerDirectLocalExclusions(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
+		assertDirectLocalIntegerExclusions(t, profile.name, profile.policy, profile.version, "nonPositiveInteger")
+	}
+}
+
+func TestSchemaNonPositiveIntegerLocalAttributeExclusions(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
+		for _, test := range []struct {
+			name, definitions, attribute, marker, related string
+			ref                                           bool
+		}{
+			{"direct", "", `<xs:attribute name="value" type="xs:nonPositiveInteger"/>`, `type="xs:nonPositiveInteger"`, "", false},
+			{"named derivative", `<xs:simpleType name="Alias"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`, `<xs:attribute name="value" type="r:Alias"/>`, `type="r:Alias"`, "", false},
+			{"inline derivative", "", `<xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`, "", false},
+			{"global ref", `<xs:attribute name="global" type="xs:nonPositiveInteger"/>`, `<xs:attribute ref="r:global"/>`, `ref="r:global"`, `<xs:attribute name="global"`, true},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `">` + test.definitions + `<xs:complexType name="Record">` + test.attribute + `</xs:complexType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantLoc := elementReferenceTestAttributeLoc(t, root, test.marker)
+				wantSpec := schemaAttributeTypeSpecRef(profile.version)
+				wantRelated := positiveIntegerLocs(t, root, nil)
+				wantCause := errSchemaAttributeUseUnsupported
+				if test.ref {
+					wantSpec = schemaAttributeUseSpecRef(profile.version)
+					wantRelated = positiveIntegerLocs(t, root, []string{test.related})
+					wantCause = errSchemaAttributeReferenceUnsupported
+				}
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != wantSpec || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, wantCause) {
+					t.Fatalf("%s diagnostic = %s related=%v spec=%s cause=%v, want unsupported at %s related=%v spec=%s", test.name, diagnostic, diagnostic.Related(), diagnostic.SpecRef(), errors.Unwrap(diagnostic), wantLoc, wantRelated, wantSpec)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Enumerate excluded owner and type shapes at one schema boundary.
+func assertDirectLocalIntegerExclusions(t *testing.T, profileName string, policy LanguagePolicy, version XSDVersion, atomic string) {
+	t.Helper()
+	for _, model := range []string{"choice", "sequence"} {
+		for _, test := range []struct {
+			name, body, marker string
+		}{
+			{"named derivative", `<xs:simpleType name="Derived"><xs:restriction base="xs:` + atomic + `"/></xs:simpleType><xs:complexType name="Record"><xs:` + model + `><xs:element name="value" type="r:Derived"/></xs:` + model + `></xs:complexType>`, `type="r:Derived"`},
+			{"anonymous derivative", `<xs:complexType name="Record"><xs:` + model + `><xs:element name="value"><xs:simpleType><xs:restriction base="xs:` + atomic + `"/></xs:simpleType></xs:element></xs:` + model + `></xs:complexType>`, `<xs:simpleType>`},
+			{"complex content extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:` + model + `><xs:element name="value" type="xs:` + atomic + `"/></xs:` + model + `></xs:extension></xs:complexContent></xs:complexType>`, `type="xs:` + atomic + `"`},
+			{"inline complex owner", `<xs:element name="root"><xs:complexType><xs:` + model + `><xs:element name="value" type="xs:` + atomic + `"/></xs:` + model + `></xs:complexType></xs:element>`, `type="xs:` + atomic + `"`},
+		} {
+			t.Run(profileName+"/"+model+"/"+test.name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(version) + `">` + test.body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantLoc := elementReferenceTestAttributeLoc(t, root, test.marker)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || diagnostic.Feature() != FeatureSchemaSyntax || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("%s diagnostic = %s, want unsupported at %s", test.name, diagnostic, wantLoc)
+				}
+				if diagnostic.SpecRef() != positiveIntegerFeatureSpecRef(t, FeatureSchemaSyntax, version) || len(diagnostic.Related()) != 0 {
+					t.Fatalf("%s spec/related = %q/%v", test.name, diagnostic.SpecRef(), diagnostic.Related())
+				}
+			})
+		}
+	}
+	t.Run(profileName+"/all member", func(t *testing.T) {
+		root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(version) + `"><xs:complexType name="Record"><xs:all><xs:element name="value" type="xs:` + atomic + `"/></xs:all></xs:complexType></xs:schema>`
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+		assertZeroSchema(t, schema)
+		diagnostic := requireDiagnostic(t, err)
+		wantLoc := elementReferenceTestAttributeLoc(t, root, `type="xs:`+atomic+`"`)
+		if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || !errors.Is(err, ErrUnsupported) || diagnostic.SpecRef() != positiveIntegerFeatureSpecRef(t, FeatureSchemaSyntax, version) || len(diagnostic.Related()) != 0 {
+			t.Fatalf("all diagnostic = %s, want unsupported at %s", diagnostic, wantLoc)
+		}
+	})
+}
+
+//nolint:gocognit // Verify both particle views keep only ordered mapped children.
+func TestSchemaNonPositiveIntegerDirectLocalZeroOccurrenceOmits(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
+		for _, model := range []string{"choice", "sequence"} {
+			t.Run(profile.name+"/"+model, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:simpleType name="Alias"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType><xs:complexType name="Record"><xs:` + model + `><xs:element name="before" type="xs:nonPositiveInteger"/><xs:element name="omitBuiltin" type="xs:nonPositiveInteger" minOccurs="0" maxOccurs="0"/><xs:element name="omitNamed" type="r:Alias" minOccurs="0" maxOccurs="0"/><xs:element name="after" type="xs:nonPositiveInteger"/></xs:` + model + `></xs:complexType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				definition := requireUnsignedLongParticleComplexType(t, schema, "Record")
+				var elements []ElementParticle
+				switch particle := definition.Particle().(type) {
+				case ChoiceParticle:
+					for _, alternative := range particle.Alternatives() {
+						elements = append(elements, requireUnsignedLongElementParticle(t, alternative))
+					}
+				case SequenceParticle:
+					elements = particle.Elements()
+				default:
+					t.Fatalf("particle = %T", definition.Particle())
+				}
+				if len(elements) != 2 || elements[0].Name().Local() != "before" || elements[1].Name().Local() != "after" {
+					t.Fatalf("mapped ordered elements = %#v, want before/after", elements)
+				}
+			})
+		}
 	}
 }
 
 //nolint:gocognit // Assert each exit before 0/0 omission at the local particle boundary.
-func TestSchemaPositiveIntegerDirectLocalDiagnosticExits(t *testing.T) {
-	for _, profile := range positiveIntegerPolicyProfiles() {
+func TestSchemaNonPositiveIntegerDirectLocalDiagnosticExits(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, test := range []struct {
 				name, element, definitions, marker string
@@ -291,11 +393,11 @@ func TestSchemaPositiveIntegerDirectLocalDiagnosticExits(t *testing.T) {
 				spec                               func(XSDVersion) string
 				lexicalCause                       bool
 			}{
-				{"malformed occurrence", `<xs:element name="value" type="xs:positiveInteger" minOccurs="0" maxOccurs="many"/>`, "", `maxOccurs="many"`, nil, FailureInvalid, invalidSchemaCompositionCode, nil, schemaParticleOccurrenceDatatypeSpecRef, true},
-				{"reversed occurrence", `<xs:element name="value" type="xs:positiveInteger" minOccurs="2" maxOccurs="1"/>`, "", `<xs:element name="value"`, []string{`minOccurs="2"`, `maxOccurs="1"`}, FailureInvalid, invalidSchemaCompositionCode, errParticleOccurrenceMinimumExceedsMaximum, schemaParticleCorrectSpecRef, false},
+				{"malformed occurrence", `<xs:element name="value" type="xs:nonPositiveInteger" minOccurs="0" maxOccurs="many"/>`, "", `maxOccurs="many"`, nil, FailureInvalid, invalidSchemaCompositionCode, nil, schemaParticleOccurrenceDatatypeSpecRef, true},
+				{"reversed occurrence", `<xs:element name="value" type="xs:nonPositiveInteger" minOccurs="2" maxOccurs="1"/>`, "", `<xs:element name="value"`, []string{`minOccurs="2"`, `maxOccurs="1"`}, FailureInvalid, invalidSchemaCompositionCode, errParticleOccurrenceMinimumExceedsMaximum, schemaParticleCorrectSpecRef, false},
 				{"unresolved before omission", `<xs:element name="value" type="r:Missing" minOccurs="0" maxOccurs="0"/>`, "", `type="r:Missing"`, nil, FailureInvalid, diagnosticSchemaElementTypeUnresolvedCode, errSchemaElementTypeUnresolved, schemaElementTypeSpecRef, false},
-				{"wrong kind before omission", `<xs:element name="value" type="r:Wrong" minOccurs="0" maxOccurs="0"/>`, `<xs:element name="Wrong" type="xs:positiveInteger"/>`, `type="r:Wrong"`, []string{`<xs:element name="Wrong"`}, FailureInvalid, diagnosticSchemaElementTypeWrongKindCode, errSchemaElementTypeWrongKind, schemaElementTypeSpecRef, false},
-				{"invalid derivative before omission", `<xs:element name="value" type="r:Bad" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="Bad"><xs:restriction base="xs:positiveInteger"><xs:maxInclusive value="0"/></xs:restriction></xs:simpleType>`, `value="0"`, nil, FailureInvalid, InvalidBoundRestrictionCode, errInvalidBoundRestriction, positiveIntegerBoundRestrictionSpecRef, false},
+				{"wrong kind before omission", `<xs:element name="value" type="r:Wrong" minOccurs="0" maxOccurs="0"/>`, `<xs:element name="Wrong" type="xs:nonPositiveInteger"/>`, `type="r:Wrong"`, []string{`<xs:element name="Wrong"`}, FailureInvalid, diagnosticSchemaElementTypeWrongKindCode, errSchemaElementTypeWrongKind, schemaElementTypeSpecRef, false},
+				{"invalid derivative before omission", `<xs:element name="value" type="r:Bad" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="Bad"><xs:restriction base="xs:nonPositiveInteger"><xs:maxInclusive value="1"/></xs:restriction></xs:simpleType>`, `value="1"`, nil, FailureInvalid, InvalidBoundRestrictionCode, errInvalidBoundRestriction, nonPositiveIntegerBoundRestrictionSpecRef, false},
 				{"cycle before omission", `<xs:element name="value" type="r:One" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="One"><xs:restriction base="r:Two"/></xs:simpleType><xs:simpleType name="Two"><xs:restriction base="r:One"/></xs:simpleType>`, `base="r:Two"`, []string{`base="r:One"`}, FailureInvalid, diagnosticSchemaSimpleTypeCycleCode, errSchemaSimpleTypeBaseCycle, schemaSimpleTypeSpecRef, false},
 			} {
 				t.Run(profile.name+"/"+model+"/"+test.name, func(t *testing.T) {
@@ -323,16 +425,16 @@ func TestSchemaPositiveIntegerDirectLocalDiagnosticExits(t *testing.T) {
 	}
 }
 
-func positiveIntegerBoundRestrictionSpecRef(version XSDVersion) string {
+func nonPositiveIntegerBoundRestrictionSpecRef(version XSDVersion) string {
 	return boundSpecRef(version, BoundMaxInclusive, boundRestrictionRule)
 }
 
 //nolint:gocognit // A global ref remains opaque in both neighboring models and consumers.
-func TestSchemaPositiveIntegerDirectLocalReferencesKeepConsumerBoundary(t *testing.T) {
-	for _, profile := range positiveIntegerPolicyProfiles() {
+func TestSchemaNonPositiveIntegerDirectLocalReferencesKeepConsumerBoundary(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		for _, model := range []string{"choice", "sequence"} {
 			t.Run(profile.name+"/"+model, func(t *testing.T) {
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:element name="target" type="xs:positiveInteger"/><xs:element name="root" type="r:Record"/><xs:complexType name="Record"><xs:` + model + `><xs:element ref="r:target"/></xs:` + model + `></xs:complexType></xs:schema>`
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:element name="target" type="xs:nonPositiveInteger"/><xs:element name="root" type="r:Record"/><xs:complexType name="Record"><xs:` + model + `><xs:element ref="r:target"/></xs:` + model + `></xs:complexType></xs:schema>`
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 				if err != nil {
 					t.Fatal(err)
@@ -395,10 +497,10 @@ func TestSchemaPositiveIntegerDirectLocalReferencesKeepConsumerBoundary(t *testi
 	}
 }
 
-func TestSchemaPositiveIntegerDirectLocalPolicyGateBeforeOmission(t *testing.T) {
+func TestSchemaNonPositiveIntegerDirectLocalPolicyGateBeforeOmission(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {
 		t.Run(model, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="1.0"><xs:complexType name="Record"><xs:` + model + `><xs:element name="value" type="xs:positiveInteger" targetNamespace="urn:root" minOccurs="0" maxOccurs="0"/></xs:` + model + `></xs:complexType></xs:schema>`
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="1.0"><xs:complexType name="Record"><xs:` + model + `><xs:element name="value" type="xs:nonPositiveInteger" targetNamespace="urn:root" minOccurs="0" maxOccurs="0"/></xs:` + model + `></xs:complexType></xs:schema>`
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
 			assertZeroSchema(t, schema)
 			diagnostic := requireDiagnostic(t, err)
@@ -411,14 +513,14 @@ func TestSchemaPositiveIntegerDirectLocalPolicyGateBeforeOmission(t *testing.T) 
 }
 
 //nolint:dupl // Preserve the graph visibility regression for this built-in category.
-func TestSchemaPositiveIntegerDirectLocalHiddenGraphTypeBeforeOmission(t *testing.T) {
-	for _, profile := range positiveIntegerPolicyProfiles() {
+func TestSchemaNonPositiveIntegerDirectLocalHiddenGraphTypeBeforeOmission(t *testing.T) {
+	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		for _, model := range []string{"choice", "sequence"} {
 			t.Run(profile.name+"/"+model, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:f="urn:foreign" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:include schemaLocation="bridge.xsd"/><xs:complexType name="Record"><xs:` + model + `><xs:element name="value" type="f:Hidden" minOccurs="0" maxOccurs="0"/></xs:` + model + `></xs:complexType></xs:schema>`
 				fixtures := map[string]discoveryFixture{
 					"bridge.xsd":  {id: "bridge.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:import namespace="urn:foreign" schemaLocation="foreign.xsd"/></xs:schema>`},
-					"foreign.xsd": {id: "foreign.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:foreign" version="` + string(profile.version) + `"><xs:simpleType name="Hidden"><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:schema>`},
+					"foreign.xsd": {id: "foreign.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:foreign" version="` + string(profile.version) + `"><xs:simpleType name="Hidden"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType></xs:schema>`},
 				}
 				schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
 				assertZeroSchema(t, schema)

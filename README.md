@@ -26,7 +26,8 @@ consumers reject.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), and [decision 0007](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded attribute-free extensions expose built-in/named long locals; valid inline `0/0` omits, nonzero rejects.
-Direct named-complex choices/sequences expose built-in `xs:positiveInteger` locals with intrinsic minimum 1; validation/generation reject them.
+Direct named-complex choices/sequences expose query-only built-in
+`xs:positiveInteger`/`xs:nonPositiveInteger` locals with intrinsic bounds 1/0.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
 default integer/decimal sequence refs; other targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
