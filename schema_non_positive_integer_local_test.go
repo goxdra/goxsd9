@@ -315,14 +315,19 @@ func TestSchemaNonPositiveIntegerLocalAttributeExclusions(t *testing.T) {
 func assertDirectLocalIntegerExclusions(t *testing.T, profileName string, policy LanguagePolicy, version XSDVersion, atomic string) {
 	t.Helper()
 	for _, model := range []string{"choice", "sequence"} {
-		for _, test := range []struct {
+		tests := []struct {
 			name, body, marker string
 		}{
-			{"named derivative", `<xs:simpleType name="Derived"><xs:restriction base="xs:` + atomic + `"/></xs:simpleType><xs:complexType name="Record"><xs:` + model + `><xs:element name="value" type="r:Derived"/></xs:` + model + `></xs:complexType>`, `type="r:Derived"`},
 			{"anonymous derivative", `<xs:complexType name="Record"><xs:` + model + `><xs:element name="value"><xs:simpleType><xs:restriction base="xs:` + atomic + `"/></xs:simpleType></xs:element></xs:` + model + `></xs:complexType>`, `<xs:simpleType>`},
 			{"complex content extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:` + model + `><xs:element name="value" type="xs:` + atomic + `"/></xs:` + model + `></xs:extension></xs:complexContent></xs:complexType>`, `type="xs:` + atomic + `"`},
 			{"inline complex owner", `<xs:element name="root"><xs:complexType><xs:` + model + `><xs:element name="value" type="xs:` + atomic + `"/></xs:` + model + `></xs:complexType></xs:element>`, `type="xs:` + atomic + `"`},
-		} {
+		}
+		if atomic == "nonPositiveInteger" {
+			tests = append(tests, struct{ name, body, marker string }{
+				"named derivative", `<xs:simpleType name="Derived"><xs:restriction base="xs:` + atomic + `"/></xs:simpleType><xs:complexType name="Record"><xs:` + model + `><xs:element name="value" type="r:Derived"/></xs:` + model + `></xs:complexType>`, `type="r:Derived"`,
+			})
+		}
+		for _, test := range tests {
 			t.Run(profileName+"/"+model+"/"+test.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(version) + `">` + test.body + `</xs:schema>`
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)

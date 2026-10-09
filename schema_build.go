@@ -5880,7 +5880,7 @@ func resolveSchemaScalarType(
 	scope schemaScalarTypeScope,
 	allowPrecisionDecimal bool,
 	allowPrecisionVariety bool,
-	allowDirectBuiltinPositiveIntegerFamily bool,
+	allowDirectNamedComplexPositiveIntegerFamily bool,
 ) (schemaElementTypeResult, error) {
 	if input.inlineSimpleType != nil {
 		result, ok := simpleTypes.byInput[input.inlineSimpleType]
@@ -5890,7 +5890,7 @@ func resolveSchemaScalarType(
 		if err := rejectUnsupportedSchemaSimpleTypeVariety(input, result, version, complexTargetSuffix); err != nil {
 			return schemaElementTypeResult{}, err
 		}
-		if err := rejectUnsupportedLocalScalarType(input, result, version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
+		if err := rejectUnsupportedLocalScalarType(input, result, version, complexTargetSuffix, scope, allowPrecisionDecimal, false); err != nil {
 			return schemaElementTypeResult{}, err
 		}
 		reference, err := resolvedAnonymousSchemaSimpleTypeReference(input, result)
@@ -5907,7 +5907,7 @@ func resolveSchemaScalarType(
 		}, nil
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveBuiltinSchemaScalarType(input, version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectBuiltinPositiveIntegerFamily)
+		return resolveBuiltinSchemaScalarType(input, version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectNamedComplexPositiveIntegerFamily)
 	}
 
 	candidates := byName[input.declaredType]
@@ -5969,7 +5969,7 @@ func resolveSchemaScalarType(
 			}
 		}
 	}
-	if err := rejectUnsupportedLocalScalarType(input, simpleTypes.results[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
+	if err := rejectUnsupportedLocalScalarType(input, simpleTypes.results[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectNamedComplexPositiveIntegerFamily); err != nil {
 		return schemaElementTypeResult{}, err
 	}
 	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes.results[candidate])
@@ -6201,7 +6201,7 @@ func builtinSchemaElementTypeReference(input *schemaElementInput, version XSDVer
 	}, version)
 }
 
-func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
+func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal, allowDirectNamedComplexPositiveIntegerFamily bool) error {
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
 	}
@@ -6231,7 +6231,12 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 			break
 		}
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
-	case schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger:
+	case schemaSimpleTypeAtomicPositiveInteger:
+		if input.inlineSimpleType == nil && allowDirectNamedComplexPositiveIntegerFamily && simpleType.variety == SimpleTypeVarietyAtomicRestriction {
+			break
+		}
+		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
+	case schemaSimpleTypeAtomicNonPositiveInteger:
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
@@ -8615,7 +8620,7 @@ func resolveSchemaElementParticle(
 		schemaScalarTypeLocalParticle,
 		model != "sequence" || !schemaComplexTypeIsExtension(owner),
 		model == "sequence" && !schemaComplexTypeIsExtension(owner),
-		schemaDirectNamedBuiltinPositiveIntegerFamily(owner, model, input.typeInput),
+		schemaDirectNamedComplexPositiveIntegerFamily(owner, model, input.typeInput),
 	)
 	if err != nil {
 		if !input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err) {
@@ -8641,7 +8646,7 @@ func resolveSchemaElementParticle(
 	return ElementParticle{facts: facts}, nil
 }
 
-func schemaDirectNamedBuiltinPositiveIntegerFamily(owner schemaComponentRecord, model string, input *schemaElementInput) bool {
+func schemaDirectNamedComplexPositiveIntegerFamily(owner schemaComponentRecord, model string, input *schemaElementInput) bool {
 	if model != "choice" && model != "sequence" {
 		return false
 	}
@@ -8651,10 +8656,7 @@ func schemaDirectNamedBuiltinPositiveIntegerFamily(owner schemaComponentRecord, 
 	if _, direct := owner.complexType.body.(*schemaComplexTypeDirectBodyInput); !direct {
 		return false
 	}
-	if input.declaredType.Namespace() != xsdNamespaceURI {
-		return false
-	}
-	return input.declaredType.Local() == "positiveInteger" || input.declaredType.Local() == "nonPositiveInteger"
+	return true
 }
 
 func schemaComplexTypeIsExtension(owner schemaComponentRecord) bool {
