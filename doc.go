@@ -156,9 +156,9 @@
 // and named effective-long particles in those shapes remain query-only and
 // consumer-rejected.
 // Direct named-complex choices and sequences admit built-in and named effective
-// positiveInteger locals as query-only particles with exact inherited or narrowed
-// bounds. Built-in nonPositiveInteger locals retain intrinsic maxInclusive=0.
-// Named nonPositiveInteger and anonymous positiveInteger/nonPositiveInteger derivatives, and inline/anonymous
+// positiveInteger and nonPositiveInteger locals as query-only particles with exact
+// inherited or narrowed bounds.
+// Anonymous positiveInteger/nonPositiveInteger derivatives, and inline/anonymous
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle

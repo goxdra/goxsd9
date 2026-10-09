@@ -523,31 +523,6 @@ func assertNonPositiveIntegerNoPartialSchema(t *testing.T, schema Schema, err er
 	}
 }
 
-func assertSchemaIntegerDerivedExcludedShapes(t *testing.T, policy LanguagePolicy, atomicName string) {
-	t.Helper()
-	tests := []struct {
-		name string
-		root string
-	}{
-		{
-			name: "local named particle",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test"><xs:simpleType name="Alias"><xs:restriction base="xs:` + atomicName + `"/></xs:simpleType><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="t:Alias"/></xs:sequence></xs:complexType></xs:schema>`,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy)
-			if err == nil || schema.storage != nil || len(schema.Components()) != 0 {
-				t.Fatalf("discoverTestSchemaWithPolicy accepted an excluded %s shape or returned a schema", atomicName)
-			}
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Loc().IsZero() || !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("diagnostic = %s, want located unsupported with preserved cause", diagnostic)
-			}
-		})
-	}
-}
-
 func assertSchemaIntegerDerivedGlobalAttributeExcluded(t *testing.T, policy LanguagePolicy, atomicName string) {
 	t.Helper()
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:attribute name="value" type="xs:` + atomicName + `"/></xs:schema>`
@@ -558,14 +533,6 @@ func assertSchemaIntegerDerivedGlobalAttributeExcluded(t *testing.T, policy Lang
 	diagnostic := requireDiagnostic(t, err)
 	if diagnostic.Class() != FailureUnsupported || diagnostic.Loc().IsZero() || !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("diagnostic = %s, want located unsupported global attribute", diagnostic)
-	}
-}
-
-func TestSchemaNonPositiveIntegerExcludedShapesRemainUnsupported(t *testing.T) {
-	for _, profile := range nonPositiveIntegerPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			assertSchemaIntegerDerivedExcludedShapes(t, profile.policy, "nonPositiveInteger")
-		})
 	}
 }
 
