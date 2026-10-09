@@ -405,23 +405,3 @@ func assertIntInvalidNoPartialSchema(t *testing.T, schema Schema, err error, cau
 		t.Fatalf("diagnostic lost cause %v: %v", cause, err)
 	}
 }
-
-func TestSchemaIntGenerationRemainsUnsupported(t *testing.T) {
-	for _, profile := range longPolicyProfiles() {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="` + testXSDNamespace + `" targetNamespace="urn:test" version="` + string(profile.version) + `"><xs:element name="value" type="p:int"/></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			if err != nil {
-				t.Fatalf("discoverTestSchemaWithPolicy: %v", err)
-			}
-			output, err := GenerateGo(schema, "generated")
-			if output != nil || err == nil {
-				t.Fatalf("GenerateGo = (%q, %v), want unsupported with nil output", output, err)
-			}
-			d := requireDiagnostic(t, err)
-			if d.Class() != FailureUnsupported || d.Code() != diagnosticCodegenUnsupported || !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("int generation diagnostic = %s", d)
-			}
-		})
-	}
-}

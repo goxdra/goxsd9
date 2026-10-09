@@ -18,9 +18,9 @@ consumers reject pending identity semantics. Atomic NCName enumerations, includi
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
 precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
-never resolves. `GenerateGo(schema, packageName)` emits global `xs:long`:
+never resolves. `GenerateGo(schema, packageName)` emits global `xs:long`/`xs:int`:
 built-in fields use `StrictInteger`, named fields use generated types; global
-long attributes remain query-only. Named empty/choice/sequence/grouped
+long/int attributes remain query-only. Named empty/choice/sequence/grouped
 owners expose built-in/facet-free `xs:ID` locals (Strict10: one ID);
 consumers reject.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), and [decision 0007](docs/decisions/0007-particle-occurrence.md).
