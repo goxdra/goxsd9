@@ -155,7 +155,9 @@
 // as an atomic sibling; other validation paths and GenerateGo reject it. Built-in
 // and named effective-long particles in those shapes remain query-only and
 // consumer-rejected.
-// Local nonPositiveInteger/positiveInteger and inline/anonymous
+// Direct named-complex choices and sequences admit built-in positiveInteger
+// locals as query-only particles with their intrinsic minInclusive=1.
+// Local nonPositiveInteger, named/anonymous positiveInteger derivatives, and inline/anonymous
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
@@ -479,7 +481,8 @@
 // Outside bounded list/union sequences, mixed scalar-family sequences,
 // direct-choice repetition, and excluded particle/target shapes remain unsupported.
 // Admitted local built-in/named long/int/short/byte/unsignedLong/
-// nonNegativeInteger particles remain query-only; validation and generation
+// nonNegativeInteger particles and direct named-complex choice/sequence
+// built-in positiveInteger locals remain query-only; validation and generation
 // reject them. Global unsignedLong refs remain query-only; nonzero inline
 // unsignedLong locals fail schema admission. NegativeInteger also validates as
 // a bounded variety sibling.
