@@ -155,9 +155,10 @@
 // as an atomic sibling; other validation paths and GenerateGo reject it. Built-in
 // and named effective-long particles in those shapes remain query-only and
 // consumer-rejected.
-// Direct named-complex choices and sequences admit built-in positiveInteger
-// locals as query-only particles with their intrinsic minInclusive=1.
-// Local nonPositiveInteger, named/anonymous positiveInteger derivatives, and inline/anonymous
+// Direct named-complex choices and sequences admit built-in positiveInteger and
+// nonPositiveInteger locals as query-only particles with intrinsic minInclusive=1
+// and maxInclusive=0 respectively.
+// Named/anonymous positiveInteger and nonPositiveInteger derivatives, and inline/anonymous
 // long/int/short/byte/unsignedLong/nonNegativeInteger are excluded when mapped non-0/0: ParseSchema returns a located
 // FeatureSchemaSyntax/FailureUnsupported/UnsupportedSchemaSyntaxCode/ErrUnsupported
 // diagnostic at the type, facet, or element Loc and no Schema. Nested-particle
@@ -176,7 +177,8 @@
 // built-in unsignedLong retains intrinsic inclusive bounds
 // [0,18446744073709551615]; built-in nonNegativeInteger retains intrinsic
 // minInclusive=0 without a source Loc; built-in positiveInteger retains
-// minInclusive=1 without a source Loc or component ID; built-in negativeInteger retains
+// minInclusive=1 without a source Loc or component ID; built-in nonPositiveInteger
+// retains maxInclusive=0 without a source Loc or component ID; built-in negativeInteger retains
 // maxInclusive=-1 with no source facet Loc or component ID; named-effective particles retain exact narrowed,
 // inclusive/exclusive bounds, integer enumeration/digit facets, source locations,
 // identities, graph provenance, and exact occurrences. Outside bounded list/union
@@ -482,7 +484,7 @@
 // direct-choice repetition, and excluded particle/target shapes remain unsupported.
 // Admitted local built-in/named long/int/short/byte/unsignedLong/
 // nonNegativeInteger particles and direct named-complex choice/sequence
-// built-in positiveInteger locals remain query-only; validation and generation
+// built-in positiveInteger/nonPositiveInteger locals remain query-only; validation and generation
 // reject them. Global unsignedLong refs remain query-only; nonzero inline
 // unsignedLong locals fail schema admission. NegativeInteger also validates as
 // a bounded variety sibling.

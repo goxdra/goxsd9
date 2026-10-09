@@ -58,8 +58,9 @@ and inherited `##other`/`lax` wildcards. Scalar simpleContent retains base/type/
 or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
-`nonNegativeInteger`; built-in `positiveInteger` admits query-only direct
-named-complex choice/sequence locals with intrinsic minimum 1. Derivatives,
+`nonNegativeInteger`; built-in `positiveInteger`/`nonPositiveInteger` admit
+direct named-complex choice/sequence locals with intrinsic bounds 1/0.
+Derivatives,
 all, extensions, and local attributes exclude.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 need bounded list/union. Other derivatives/extensions are query-only;
