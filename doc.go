@@ -484,9 +484,10 @@
 // direct-choice repetition, and excluded particle/target shapes remain unsupported.
 // Admitted local built-in/named long/int/short/byte/unsignedLong/
 // nonNegativeInteger particles and direct named-complex choice/sequence
-// built-in/named positiveInteger and built-in nonPositiveInteger locals remain
-// query-only; validation and generation
-// reject them. Global unsignedLong refs remain query-only; nonzero inline
+// built-in positiveInteger/nonPositiveInteger and named effective
+// positiveInteger/nonPositiveInteger locals remain query-only;
+// ValidateInstance and GenerateGo reject surviving terms. Global unsignedLong
+// refs remain query-only; nonzero inline
 // unsignedLong locals fail schema admission. NegativeInteger also validates as
 // a bounded variety sibling.
 // Direct-choice reference consumers exclude precisionDecimal and anonymous
