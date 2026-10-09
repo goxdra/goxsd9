@@ -577,7 +577,6 @@ func TestSchemaUnsignedLongLocalParticleExcludedShapesRemainUnsupported(t *testi
 			specRef   string
 		}{
 			{name: "inline unsignedLong", body: `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:element>`, locMarker: `<xs:simpleType>`},
-			{name: "named non-positive integer", body: `<xs:element name="value" type="r:NonPositive"/>`, defs: `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`, locMarker: `type="r:NonPositive"`},
 			{name: "named list", body: `<xs:element name="value" type="r:List"/>`, defs: `<xs:simpleType name="List"><xs:list itemType="xs:unsignedLong"/></xs:simpleType>`, locMarker: `type="r:List"`},
 			{name: "named union", body: `<xs:element name="value" type="r:Union"/>`, defs: `<xs:simpleType name="Union"><xs:union memberTypes="xs:unsignedLong"/></xs:simpleType>`, locMarker: `type="r:Union"`},
 			{name: "nested sequence", body: `<xs:sequence><xs:element name="value" type="xs:unsignedLong"/></xs:sequence>`, locMarker: `<xs:sequence>`, specRef: schemaSyntaxSpecRefForVersion(XSDVersion10)},
@@ -624,6 +623,9 @@ func TestSchemaUnsignedLongExcludedParticleShapesAcrossOwners(t *testing.T) {
 			{name: "extension sequence", model: "sequence", extension: true},
 		} {
 			for _, test := range unsignedLongExcludedOwnerCases() {
+				if !owner.extension && test.name == "named non-positive integer" {
+					continue
+				}
 				t.Run(profile.name+"/"+owner.name+"/"+test.name, func(t *testing.T) {
 					body := strings.ReplaceAll(test.body, "OCCURRENCES", "")
 					root := schemaUnsignedLongExcludedOwnerRoot(owner.model, owner.extension, body, test.defs)
