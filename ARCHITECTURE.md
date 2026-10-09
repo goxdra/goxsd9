@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 Phases never backpatch. Identities intern before discovery; repeats/cycles close. Stable
-topological order resolves acyclic dependencies; slices order walks/output.
+topological order resolves dependencies; slices order walks/output.
 
 ## Input and resolution
 
@@ -58,10 +58,10 @@ and inherited `##other`/`lax` wildcards. Scalar simpleContent retains base/type/
 or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
-`nonNegativeInteger`; built-in `positiveInteger`/`nonPositiveInteger` admit
-direct named-complex choice/sequence locals with intrinsic bounds 1/0.
-Derivatives,
-all, extensions, and local attributes exclude.
+`nonNegativeInteger`; built-in/named `positiveInteger` and built-in
+`nonPositiveInteger` admit direct named-complex choice/sequence locals with
+bounds. Anonymous derivatives, named nonPositiveInteger, all, extensions, and
+local attributes exclude.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 need bounded list/union. Other derivatives/extensions are query-only;
 named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
