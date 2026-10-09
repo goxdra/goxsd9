@@ -481,7 +481,8 @@
 // Outside bounded list/union sequences, mixed scalar-family sequences,
 // direct-choice repetition, and excluded particle/target shapes remain unsupported.
 // Admitted local built-in/named long/int/short/byte/unsignedLong/
-// nonNegativeInteger particles remain query-only; validation and generation
+// nonNegativeInteger particles and direct named-complex choice/sequence
+// built-in positiveInteger locals remain query-only; validation and generation
 // reject them. Global unsignedLong refs remain query-only; nonzero inline
 // unsignedLong locals fail schema admission. NegativeInteger also validates as
 // a bounded variety sibling.
