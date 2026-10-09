@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -127,15 +129,7 @@ func TestDevelopSignalsCommandReportsSelectedSignalsSequentially(t *testing.T) {
 		}
 		return map[string]bool{"syntax.go": true, "datatype.go": true}, nil
 	}
-	application.executeCommandWithContextAndEnv = func(_ context.Context, _ string, _ []string,
-		_ io.Reader, name string, args ...string,
-	) (string, error) {
-		if name != "go" {
-			t.Fatalf("campaign command = %q, want go", name)
-		}
-		targets = append(targets, args[3])
-		return "", nil
-	}
+	application.executeCommandWithContextAndEnv = captureDevelopmentFuzzTargets(t, &targets)
 
 	if err := application.run([]string{"develop-signals", "--base", "base-sha", "--duration", "250ms"}); err != nil {
 		t.Fatalf("develop-signals: %v", err)
@@ -291,15 +285,7 @@ func FuzzAdditionalAlpha(f *testing.F) { f.Fuzz(func(*testing.T, string) {}) }
 	application.coverageChangedPaths = func(string, string, string) (map[string]bool, error) {
 		return map[string]bool{"internal/workflowctl/signals.go": true}, nil
 	}
-	application.executeCommandWithContextAndEnv = func(_ context.Context, _ string, _ []string, _ io.Reader,
-		name string, args ...string,
-	) (string, error) {
-		if name != "go" {
-			t.Fatalf("campaign command = %q, want go", name)
-		}
-		targets = append(targets, args[3])
-		return "", nil
-	}
+	application.executeCommandWithContextAndEnv = captureDevelopmentFuzzTargets(t, &targets)
 	if err := application.run([]string{
 		"develop-signals", "--base", "base-sha", "--format", "json",
 		"--additional-fuzz", "example.com/fuzzfixture:FuzzAdditionalBeta", "--additional-fuzz", ".:FuzzAdditionalAlpha",
@@ -324,6 +310,25 @@ func FuzzAdditionalAlpha(f *testing.F) { f.Fuzz(func(*testing.T, string) {}) }
 	}
 	if err := validateDevelopmentSignals(report, "base-sha", "head-sha"); err != nil {
 		t.Fatalf("validate additional signal report: %v", err)
+	}
+}
+
+func captureDevelopmentFuzzTargets(t *testing.T, targets *[]string) commandContextEnvironmentExecutor {
+	t.Helper()
+	return func(_ context.Context, _ string, _ []string, _ io.Reader, name string,
+		args ...string,
+	) (string, error) {
+		if name != "go" {
+			if filepath.Base(name) != "fuzz.test" {
+				t.Fatalf("campaign command = %q, want go or fuzz.test", name)
+			}
+			return "", nil
+		}
+		if len(args) == 0 || args[0] != "test" || !slices.Contains(args, "-run=^$") {
+			return "", nil
+		}
+		*targets = append(*targets, args[3])
+		return "", nil
 	}
 }
 
