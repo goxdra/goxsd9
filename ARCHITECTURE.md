@@ -58,15 +58,16 @@ and inherited `##other`/`lax` wildcards. Scalar simpleContent retains base/type/
 or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
-`nonNegativeInteger`; built-in `positiveInteger` is direct-global only.
-Built-in/named `integer` validate broadly; anonymous `integer`/`negativeInteger`
-need bounded list/union context. Other derivatives/extensions are query-only;
+`nonNegativeInteger`; built-in `positiveInteger` admits query-only direct
+named-complex choice/sequence locals with intrinsic minimum 1. Derivatives,
+all, extensions, and local attributes exclude.
+Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
+need bounded list/union. Other derivatives/extensions are query-only;
 named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
 Syntax/occurrence/reference/policy gates precede mapping and `0/0` omission;
 errors keep cause/`Loc` and prevent `Schema`. Sequences resolve children first;
 choices resolve refs once; named groups before omission. Refs retain
 QName/RefLoc/TargetID/order without expansion; broader consumers reject.
-Valid `0/0` omits; non-`0/0` inline long-family locals fail at type/simpleType `Loc`.
 Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0
