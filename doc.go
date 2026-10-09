@@ -277,9 +277,10 @@
 // return located invalid diagnostics with their lexical cause. Both return no
 // Schema.
 // Global elements with supported inline complex types also accept unqualified
-// abstract="false" and abstract="0" after XML whitespace collapse as omission
-// under every policy. True/1 stays located unsupported, and malformed Boolean
-// values stay located invalid with their lexical cause; neither returns a Schema.
+// abstract="false"/"0" and nillable="false"/"0" after XML whitespace collapse
+// as omission under every policy. True/1 stays located unsupported, and malformed
+// Boolean values stay located invalid with their lexical cause; neither returns
+// a Schema.
 // On supported global inline complex types, unqualified defaultAttributesApply
 // true/false/1/0 is inert under Compatibility/Strict11 after XML whitespace
 // collapse. Strict10 reports a located edition mismatch; malformed Boolean

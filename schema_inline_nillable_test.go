@@ -8,16 +8,16 @@ import (
 	"testing"
 )
 
-func inlineAbstractAttribute(value string) string {
+func inlineNillableAttribute(value string) string {
 	if value == "" {
 		return ""
 	}
-	return ` abstract="` + value + `"`
+	return ` nillable="` + value + `"`
 }
 
-func inlineAbstractSchema(body, value string, version XSDVersion) string {
+func inlineNillableSchema(body, value string, version XSDVersion) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" elementFormDefault="qualified" version="` + string(version) + `">
-<xs:element name="root"` + inlineAbstractAttribute(value) + `>
+<xs:element name="root"` + inlineNillableAttribute(value) + `>
 <xs:complexType>` + body + `</xs:complexType>
 </xs:element>
 <xs:element name="target" type="xs:integer"/><xs:attribute name="global" type="xs:boolean"/><xs:complexType name="Base"/>
@@ -25,7 +25,7 @@ func inlineAbstractSchema(body, value string, version XSDVersion) string {
 }
 
 //nolint:gocognit // Compare completed public facts and existing consumer outcomes for each admitted body.
-func TestInlineAbstractFalseMatchesOmission(t *testing.T) {
+func TestInlineNillableFalseMatchesOmission(t *testing.T) {
 	bodies := []struct{ name, xml string }{
 		{"empty", ""},
 		{"attribute only", `<xs:attribute name="flag" type="xs:boolean" use="required"/><xs:attribute ref="t:global"/>`},
@@ -39,20 +39,20 @@ func TestInlineAbstractFalseMatchesOmission(t *testing.T) {
 		for _, version := range schemaMixedComplexVersions() {
 			for _, body := range bodies {
 				t.Run(policy.name+"/"+version.name+"/"+body.name, func(t *testing.T) {
-					omitted := inlineMixedSnapshot(t, inlineAbstractSchema(body.xml, "", version.version), policy.policy)
+					omitted := inlineMixedSnapshot(t, inlineNillableSchema(body.xml, "", version.version), policy.policy)
 					for _, value := range []string{"false", "0", "&#x9;false&#xA;", "&#xA;0&#x9;"} {
-						root := inlineAbstractSchema(body.xml, value, version.version)
+						root := inlineNillableSchema(body.xml, value, version.version)
 						actual := inlineMixedSnapshot(t, root, policy.policy)
 						if !reflect.DeepEqual(actual, omitted) {
-							t.Fatalf("abstract=%q changed public facts or consumer outcomes: got %#v, omitted %#v", value, actual, omitted)
+							t.Fatalf("nillable=%q changed public facts or consumer outcomes: got %#v, omitted %#v", value, actual, omitted)
 						}
 						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
 						if err != nil {
-							t.Fatalf("abstract=%q: %v", value, err)
+							t.Fatalf("nillable=%q: %v", value, err)
 						}
 						declaration := auxiliaryElement(t, schema, "root")
-						if declaration.IsAbstract() || declaration.Loc() != schemaMixedComplexLoc(t, root, `<xs:element name="root"`) {
-							t.Fatalf("abstract=%q changed effective fact or declaration Loc", value)
+						if declaration.IsNillable() || declaration.Loc() != schemaMixedComplexLoc(t, root, `<xs:element name="root"`) {
+							t.Fatalf("nillable=%q changed effective fact or declaration Loc", value)
 						}
 						components := schema.Components()
 						components[0] = Component{}
@@ -67,7 +67,7 @@ func TestInlineAbstractFalseMatchesOmission(t *testing.T) {
 }
 
 //nolint:gocognit // The two valid unsupported exits and malformed lexical exits share an attribute boundary.
-func TestInlineAbstractDiagnosticExits(t *testing.T) {
+func TestInlineNillableDiagnosticExits(t *testing.T) {
 	for _, policy := range schemaMixedComplexPolicies() {
 		wantVersion := XSDVersion11
 		if policy.policy == Strict10 {
@@ -76,33 +76,33 @@ func TestInlineAbstractDiagnosticExits(t *testing.T) {
 		for _, version := range schemaMixedComplexVersions() {
 			for _, value := range []string{"true", "1", "&#x9;true&#xA;", "&#xA;1&#x9;", "", "00", "False", "maybe"} {
 				t.Run(policy.name+"/"+version.name+"/"+value, func(t *testing.T) {
-					root := inlineAbstractSchema(`<xs:sequence/>`, value, version.version)
+					root := inlineNillableSchema(`<xs:sequence/>`, value, version.version)
 					if value == "" {
-						root = strings.Replace(root, `<xs:element name="root">`, `<xs:element name="root" abstract="">`, 1)
+						root = strings.Replace(root, `<xs:element name="root">`, `<xs:element name="root" nillable="">`, 1)
 					}
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
 					if err == nil {
-						t.Fatal("excluded abstract spelling succeeded")
+						t.Fatal("excluded nillable spelling succeeded")
 					}
 					assertZeroSchema(t, schema)
 					d := requireDiagnostic(t, err)
-					wantLoc := schemaMixedComplexLoc(t, root, `abstract="`+value+`"`)
+					wantLoc := schemaMixedComplexLoc(t, root, `nillable="`+value+`"`)
 					if d.Loc() != wantLoc || len(d.Related()) != 0 {
 						t.Fatalf("diagnostic location/related = %s/%v, want %s/none", d.Loc(), d.Related(), wantLoc)
 					}
 					if value == "true" || value == "1" || value == "&#x9;true&#xA;" || value == "&#xA;1&#x9;" {
 						wantSpec := newSchemaSyntaxUnsupportedForVersion(Loc{}, "", wantVersion).SpecRef()
 						if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.SpecRef() != wantSpec || d.Unwrap() != nil || !errors.Is(err, ErrUnsupported) {
-							t.Fatalf("true abstract diagnostic = %s, want unsupported with %s", d, wantSpec)
+							t.Fatalf("true nillable diagnostic = %s, want unsupported with %s", d, wantSpec)
 						}
 						return
 					}
 					if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.SpecRef() != "" || errors.Is(err, ErrUnsupported) {
-						t.Fatalf("malformed abstract diagnostic = %s, want invalid Boolean", d)
+						t.Fatalf("malformed nillable diagnostic = %s, want invalid Boolean", d)
 					}
 					lexical := requireDiagnostic(t, d.Unwrap())
-					if lexical.Class() != FailureInvalid || lexical.Code() != invalidSchemaCompositionCode || lexical.Loc() != wantLoc || lexical.Message() != `attribute "abstract" has an invalid boolean value` || lexical.Unwrap() != nil {
-						t.Fatalf("malformed abstract lexical cause = %s", lexical)
+					if lexical.Class() != FailureInvalid || lexical.Code() != invalidSchemaCompositionCode || lexical.Loc() != wantLoc || lexical.Message() != `attribute "nillable" has an invalid boolean value` || lexical.Unwrap() != nil {
+						t.Fatalf("malformed nillable lexical cause = %s", lexical)
 					}
 				})
 			}
@@ -111,37 +111,37 @@ func TestInlineAbstractDiagnosticExits(t *testing.T) {
 }
 
 //nolint:gocognit // Existing validator and generator contracts are compared independently.
-func TestInlineAbstractFalseKeepsConsumerOutcomes(t *testing.T) {
+func TestInlineNillableFalseKeepsConsumerOutcomes(t *testing.T) {
 	for _, policy := range schemaMixedComplexPolicies() {
 		var wantValidation, wantGeneration inlineMixedDiagnostic
 		for index, value := range []string{"", "false", "0", "&#x9;false&#xA;"} {
-			root := inlineAbstractSchema(`<xs:sequence><xs:element ref="t:target"/></xs:sequence>`, value, XSDVersion11)
+			root := inlineNillableSchema(`<xs:sequence><xs:element ref="t:target"/></xs:sequence>`, value, XSDVersion11)
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
 			if err != nil {
-				t.Fatalf("%s abstract=%q parse: %v", policy.name, value, err)
+				t.Fatalf("%s nillable=%q parse: %v", policy.name, value, err)
 			}
 			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root"><target>7</target></root>`)))
 			validation := inlineMixedError(t, validationErr)
 			if validation.class != string(FailureUnsupported) || validation.code != UnsupportedInstanceValidationCode || validation.loc != mustTestLoc(t, "instance.xml", 1, 1) || !validation.unsupported {
-				t.Fatalf("%s abstract=%q validator = %#v", policy.name, value, validation)
+				t.Fatalf("%s nillable=%q validator = %#v", policy.name, value, validation)
 			}
 			output, generationErr := GenerateGo(schema, "generated")
 			generation := inlineMixedError(t, generationErr)
 			if output != nil || generation.class != string(FailureUnsupported) || generation.code != diagnosticCodegenUnsupported || generation.loc != schemaMixedComplexLoc(t, root, `<xs:complexType name="Base"`) || !generation.unsupported {
-				t.Fatalf("%s abstract=%q generator = %d bytes/%#v", policy.name, value, len(output), generation)
+				t.Fatalf("%s nillable=%q generator = %d bytes/%#v", policy.name, value, len(output), generation)
 			}
 			if index == 0 {
 				wantValidation, wantGeneration = validation, generation
 				continue
 			}
 			if !reflect.DeepEqual(validation, wantValidation) || !reflect.DeepEqual(generation, wantGeneration) {
-				t.Fatalf("%s abstract=%q changed consumers: validation %#v/%#v, generation %#v/%#v", policy.name, value, validation, wantValidation, generation, wantGeneration)
+				t.Fatalf("%s nillable=%q changed consumers: validation %#v/%#v, generation %#v/%#v", policy.name, value, validation, wantValidation, generation, wantGeneration)
 			}
 		}
 	}
 }
 
-type inlineAbstractGraphFacts struct {
+type inlineNillableGraphFacts struct {
 	documents  []SourceID
 	components []ComponentID
 	locations  []Loc
@@ -151,13 +151,13 @@ type inlineAbstractGraphFacts struct {
 }
 
 //nolint:dupl,gocognit // Parallel abstract/nillable graph snapshots prove each explicit fact preserves public identities and order.
-func inlineAbstractGraphSchema(t *testing.T, root string, fixtures map[string]discoveryFixture, policy LanguagePolicy) inlineAbstractGraphFacts {
+func inlineNillableGraphSchema(t *testing.T, root string, fixtures map[string]discoveryFixture, policy LanguagePolicy) inlineNillableGraphFacts {
 	t.Helper()
 	schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
 	if err != nil {
 		t.Fatalf("parse composed graph: %v", err)
 	}
-	var facts inlineAbstractGraphFacts
+	var facts inlineNillableGraphFacts
 	for _, document := range schema.Documents() {
 		facts.documents = append(facts.documents, document.Source())
 	}
@@ -172,7 +172,7 @@ func inlineAbstractGraphSchema(t *testing.T, root string, fixtures map[string]di
 		t.Fatalf("walk composed graph: %v", err)
 	}
 	declaration := auxiliaryElement(t, schema, "root")
-	if declaration.IsAbstract() || declaration.Loc() != schemaMixedComplexLoc(t, root, `<xs:element name="root"`) {
+	if declaration.IsNillable() || declaration.Loc() != schemaMixedComplexLoc(t, root, `<xs:element name="root"`) {
 		t.Fatal("composed root lost effective false fact or declaration location")
 	}
 	definition, ok := declaration.InlineComplexType()
@@ -206,14 +206,14 @@ func inlineAbstractGraphSchema(t *testing.T, root string, fixtures map[string]di
 	return facts
 }
 
-//nolint:gocognit // Forward include/import visibility and discovery order share one public snapshot.
-func TestInlineAbstractFalseMatchesOmissionInComposedForwardGraph(t *testing.T) {
+//nolint:gocognit // Repeat the public graph assertion for nillable across forward and cyclic discovery.
+func TestInlineNillableFalseMatchesOmissionInComposedForwardGraph(t *testing.T) {
 	for _, policy := range schemaMixedComplexPolicies() {
 		for _, version := range schemaMixedComplexVersions() {
 			rootFor := func(value string) string {
 				return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:o="urn:other" targetNamespace="urn:root" version="` + string(version.version) + `">
 <xs:include schemaLocation="child.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/>
-<xs:element name="root"` + inlineAbstractAttribute(value) + `>
+<xs:element name="root"` + inlineNillableAttribute(value) + `>
 <xs:complexType><xs:sequence minOccurs="0" maxOccurs="2"><xs:element ref="t:Later" minOccurs="0" maxOccurs="3"/><xs:element ref="o:Foreign"/></xs:sequence></xs:complexType>
 </xs:element>
 </xs:schema>`
@@ -235,14 +235,14 @@ func TestInlineAbstractFalseMatchesOmissionInComposedForwardGraph(t *testing.T) 
 							"other.xsd": {id: "other.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other" version="` + string(version.version) + `"><xs:element name="Foreign" type="xs:integer"/></xs:schema>`},
 						}
 					}
-					omitted := inlineAbstractGraphSchema(t, rootFor(""), fixturesFor(""), policy.policy)
+					omitted := inlineNillableGraphSchema(t, rootFor(""), fixturesFor(""), policy.policy)
 					if !reflect.DeepEqual(omitted.documents, []SourceID{"root.xsd", "child.xsd", "other.xsd"}) {
 						t.Fatalf("document discovery order = %v", omitted.documents)
 					}
 					for _, value := range []string{"false", "0", "&#x9;false&#xA;"} {
-						actual := inlineAbstractGraphSchema(t, rootFor(value), fixturesFor(value), policy.policy)
+						actual := inlineNillableGraphSchema(t, rootFor(value), fixturesFor(value), policy.policy)
 						if !reflect.DeepEqual(actual, omitted) {
-							t.Fatalf("abstract=%q changed graph facts: got %#v, omitted %#v", value, actual, omitted)
+							t.Fatalf("nillable=%q changed graph facts: got %#v, omitted %#v", value, actual, omitted)
 						}
 					}
 				})
@@ -251,12 +251,13 @@ func TestInlineAbstractFalseMatchesOmissionInComposedForwardGraph(t *testing.T) 
 	}
 }
 
-//nolint:gocognit // Each local direct, named, inline, and reference shape retains its own rejection.
-func TestInlineAbstractDoesNotAdmitLocalElementShapes(t *testing.T) {
+//nolint:gocognit // The global gate leaves each local shape's established admission or rejection intact.
+func TestInlineNillableKeepsLocalElementShapes(t *testing.T) {
 	shapes := []struct{ name, element, definitions string }{
 		{"direct", `<xs:element name="child" type="xs:integer"`, ""},
 		{"named", `<xs:element name="child" type="t:Named"`, `<xs:simpleType name="Named"><xs:restriction base="xs:integer"/></xs:simpleType>`},
 		{"inline complex", `<xs:element name="child"`, ""},
+		{"inline simple", `<xs:element name="child"`, ""},
 		{"ref", `<xs:element ref="t:target"`, `<xs:element name="target" type="xs:integer"/>`},
 	}
 	for _, policy := range schemaMixedComplexPolicies() {
@@ -268,16 +269,47 @@ func TestInlineAbstractDoesNotAdmitLocalElementShapes(t *testing.T) {
 						if shape.name == "inline complex" {
 							childSuffix = `><xs:complexType/></xs:element>`
 						}
-						child := shape.element + ` abstract="` + value + `"` + childSuffix
+						if shape.name == "inline simple" {
+							childSuffix = `><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`
+						}
+						child := shape.element + ` nillable="` + value + `"` + childSuffix
 						root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + string(version.version) + `"><xs:complexType name="Owner"><xs:sequence>` + child + `</xs:sequence></xs:complexType>` + shape.definitions + `</xs:schema>`
 						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+						if shape.name == "direct" || shape.name == "named" || shape.name == "inline simple" {
+							if err != nil {
+								t.Fatalf("established local nillable form rejected: %v", err)
+							}
+							owners := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Owner"))
+							if len(owners) != 1 {
+								t.Fatalf("Owner components = %d", len(owners))
+							}
+							owner, ok := owners[0].ComplexTypeDefinition()
+							if !ok {
+								t.Fatal("Owner has no complex type definition")
+							}
+							sequence, ok := owner.Particle().(SequenceParticle)
+							if !ok || len(sequence.Particles()) != 1 {
+								t.Fatalf("local sequence = %T", owner.Particle())
+							}
+							child, ok := sequence.Particles()[0].(ElementParticle)
+							if !ok || child.IsNillable() != (value == "true" || value == "1") || child.Loc() != schemaMixedComplexLoc(t, root, shape.element) {
+								t.Fatalf("local %s nillable=%q facts = %#v", shape.name, value, sequence.Particles()[0])
+							}
+							return
+						}
 						if err == nil {
-							t.Fatal("local element abstract unexpectedly succeeded")
+							t.Fatal("excluded local shape unexpectedly succeeded")
 						}
 						assertZeroSchema(t, schema)
 						d := requireDiagnostic(t, err)
-						if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != schemaMixedComplexLoc(t, root, `abstract="`+value+`"`) || len(d.Related()) != 0 || d.SpecRef() != "" || errors.Is(err, ErrUnsupported) {
-							t.Fatalf("local %s abstract=%q diagnostic = %s", shape.name, value, d)
+						wantClass, wantCode, wantLoc, wantSpec := FailureInvalid, invalidSchemaCompositionCode, schemaMixedComplexLoc(t, root, `nillable="`+value+`"`), ""
+						if shape.name == "inline complex" {
+							wantClass, wantCode = FailureUnsupported, UnsupportedSchemaSyntaxCode
+							wantLoc = schemaMixedComplexLoc(t, root, `<xs:complexType/>`)
+							wantSpec = newSchemaSyntaxUnsupported(Loc{}, "").SpecRef()
+						}
+						if d.Class() != wantClass || d.Code() != wantCode || d.Loc() != wantLoc || len(d.Related()) != 0 || d.SpecRef() != wantSpec || errors.Is(err, ErrUnsupported) != (wantClass == FailureUnsupported) {
+							t.Fatalf("local %s nillable=%q diagnostic = %s", shape.name, value, d)
 						}
 					})
 				}
@@ -286,8 +318,8 @@ func TestInlineAbstractDoesNotAdmitLocalElementShapes(t *testing.T) {
 	}
 }
 
-//nolint:dupl,gocognit // Each global shape keeps its established Boolean fact under both attribute gates.
-func TestInlineAbstractKeepsOtherGlobalShapes(t *testing.T) {
+//nolint:dupl,gocognit // Each global shape keeps its existing nillable fact, parallel to the abstract gate.
+func TestInlineNillableKeepsOtherGlobalShapes(t *testing.T) {
 	shapes := []struct{ name, element, definitions string }{
 		{"direct", `<xs:element name="root" type="xs:integer"`, ""},
 		{"named", `<xs:element name="root" type="t:Named"`, `<xs:simpleType name="Named"><xs:restriction base="xs:integer"/></xs:simpleType>`},
@@ -302,15 +334,15 @@ func TestInlineAbstractKeepsOtherGlobalShapes(t *testing.T) {
 						if shape.name == "inline simple" {
 							elementSuffix = `><xs:simpleType><xs:restriction base="xs:integer"/></xs:simpleType></xs:element>`
 						}
-						element := shape.element + ` abstract="` + value + `"` + elementSuffix
+						element := shape.element + ` nillable="` + value + `"` + elementSuffix
 						root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + string(version.version) + `">` + element + shape.definitions + `</xs:schema>`
 						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
 						if err != nil {
-							t.Fatalf("global %s abstract=%q: %v", shape.name, value, err)
+							t.Fatalf("global %s nillable=%q: %v", shape.name, value, err)
 						}
 						declaration := auxiliaryElement(t, schema, "root")
-						if declaration.IsAbstract() != (value == "true" || value == "1") || declaration.Loc() != schemaMixedComplexLoc(t, root, `<xs:element name="root"`) {
-							t.Fatalf("global %s abstract=%q lost effective fact/Loc", shape.name, value)
+						if declaration.IsNillable() != (value == "true" || value == "1") || declaration.Loc() != schemaMixedComplexLoc(t, root, `<xs:element name="root"`) {
+							t.Fatalf("global %s nillable=%q lost effective fact/Loc", shape.name, value)
 						}
 					})
 				}
@@ -319,26 +351,36 @@ func TestInlineAbstractKeepsOtherGlobalShapes(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Keep the prior group, all, and named-plus-inline shape diagnostics precise.
-func TestInlineAbstractFalseKeepsBroaderInlineShapesExcluded(t *testing.T) {
+//nolint:gocognit // The nillable gate must retain each broader shape's existing diagnostic.
+func TestInlineNillableFalseKeepsBroaderInlineShapesExcluded(t *testing.T) {
 	const prefix = `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">`
 	tests := []struct {
-		name, element, trailing, marker, code string
-		class                                 FailureClass
-		spec                                  func(XSDVersion) string
+		name, element, trailing, marker, related, code string
+		class                                          FailureClass
+		spec                                           func(XSDVersion) string
+		cause                                          error
 	}{
 		{
-			name: "group reference", element: `<xs:element name="root" abstract="false"><xs:complexType><xs:group ref="t:Fields"/></xs:complexType></xs:element>`,
+			name: "group reference", element: `<xs:element name="root" nillable="false"><xs:complexType><xs:group ref="t:Fields"/></xs:complexType></xs:element>`,
 			trailing: `<xs:group name="Fields"><xs:sequence/></xs:group>`, marker: `ref="t:Fields"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode,
 			spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
 		},
 		{
-			name: "all", element: `<xs:element name="root" abstract="0"><xs:complexType><xs:all><xs:element name="v" type="xs:integer"/></xs:all></xs:complexType></xs:element>`,
+			name: "zero group reference", element: `<xs:element name="root" nillable="0"><xs:complexType><xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"/></xs:complexType></xs:element>`,
+			trailing: `<xs:group name="Fields"><xs:sequence/></xs:group>`, marker: `ref="t:Fields"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode,
+			spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
+		},
+		{
+			name: "all", element: `<xs:element name="root" nillable="0"><xs:complexType><xs:all><xs:element name="v" type="xs:integer"/></xs:all></xs:complexType></xs:element>`,
 			marker: `<xs:all>`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode,
 			spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
 		},
 		{
-			name: "named plus inline", element: `<xs:element name="root" type="t:Base" abstract="false"><xs:complexType/></xs:element>`,
+			name: "grouped extension anonymous owner", element: `<xs:element name="root" nillable="false"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/><xs:attribute name="flag" type="xs:boolean"/></xs:extension></xs:complexContent></xs:complexType></xs:element>`,
+			trailing: `<xs:group name="Fields"><xs:sequence/></xs:group><xs:complexType name="Base"/>`, marker: `<xs:extension`, related: `<xs:complexType>`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: schemaComplexContentExtensionSpecRef, cause: errSchemaGroupedExtensionAnonymousOwner,
+		},
+		{
+			name: "named plus inline", element: `<xs:element name="root" type="t:Base" nillable="false"><xs:complexType/></xs:element>`,
 			trailing: `<xs:complexType name="Base"/>`, marker: `<xs:complexType/>`, class: FailureInvalid, code: invalidSchemaCompositionCode,
 		},
 	}
@@ -356,8 +398,15 @@ func TestInlineAbstractFalseKeepsBroaderInlineShapesExcluded(t *testing.T) {
 				}
 				assertZeroSchema(t, schema)
 				d := requireDiagnostic(t, err)
-				if d.Class() != test.class || d.Code() != test.code || d.Loc() != schemaMixedComplexLoc(t, root, test.marker) || len(d.Related()) != 0 {
+				wantRelated := []Loc(nil)
+				if test.related != "" {
+					wantRelated = []Loc{schemaMixedComplexLoc(t, root, test.related)}
+				}
+				if d.Class() != test.class || d.Code() != test.code || d.Loc() != schemaMixedComplexLoc(t, root, test.marker) || !reflect.DeepEqual(d.Related(), wantRelated) {
 					t.Fatalf("%s diagnostic = %s", test.name, d)
+				}
+				if test.cause != nil && !errors.Is(err, test.cause) {
+					t.Fatalf("%s lost cause %v: %v", test.name, test.cause, err)
 				}
 				if test.class == FailureUnsupported {
 					if d.SpecRef() != test.spec(wantVersion) || !errors.Is(err, ErrUnsupported) {
@@ -373,8 +422,8 @@ func TestInlineAbstractFalseKeepsBroaderInlineShapesExcluded(t *testing.T) {
 	}
 }
 
-//nolint:dupl,gocognit // Parallel abstract/nillable exit matrices retain each Boolean gate's precedence.
-func TestInlineAbstractFalseKeepsSiblingAndReferencePrecedence(t *testing.T) {
+//nolint:dupl,gocognit // The nillable gate must retain precedence for every alternate syntax/build exit.
+func TestInlineNillableFalseKeepsSiblingAndReferencePrecedence(t *testing.T) {
 	tests := []struct {
 		name, value, body, marker, code string
 		class                           FailureClass
@@ -382,10 +431,10 @@ func TestInlineAbstractFalseKeepsSiblingAndReferencePrecedence(t *testing.T) {
 		spec                            func(XSDVersion) string
 	}{
 		{name: "true before invalid child", value: "true", body: `<xs:sequence><xs:element name="bad" type="xs:integer" abstract="true"/></xs:sequence>`, marker: `abstract="true"/>`, code: invalidSchemaCompositionCode, class: FailureInvalid},
-		{name: "true before unsupported group", value: "true", body: `<xs:group ref="t:Missing"/>`, marker: `abstract="true"`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, spec: func(version XSDVersion) string {
+		{name: "true before unsupported group", value: "true", body: `<xs:group ref="t:Missing"/>`, marker: `nillable="true"`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, spec: func(version XSDVersion) string {
 			return newSchemaSyntaxUnsupportedForVersion(Loc{}, "", version).SpecRef()
 		}},
-		{name: "malformed before unsupported group", value: "maybe", body: `<xs:group ref="t:Missing"/>`, marker: `abstract="maybe"`, code: invalidSchemaCompositionCode, class: FailureInvalid},
+		{name: "malformed before unsupported group", value: "maybe", body: `<xs:group ref="t:Missing"/>`, marker: `nillable="maybe"`, code: invalidSchemaCompositionCode, class: FailureInvalid},
 		{name: "false with invalid child", value: "false", body: `<xs:sequence><xs:element name="bad" type="xs:integer" abstract="true"/></xs:sequence>`, marker: `abstract="true"/>`, code: invalidSchemaCompositionCode, class: FailureInvalid},
 		{name: "false with unsupported group", value: "false", body: `<xs:group ref="t:Missing"/>`, marker: `ref="t:Missing"`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() }},
 		{name: "false with invalid occurrence", value: "false", body: `<xs:sequence><xs:element ref="t:target" maxOccurs="many"/></xs:sequence>`, marker: `maxOccurs="many"`, code: invalidSchemaCompositionCode, class: FailureInvalid, spec: func(version XSDVersion) string {
@@ -403,7 +452,7 @@ func TestInlineAbstractFalseKeepsSiblingAndReferencePrecedence(t *testing.T) {
 		}
 		for _, test := range tests {
 			t.Run(policy.name+"/"+test.name, func(t *testing.T) {
-				root := inlineAbstractSchema(test.body, test.value, XSDVersion11)
+				root := inlineNillableSchema(test.body, test.value, XSDVersion11)
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
 				if err == nil {
 					t.Fatal("sibling or reference exit unexpectedly succeeded")
@@ -430,8 +479,8 @@ func TestInlineAbstractFalseKeepsSiblingAndReferencePrecedence(t *testing.T) {
 	}
 }
 
-func TestInlineAbstractFalseKeepsStrict10PolicyBeforeZeroOccurrence(t *testing.T) {
-	root := inlineAbstractSchema(`<xs:sequence><xs:element name="v" type="xs:precisionDecimal" minOccurs="0" maxOccurs="0"/></xs:sequence>`, "false", XSDVersion11)
+func TestInlineNillableFalseKeepsStrict10PolicyBeforeZeroOccurrence(t *testing.T) {
+	root := inlineNillableSchema(`<xs:sequence><xs:element name="v" type="xs:precisionDecimal" minOccurs="0" maxOccurs="0"/></xs:sequence>`, "false", XSDVersion11)
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
 	if err == nil {
 		t.Fatal("Strict10 admitted zero-occurrence precisionDecimal child")
@@ -443,9 +492,9 @@ func TestInlineAbstractFalseKeepsStrict10PolicyBeforeZeroOccurrence(t *testing.T
 	}
 }
 
-func TestInlineAbstractFalseDoesNotExposeInvisibleGraphReference(t *testing.T) {
+func TestInlineNillableFalseDoesNotExposeInvisibleGraphReference(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:o="urn:other" targetNamespace="urn:root" version="1.1">
-<xs:element name="root" abstract="false"><xs:complexType><xs:sequence><xs:element ref="o:Foreign"/></xs:sequence></xs:complexType></xs:element>
+<xs:element name="root" nillable="false"><xs:complexType><xs:sequence><xs:element ref="o:Foreign"/></xs:sequence></xs:complexType></xs:element>
 </xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
 		"other.xsd": {id: "other.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:element name="Foreign" type="xs:integer"/></xs:schema>`},
