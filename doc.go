@@ -592,14 +592,14 @@
 // malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
 // with nil output. Named final, atomic-restriction-variety, and effective-facet
 // gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
-// Standalone named atomic-long simple types and direct or named global long
-// elements generate under Compatibility, Strict10, and Strict11. Built-in
-// element fields and standalone named declarations use StrictInteger; named
-// element fields use their generated named type. Effective long bounds and
-// facets retain exact values, locations, and named type identities. Built-in
-// bounds are inclusive [-9223372036854775808,9223372036854775807], with fixed
-// fractionDigits=0. Malformed or stale long facts yield FailureInternal/GOXSD9030
-// and nil output.
+// Standalone named atomic-long/int types and direct or named global long/int
+// elements generate under all three policies. Built-in fields and standalone
+// named declarations use StrictInteger; named fields use their generated type.
+// Effective facets retain exact bounds, locations, and named identities.
+// Built-in long bounds are [-9223372036854775808,9223372036854775807]; int
+// bounds are [-2147483648,2147483647], both inclusive with fixed
+// fractionDigits=0. Malformed or stale long/int facts yield
+// FailureInternal/GOXSD9030 and nil output.
 // Supported global built-in/named Boolean/integer/decimal and effective
 // xs:string-atomic/token/NMTOKEN simple-type components and global element
 // declarations generate, as do global inline-element string/token/NMTOKEN
@@ -641,7 +641,9 @@
 // Direct built-in and supported named atomic-int global roots validate;
 // global inline int roots and admitted local/reference int uses reject validation.
 // Nonzero local inline int particles reject schema admission; valid 0/0 terms
-// omit after applicable semantic gates. GenerateGo rejects int-bearing components.
+// omit after applicable semantic gates. GenerateGo rejects global inline int,
+// local int particles, int references, and int attributes with located
+// unsupported diagnostics and nil output.
 // Direct built-in and supported named atomic-long global roots validate;
 // global inline long roots and admitted local/reference long uses reject validation.
 // Nonzero inline local long particles reject schema admission; valid 0/0 omits.

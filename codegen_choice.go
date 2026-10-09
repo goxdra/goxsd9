@@ -84,7 +84,7 @@ func codegenDirectChoiceScalarFamilyFromDigit(kind DigitDatatype) (codegenDirect
 
 func codegenDirectChoiceScalarFamilyFromSourceKind(kind codegenSourceScalarKind) (codegenDirectChoiceScalarFamily, bool) {
 	switch kind {
-	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarNMTOKEN, codegenSourceScalarNonNegativeInteger, codegenSourceScalarLong:
+	case codegenSourceScalarInvalid, codegenSourceScalarString, codegenSourceScalarNMTOKEN, codegenSourceScalarNonNegativeInteger, codegenSourceScalarLong, codegenSourceScalarInt:
 		return codegenDirectChoiceScalarInvalid, false
 	case codegenSourceScalarBoolean:
 		return codegenDirectChoiceScalarBoolean, true
