@@ -522,12 +522,12 @@ func TestGroupedExtensionTargetAndUnsupportedBoundaries(t *testing.T) {
 			marker: `base="t:Fields"`,
 		},
 		{
-			name:   "identity-only local attribute type",
-			root:   groupedExtensionSchema("1.1", "", `<xs:attribute name="flag" type="xs:ID"/>`),
+			name:   "excluded local attribute type",
+			root:   groupedExtensionSchema("1.1", "", `<xs:attribute name="flag" type="xs:language"/>`),
 			class:  FailureUnsupported,
 			code:   UnsupportedSchemaSyntaxCode,
 			cause:  ErrUnsupported,
-			marker: `type="xs:ID"`,
+			marker: `type="xs:language"`,
 		},
 		{
 			name:   "nonempty named base",

@@ -116,6 +116,7 @@ const (
 	codegenSourceScalarNonNegativeInteger
 	codegenSourceScalarLong
 	codegenSourceScalarByte
+	codegenSourceScalarInt
 )
 
 type codegenSourceTarget struct {
@@ -1116,7 +1117,8 @@ func codegenSourceScalarStringFamily(kind codegenSourceScalarKind) (schemaSimple
 		codegenSourceScalarDecimal,
 		codegenSourceScalarNonNegativeInteger,
 		codegenSourceScalarLong,
-		codegenSourceScalarByte:
+		codegenSourceScalarByte,
+		codegenSourceScalarInt:
 		return schemaSimpleTypeAtomicUnknown, false
 	}
 	return schemaSimpleTypeAtomicUnknown, false
@@ -1302,6 +1304,19 @@ func codegenNamedScalarTarget(schema Schema, component Component, version XSDVer
 		return codegenSourceTarget{
 			form: codegenSourceTargetDefinition, declaredType: component.Name(),
 			typeID: component.ID(), hasTypeID: true, scalarKind: codegenSourceScalarByte,
+		}, nil
+	}
+	if definition.facts.atomicKind == schemaSimpleTypeAtomicInt {
+		if err := validateCodegenIntFacts(
+			component.Loc(), fmt.Sprintf("named simple type %q", component.Name()),
+			definition.facts.facets, version,
+			codegenSimpleTypeRelatedLocations(definition, definition.DigitFacets()), false,
+		); err != nil {
+			return codegenSourceTarget{}, err
+		}
+		return codegenSourceTarget{
+			form: codegenSourceTargetDefinition, declaredType: component.Name(),
+			typeID: component.ID(), hasTypeID: true, scalarKind: codegenSourceScalarInt,
 		}, nil
 	}
 	kind, err := codegenNamedScalarKindWithNonNegative(component, version, true)
@@ -1848,10 +1863,7 @@ func codegenSourceTargetFieldType(
 		case codegenSourceScalarNonNegativeInteger:
 			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, loc)
 			return fieldType, true, err
-		case codegenSourceScalarLong:
-			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, loc)
-			return fieldType, true, err
-		case codegenSourceScalarByte:
+		case codegenSourceScalarLong, codegenSourceScalarInt, codegenSourceScalarByte:
 			fieldType, err := codegenRuntimeScalarType(runtimeAlias, hasRuntimeAlias, DigitDatatypeInteger, loc)
 			return fieldType, true, err
 		case codegenSourceScalarDecimal:
@@ -2186,9 +2198,11 @@ func codegenBuiltinElementFieldType(
 		target.scalarKind = codegenSourceScalarLong
 	case "byte":
 		target.scalarKind = codegenSourceScalarByte
+	case "int":
+		target.scalarKind = codegenSourceScalarInt
 	case "decimal":
 		target.scalarKind = codegenSourceScalarDecimal
-	case "int", "short", "language", "NCName", "anyURI", "ID":
+	case "short", "language", "NCName", "anyURI", "ID":
 		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
 			component.Loc(),
 			fmt.Sprintf("global element type %q is outside scalar Go generation", declaration.DeclaredType()),
@@ -2309,6 +2323,11 @@ func codegenNamedElementFieldType(
 	if sourceTarget.scalarKind == codegenSourceScalarByte {
 		if byteErr := validateCodegenNamedByteReferenceFacts(component, declaration, target, version, related); byteErr != nil {
 			return codegenSourceTarget{}, "", false, byteErr
+		}
+	}
+	if sourceTarget.scalarKind == codegenSourceScalarInt {
+		if intErr := validateCodegenNamedIntReferenceFacts(component, declaration, target, version, related); intErr != nil {
+			return codegenSourceTarget{}, "", false, intErr
 		}
 	}
 	if referenceErr := validateCodegenElementTypeReference(declaration, sourceTarget, component.Loc(), version); referenceErr != nil {
@@ -2587,6 +2606,15 @@ func validateCodegenElementTypeReference(
 			return newCodegenByteInternal(loc, "built-in global element byte type reference does not identify xs:byte", nil, errCodegenSchemaInvariant, version)
 		}
 		return validateCodegenByteFacts(loc, "global element byte type reference", reference.facts.facets, version, nil, target.form == codegenSourceTargetBuiltin)
+	case codegenSourceScalarInt:
+		if reference.facts.atomicKind != schemaSimpleTypeAtomicInt {
+			return newCodegenBoundedIntegerInternal(loc, "global element int type reference has inconsistent primitive facts", nil, errCodegenSchemaInvariant, version, codegenIntKind())
+		}
+		if target.form == codegenSourceTargetBuiltin &&
+			(reference.Name().Namespace() != xsdNamespaceURI || reference.Name().Local() != "int") {
+			return newCodegenBoundedIntegerInternal(loc, "built-in global element int type reference does not identify xs:int", nil, errCodegenSchemaInvariant, version, codegenIntKind())
+		}
+		return validateCodegenIntFacts(loc, "global element int type reference", reference.facts.facets, version, nil, target.form == codegenSourceTargetBuiltin)
 	case codegenSourceScalarString, codegenSourceScalarToken, codegenSourceScalarNMTOKEN:
 		expectedAtomicKind, ok := codegenSourceScalarStringFamily(target.scalarKind)
 		if !ok || reference.facts.atomicKind != expectedAtomicKind {

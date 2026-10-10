@@ -60,6 +60,7 @@ const (
 	diagnosticSchemaSimpleContentBaseWrongKindCode   = diagnosticSchemaModelGroupReferenceNamespaceCode
 	diagnosticSchemaSimpleContentBaseAmbiguousCode   = "XSD3051"
 	diagnosticSchemaAttributeUseDuplicateCode        = "XSD3052"
+	diagnosticSchemaAttributeUseIDDuplicateCode      = "XSD3061"
 )
 
 const (
@@ -139,6 +140,7 @@ var (
 	errSchemaSimpleTypeBaseCycle                 = errors.New("simple type base is cyclic")
 	errSchemaSimpleTypeInvalidDerivation         = errors.New("simple type derivation is invalid")
 	errSchemaNMTOKENValueViolation               = errors.New("NMTOKEN value is invalid")
+	errSchemaNCNameValueViolation                = errors.New("NCName value is invalid")
 	errSchemaSimpleTypeRestrictionUnsupported    = errors.New("simple type restriction variety is not implemented")
 	errSchemaElementTypeUnresolved               = errors.New("element type is unresolved")
 	errSchemaElementTypeWrongKind                = errors.New("element type has the wrong kind")
@@ -150,6 +152,7 @@ var (
 	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
 	errSchemaAllMemberDuplicate                  = errors.New("all particle member has a duplicate expanded name")
 	errSchemaAllMemberScalar                     = errors.New("all particle member has an unsupported scalar type")
+	errSchemaUnsignedLong10FacetLexical          = errors.New("XSD 1.0 unsignedLong facet has a signed lexical value")
 	errSchemaAllMemberInlineComplex              = errors.New("all particle member has an unsupported inline complex type")
 	errSchemaElementReferenceBlock               = errors.New("element reference cannot specify block")
 	errSchemaModelGroupReferenceUnresolved       = errors.New("model-group reference is unresolved")
@@ -170,6 +173,7 @@ var (
 	errSchemaAttributeReferenceNamespace         = errors.New("attribute reference namespace is not imported")
 	errSchemaAttributeReferenceUnsupported       = errors.New("attribute reference target is unsupported")
 	errSchemaAttributeUseDuplicate               = errors.New("attribute use is duplicated")
+	errSchemaAttributeUseIDDuplicate             = errors.New("XSD 1.0 complex type has multiple ID attribute uses")
 	errSchemaSimpleContentBaseUnresolved         = errors.New("simpleContent base is unresolved")
 	errSchemaSimpleContentBaseWrongKind          = errors.New("simpleContent base has the wrong kind")
 	errSchemaSimpleContentBaseAmbiguous          = errors.New("simpleContent base is ambiguous")
@@ -4329,7 +4333,7 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicDecimal,
-		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicNormalizedString, schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicNegativeInteger,
 		schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicPrecisionDecimal, schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt,
@@ -4337,7 +4341,6 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicString,
-		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicQName:
@@ -4351,6 +4354,9 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 func schemaInlineAttributeUnsupportedMember(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver, version XSDVersion, top bool) (Loc, error) {
 	switch reference.variety {
 	case SimpleTypeVarietyAtomicRestriction:
+		if reference.atomicKind == schemaSimpleTypeAtomicNormalizedString {
+			return reference.loc, nil
+		}
 		if schemaAttributeTypeReferenceSupported(reference) || !top && reference.atomicKind == schemaSimpleTypeAtomicString {
 			return Loc{}, nil
 		}
@@ -5801,7 +5807,7 @@ func resolveSchemaElementType(
 		}, nil
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes, version, "for global elements", schemaScalarTypeGlobalElement, true, false)
+		return resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes, version, "for global elements", schemaScalarTypeGlobalElement, true, false, false)
 	}
 
 	candidates := byName[input.declaredType]
@@ -5874,6 +5880,7 @@ func resolveSchemaScalarType(
 	scope schemaScalarTypeScope,
 	allowPrecisionDecimal bool,
 	allowPrecisionVariety bool,
+	allowDirectNamedComplexPositiveOrNonPositiveInteger bool,
 ) (schemaElementTypeResult, error) {
 	if input.inlineSimpleType != nil {
 		result, ok := simpleTypes.byInput[input.inlineSimpleType]
@@ -5883,7 +5890,7 @@ func resolveSchemaScalarType(
 		if err := rejectUnsupportedSchemaSimpleTypeVariety(input, result, version, complexTargetSuffix); err != nil {
 			return schemaElementTypeResult{}, err
 		}
-		if err := rejectUnsupportedLocalScalarType(input, result, version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
+		if err := rejectUnsupportedLocalScalarType(input, result, version, complexTargetSuffix, scope, allowPrecisionDecimal, false); err != nil {
 			return schemaElementTypeResult{}, err
 		}
 		reference, err := resolvedAnonymousSchemaSimpleTypeReference(input, result)
@@ -5900,7 +5907,7 @@ func resolveSchemaScalarType(
 		}, nil
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveBuiltinSchemaScalarType(input, version, complexTargetSuffix, scope, allowPrecisionDecimal)
+		return resolveBuiltinSchemaScalarType(input, version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger)
 	}
 
 	candidates := byName[input.declaredType]
@@ -5962,7 +5969,7 @@ func resolveSchemaScalarType(
 			}
 		}
 	}
-	if err := rejectUnsupportedLocalScalarType(input, simpleTypes.results[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal); err != nil {
+	if err := rejectUnsupportedLocalScalarType(input, simpleTypes.results[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger); err != nil {
 		return schemaElementTypeResult{}, err
 	}
 	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes.results[candidate])
@@ -6124,7 +6131,7 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 	)
 }
 
-func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) (schemaElementTypeResult, error) {
+func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal, allowDirectBuiltinPositiveOrNonPositiveInteger bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
 	case "string", "normalizedString", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID", "QName":
 		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
@@ -6133,7 +6140,7 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 	case "integer", "decimal":
 	case "int", "short", "byte", "unsignedLong", "negativeInteger", "nonNegativeInteger":
 	case "nonPositiveInteger", "positiveInteger":
-		if scope != schemaScalarTypeGlobalElement {
+		if scope != schemaScalarTypeGlobalElement && !allowDirectBuiltinPositiveOrNonPositiveInteger {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
 	case "long":
@@ -6194,7 +6201,7 @@ func builtinSchemaElementTypeReference(input *schemaElementInput, version XSDVer
 	}, version)
 }
 
-func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal bool) error {
+func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger bool) error {
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
 	}
@@ -6224,7 +6231,10 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 			break
 		}
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
-	case schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger:
+	case schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicNonPositiveInteger:
+		if input.inlineSimpleType == nil && allowDirectNamedComplexPositiveOrNonPositiveInteger && simpleType.variety == SimpleTypeVarietyAtomicRestriction {
+			break
+		}
 		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	}
 	if allowPrecisionDecimal {
@@ -6711,6 +6721,7 @@ func resolveSchemaAttributeUses(
 		return nil, err
 	}
 	uses := make([]AttributeUse, 0, len(inputs))
+	var firstID Loc
 	for _, input := range inputs {
 		use, present, err := resolveSchemaAttributeUse(input, owner, records, byName, visibleSources, simpleTypes, attributes, version)
 		if err != nil {
@@ -6719,9 +6730,27 @@ func resolveSchemaAttributeUses(
 		if !present {
 			continue
 		}
+		firstID, err = schemaAttributeUseIDCardinality(firstID, use, version)
+		if err != nil {
+			return nil, err
+		}
 		uses = append(uses, use)
 	}
 	return uses, nil
+}
+
+func schemaAttributeUseIDCardinality(firstID Loc, use AttributeUse, version XSDVersion) (Loc, error) {
+	if version != XSDVersion10 {
+		return firstID, nil
+	}
+	local, ok := use.(LocalAttributeUse)
+	if !ok || local.facts.typeReference.atomicKind != schemaSimpleTypeAtomicID {
+		return firstID, nil
+	}
+	if !firstID.IsZero() {
+		return Loc{}, newSchemaAttributeUseIDDuplicateDiagnostic(local.Loc(), firstID)
+	}
+	return local.Loc(), nil
 }
 
 func resolveSchemaAttributeUse(
@@ -6780,7 +6809,7 @@ func resolveSchemaAttributeUseType(
 	if err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -6889,6 +6918,32 @@ func schemaLocalAttributeSimpleTypeSupported(reference schemaSimpleTypeReference
 	default:
 		return false
 	}
+}
+
+func schemaDirectLocalIDAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+	if reference.kind != SimpleTypeReferenceBuiltin && reference.kind != SimpleTypeReferenceNamed {
+		return false
+	}
+	if reference.variety != SimpleTypeVarietyAtomicRestriction || reference.atomicKind != schemaSimpleTypeAtomicID {
+		return false
+	}
+	_, ok := reference.facets.(schemaAtomicFacetVariant)
+	if !ok || owner.complexType == nil {
+		return false
+	}
+	switch body := owner.complexType.body.(type) {
+	case *schemaComplexTypeAttributeOnlyBodyInput, *schemaComplexTypeGroupedExtensionBodyInput:
+		return true
+	case *schemaComplexTypeDirectBodyInput:
+		if body == nil {
+			return false
+		}
+		switch body.particle.(type) {
+		case *schemaChoiceParticleInput, *schemaSequenceParticleInput:
+			return true
+		}
+	}
+	return false
 }
 
 func schemaLocalAttributeBoundedPrecisionVariety(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver) bool {
@@ -7363,6 +7418,18 @@ func newSchemaAttributeUseDuplicateDiagnostic(loc Loc, name QName, first Loc, ve
 		related: []Loc{first},
 		specRef: schemaAttributeUseSpecRef(version),
 		cause:   errSchemaAttributeUseDuplicate,
+	}
+}
+
+func newSchemaAttributeUseIDDuplicateDiagnostic(loc, first Loc) Diagnostic {
+	return Diagnostic{
+		class:   FailureInvalid,
+		code:    diagnosticSchemaAttributeUseIDDuplicateCode,
+		loc:     loc,
+		message: "XSD 1.0 complex type has multiple effective ID attribute uses",
+		related: []Loc{first},
+		specRef: "xsd10-structures#cos-ct-props-correct",
+		cause:   errSchemaAttributeUseIDDuplicate,
 	}
 }
 
@@ -8281,7 +8348,7 @@ func resolveSchemaAllParticle(
 			if memberInput.typeInput != nil {
 				loc = memberInput.typeInput.typeLoc
 			}
-			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string, built-in/named token/NMTOKEN, and built-in negativeInteger/nonNegativeInteger scalars", version)
+			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string/positiveInteger/nonPositiveInteger, and built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/int/short/byte/unsignedLong scalars", version)
 			diagnostic.specRef = schemaAllLimitedSpecRef(version)
 			diagnostic.cause = errSchemaAllMemberScalar
 			return nil, diagnostic
@@ -8320,14 +8387,16 @@ func schemaAllScalarAllowed(reference schemaSimpleTypeReferenceComponent) bool {
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNMTOKEN:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
-	case schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicNonNegativeInteger:
+	case schemaSimpleTypeAtomicNegativeInteger:
+		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
+	case schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicNonPositiveInteger:
 		return reference.kind == SimpleTypeReferenceBuiltin
+	case schemaSimpleTypeAtomicNonNegativeInteger:
+		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
+	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
+		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNormalizedString,
-		schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt,
-		schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte,
-		schemaSimpleTypeAtomicUnsignedLong,
-		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID,
 		schemaSimpleTypeAtomicQName:
@@ -8550,6 +8619,7 @@ func resolveSchemaElementParticle(
 		schemaScalarTypeLocalParticle,
 		model != "sequence" || !schemaComplexTypeIsExtension(owner),
 		model == "sequence" && !schemaComplexTypeIsExtension(owner),
+		schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner, model, input.typeInput),
 	)
 	if err != nil {
 		if !input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err) {
@@ -8573,6 +8643,25 @@ func resolveSchemaElementParticle(
 		hasTypeID:               resolved.hasTypeID,
 	}
 	return ElementParticle{facts: facts}, nil
+}
+
+func schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner schemaComponentRecord, model string, input *schemaElementInput) bool {
+	if model != "choice" && model != "sequence" && model != "all" {
+		return false
+	}
+	if owner.complexType == nil || input == nil || input.inlineSimpleType != nil {
+		return false
+	}
+	if _, direct := owner.complexType.body.(*schemaComplexTypeDirectBodyInput); !direct {
+		return false
+	}
+	if model == "all" {
+		if input.declaredType.Namespace() != xsdNamespaceURI {
+			return false
+		}
+		return input.declaredType.Local() == "positiveInteger" || input.declaredType.Local() == "nonPositiveInteger"
+	}
+	return true
 }
 
 func schemaComplexTypeIsExtension(owner schemaComponentRecord) bool {
@@ -9410,6 +9499,13 @@ func (resolver *schemaSimpleTypeResolver) resolveRestrictionModel(input *schemaS
 	}
 	facets, err := restrictSchemaSimpleTypeFacets(base.facets, base.atomicKind, model.facets, version)
 	if err != nil {
+		if base.atomicKind == schemaSimpleTypeAtomicNCName && errors.Is(err, errSchemaNCNameValueViolation) {
+			var diagnostic Diagnostic
+			if errors.As(err, &diagnostic) && !model.base.loc.IsZero() && diagnostic.loc != model.base.loc {
+				diagnostic.related = append(diagnostic.Related(), model.base.loc)
+				return schemaSimpleTypeResult{}, diagnostic
+			}
+		}
 		return schemaSimpleTypeResult{}, err
 	}
 	if enumerationErr := rejectAnonymousNonStringEnumeration(base, model.facets, version, anonymous); enumerationErr != nil {
@@ -9472,6 +9568,9 @@ func (resolver *schemaSimpleTypeResolver) resolveListModel(input *schemaSimpleTy
 		}
 	}
 	if err := resolver.rejectSchemaSimpleTypeFinal(itemType, schemaSimpleTypeFinalList, "list item type", model.itemType.loc, version); err != nil {
+		return schemaSimpleTypeResult{}, err
+	}
+	if err := unsupportedNCNameEnumerationVarietyMember(itemType, model.itemType.loc, version, "list item"); err != nil {
 		return schemaSimpleTypeResult{}, err
 	}
 	return schemaSimpleTypeResult{
@@ -9647,6 +9746,9 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 		if err := resolver.rejectSchemaSimpleTypeFinal(resolved, schemaSimpleTypeFinalUnion, "union member type", member.loc, version); err != nil {
 			return schemaSimpleTypeResult{}, err
 		}
+		if err := unsupportedNCNameEnumerationVarietyMember(resolved, member.loc, version, "union member"); err != nil {
+			return schemaSimpleTypeResult{}, err
+		}
 		members = append(members, resolved)
 	}
 	return schemaSimpleTypeResult{
@@ -9655,6 +9757,33 @@ func (resolver *schemaSimpleTypeResolver) resolveUnionModel(input *schemaSimpleT
 		varietyLoc:  model.loc,
 		memberTypes: members,
 	}, nil
+}
+
+func unsupportedNCNameEnumerationVarietyMember(reference schemaSimpleTypeReferenceComponent, useLoc Loc, version XSDVersion, role string) error {
+	if reference.atomicKind != schemaSimpleTypeAtomicNCName || reference.variety != SimpleTypeVarietyAtomicRestriction {
+		return nil
+	}
+	facets, ok := reference.facets.(schemaStringFacetVariant)
+	if !ok {
+		return newSchemaBridgeInvariant(useLoc, "NCName variety member has no string facet facts")
+	}
+	if !facets.enumeration.HasEnumeration() {
+		return nil
+	}
+	locations := facets.enumeration.Locations()
+	if len(locations) == 0 || locations[0].IsZero() {
+		return newSchemaBridgeInvariant(useLoc, "enumerated NCName variety member has no facet location")
+	}
+	err := unsupportedSchemaDatatypeFacet(schemaFacetInput{kind: schemaFacetEnumeration, loc: locations[0]}, version)
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported {
+		return err
+	}
+	diagnostic.message = "enumerated NCName is not implemented as a " + role
+	if !useLoc.IsZero() && useLoc != diagnostic.loc {
+		diagnostic.related = []Loc{useLoc}
+	}
+	return diagnostic
 }
 
 func (resolver *schemaSimpleTypeResolver) resolveReference(input schemaSimpleTypeReferenceInput, source SourceID, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
@@ -9709,6 +9838,8 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		return resolveBuiltinTokenSchemaSimpleTypeReference(input, version)
 	case "NMTOKEN":
 		return resolveBuiltinNMTOKENSchemaSimpleTypeReference(input, version)
+	case "NCName":
+		return resolveBuiltinStringLikeSchemaSimpleTypeReference(input, version, schemaSimpleTypeAtomicNCName, defaultTokenWhiteSpaceFacet())
 	case "integer":
 		facets, err := NewIntegerDigitFacets(nil, version)
 		if err != nil {
@@ -9900,9 +10031,6 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 		result.facets = schemaBooleanFacetVariant{}
 	case "language":
 		result.atomicKind = schemaSimpleTypeAtomicLanguage
-		result.facets = schemaAtomicFacetVariant{}
-	case "NCName":
-		result.atomicKind = schemaSimpleTypeAtomicNCName
 		result.facets = schemaAtomicFacetVariant{}
 	case "anyURI":
 		result.atomicKind = schemaSimpleTypeAtomicAnyURI
@@ -10177,7 +10305,7 @@ func restrictSchemaSimpleTypeFacets(
 			if typed.integerBounds.Version() == version {
 				baseBounds = typed.integerBounds
 			}
-			return restrictSchemaIntegerFacets(typed.value, baseBounds, baseEnumeration, inputs, version)
+			return restrictSchemaIntegerFacets(typed.value, baseBounds, baseEnumeration, atomicKind, inputs, version)
 		case DigitDatatypeDecimal:
 			baseEnumeration, err := NewDecimalEnumerationFacets(nil, version)
 			if err != nil {
@@ -10195,7 +10323,7 @@ func restrictSchemaSimpleTypeFacets(
 			return nil, newSchemaBridgeInvariant(Loc{}, "simple type facet resolution has an unknown digit datatype")
 		}
 	case schemaIntegerFacetVariant:
-		return restrictSchemaIntegerFacets(typed.digits, typed.bounds, typed.enumeration, inputs, version)
+		return restrictSchemaIntegerFacets(typed.digits, typed.bounds, typed.enumeration, atomicKind, inputs, version)
 	case schemaDecimalFacetVariant:
 		return restrictSchemaDecimalFacets(typed.digits, typed.bounds, typed.enumeration, inputs, version)
 	case schemaPrecisionDecimalFacetVariant:
@@ -10237,8 +10365,8 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schema
 	if err != nil {
 		return nil, err
 	}
-	if atomicKind == schemaSimpleTypeAtomicNMTOKEN {
-		validationErr := validateSchemaNMTOKENEnumerationBaseValueSpace(local.enumeration, version)
+	if atomicKind == schemaSimpleTypeAtomicNMTOKEN || atomicKind == schemaSimpleTypeAtomicNCName {
+		validationErr := validateSchemaNameEnumerationBaseValueSpace(local.enumeration, atomicKind, version)
 		if validationErr != nil {
 			return nil, validationErr
 		}
@@ -10246,6 +10374,11 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schema
 	enumeration, err := restrictSchemaStringEnumeration(base, local.enumeration)
 	if err != nil {
 		return nil, err
+	}
+	if atomicKind == schemaSimpleTypeAtomicNCName {
+		if whiteSpaceErr := rejectNCNameWhiteSpaceFacets(inputs, version); whiteSpaceErr != nil {
+			return nil, whiteSpaceErr
+		}
 	}
 	whiteSpace, err := restrictStringWhiteSpaceFacet(base.whiteSpace, local.whiteSpace, version)
 	if err != nil {
@@ -10255,6 +10388,15 @@ func restrictSchemaStringFacets(base schemaStringFacetVariant, atomicKind schema
 		return nil, local.deferredUnsupported
 	}
 	return schemaStringFacetVariant{enumeration: enumeration, whiteSpace: &whiteSpace}, nil
+}
+
+func rejectNCNameWhiteSpaceFacets(inputs []schemaFacetInput, version XSDVersion) error {
+	for _, input := range inputs {
+		if input.kind == schemaFacetWhiteSpace {
+			return unsupportedSchemaDatatypeFacet(input, version)
+		}
+	}
+	return nil
 }
 
 func restrictSchemaStringEnumeration(base schemaStringFacetVariant, local StringEnumerationFacetDeclarations) (StringEnumerationFacets, error) {
@@ -10277,10 +10419,11 @@ func restrictSchemaIntegerFacets(
 	base DigitFacets,
 	baseBounds IntegerBoundFacets,
 	baseEnumeration IntegerEnumerationFacets,
+	atomicKind schemaSimpleTypeAtomicKind,
 	inputs []schemaFacetInput,
 	version XSDVersion,
 ) (schemaSimpleTypeFacetVariant, error) {
-	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeInteger, version)
+	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeInteger, atomicKind, version)
 	if err != nil {
 		return nil, err
 	}
@@ -10306,6 +10449,31 @@ func restrictSchemaIntegerFacets(
 	return schemaIntegerFacetVariant{digits: digits, enumeration: enumeration, bounds: bounds}, nil
 }
 
+func validateSchemaUnsignedLong10FacetLexical(atomicKind schemaSimpleTypeAtomicKind, input schemaFacetInput, version XSDVersion) error {
+	if atomicKind != schemaSimpleTypeAtomicUnsignedLong || version != XSDVersion10 {
+		return nil
+	}
+	lexical := collapseXMLWhitespace(input.lexical)
+	if len(lexical) < 2 || lexical[0] != '+' && lexical[0] != '-' || !schemaUnsignedLong10Lexical(lexical[1:]) {
+		return nil
+	}
+	loc := schemaFacetValueLocation(input)
+	cause := Diagnostic{
+		class: FailureInvalid, code: InvalidIntegerLexicalCode, loc: loc,
+		message: "invalid XSD 1.0 xs:unsignedLong lexical representation",
+		specRef: "xsd10-datatypes#unsignedLong-lexical-representation",
+		cause:   errSchemaUnsignedLong10FacetLexical,
+	}
+	if input.kind == schemaFacetEnumeration {
+		return invalidEnumerationLexicalDiagnostic("unsignedLong", version, input.loc, cause)
+	}
+	boundKind, ok := schemaBoundKindFromFacet(input.kind)
+	if ok {
+		return invalidBoundLexicalDiagnostic(boundKind, loc, version, cause)
+	}
+	return nil
+}
+
 func restrictSchemaDecimalFacets(
 	base DigitFacets,
 	baseBounds DecimalBoundFacets,
@@ -10313,7 +10481,7 @@ func restrictSchemaDecimalFacets(
 	inputs []schemaFacetInput,
 	version XSDVersion,
 ) (schemaSimpleTypeFacetVariant, error) {
-	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeDecimal, version)
+	local, err := schemaNumericFacetDeclarations(inputs, DigitDatatypeDecimal, schemaSimpleTypeAtomicDecimal, version)
 	if err != nil {
 		return nil, err
 	}
@@ -10464,22 +10632,27 @@ func schemaEnumerationBaseValueSpaceDiagnostic(
 	)
 }
 
-func validateSchemaNMTOKENEnumerationBaseValueSpace(local StringEnumerationFacetDeclarations, version XSDVersion) error {
+func validateSchemaNameEnumerationBaseValueSpace(local StringEnumerationFacetDeclarations, kind schemaSimpleTypeAtomicKind, version XSDVersion) error {
 	if local.Values == nil {
 		return nil
 	}
 	for index := range local.Values {
 		declaration := local.Values[index]
 		value := collapseXMLWhitespace(declaration.Value())
-		if validXMLNmtoken(value) {
+		if kind == schemaSimpleTypeAtomicNMTOKEN && validXMLNmtoken(value) || kind == schemaSimpleTypeAtomicNCName && validNCName(value) {
 			continue
 		}
+		datatype := "NMTOKEN"
 		cause := fmt.Errorf("%w: %q", errSchemaNMTOKENValueViolation, value)
+		if kind == schemaSimpleTypeAtomicNCName {
+			datatype = "NCName"
+			cause = fmt.Errorf("%w: %q", errSchemaNCNameValueViolation, value)
+		}
 		return schemaEnumerationBaseValueSpaceDiagnostic(
 			declaration.Loc(),
 			nil,
 			version,
-			"NMTOKEN",
+			datatype,
 			cause,
 		)
 	}
@@ -10689,6 +10862,7 @@ func schemaBooleanDatatypeSpecRef(version XSDVersion) string {
 func schemaNumericFacetDeclarations(
 	inputs []schemaFacetInput,
 	kind DigitDatatype,
+	atomicKind schemaSimpleTypeAtomicKind,
 	version XSDVersion,
 ) (schemaNumericFacetDeclarationSet, error) {
 	var totalDigits *TotalDigitsFacet
@@ -10702,6 +10876,9 @@ func schemaNumericFacetDeclarations(
 		return schemaNumericFacetDeclarationSet{}, newSchemaBridgeInvariant(Loc{}, "simple type facet collection has an unknown digit datatype")
 	}
 	for _, input := range inputs {
+		if err := validateSchemaUnsignedLong10FacetLexical(atomicKind, input, version); err != nil {
+			return schemaNumericFacetDeclarationSet{}, err
+		}
 		loc := schemaFacetValueLocation(input)
 		switch input.kind {
 		case schemaFacetTotalDigits:

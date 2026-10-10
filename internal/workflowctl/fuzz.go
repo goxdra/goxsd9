@@ -22,6 +22,8 @@ import (
 const (
 	fuzzWorkerCount   = 1
 	fuzzProcessMargin = 30 * time.Second
+	fuzzBuildBound    = 3 * time.Minute
+	fuzzSeedBound     = 30 * time.Second
 
 	fuzzInvalidInputCode  = "WFZ1001"
 	fuzzRootCode          = "WFZ1002"
@@ -420,6 +422,14 @@ func (run fuzzRun) fuzzArguments() []string {
 	}
 }
 
+func (run fuzzRun) buildArguments(binary string) []string {
+	return []string{"test", "-c", run.packageName, "-fuzz=" + run.fuzzPattern(), "-o", binary, "-p=1"}
+}
+
+func (run fuzzRun) seedArguments() []string {
+	return []string{"-test.run=" + run.fuzzPattern(), "-test.parallel=1", "-test.v"}
+}
+
 func (run fuzzRun) fuzzPattern() string {
 	return "^" + run.target + "$"
 }
@@ -450,6 +460,10 @@ func shellQuote(value string) string {
 }
 
 func (a app) executeFuzzRun(root string, run fuzzRun) error {
+	relativeDir, err := fuzzPackageRelativeDir(root, run.packageName)
+	if err != nil {
+		return newFuzzDiagnostic(fuzzInvalidInputCode, err, "resolve fuzz package %q", run.packageName)
+	}
 	sandbox, err := a.prepareFuzzSandbox(root, run)
 	if err != nil {
 		if sandbox.root != "" {
@@ -460,17 +474,32 @@ func (a app) executeFuzzRun(root string, run fuzzRun) error {
 		}
 		return err
 	}
-	output, processErr, processContextErr := a.runFuzzCommand(sandbox, run)
+	binary := filepath.Join(sandbox.tmp, "fuzz.test")
+	output, processErr, processContextErr := a.runFuzzStage(sandbox, sandbox.source, fuzzBuildBound,
+		"go", run.buildArguments(binary)...)
 	if processErr != nil {
-		return a.finishFuzzFailure(sandbox, run, processContextErr, processErr, output)
+		return a.finishFuzzFailure(sandbox, run, "build", fuzzBuildBound, processContextErr, processErr, output)
+	}
+	packageDir := filepath.Join(sandbox.source, filepath.FromSlash(relativeDir))
+	output, processErr, processContextErr = a.runFuzzStage(sandbox, packageDir, fuzzSeedBound,
+		binary, run.seedArguments()...)
+	if processErr != nil {
+		return a.finishFuzzFailure(sandbox, run, "corpus and seed replay", fuzzSeedBound,
+			processContextErr, processErr, output)
+	}
+	output, processErr, processContextErr = a.runFuzzCommand(sandbox, run)
+	if processErr != nil {
+		return a.finishFuzzFailure(sandbox, run, "fuzz execution", fuzzProcessDuration(run.duration),
+			processContextErr, processErr, output)
 	}
 	return a.finishFuzzSuccess(sandbox, run)
 }
 
-func (a app) finishFuzzFailure(sandbox fuzzSandbox, run fuzzRun, contextErr error, processErr error,
+func (a app) finishFuzzFailure(sandbox fuzzSandbox, run fuzzRun, phase string, bound time.Duration,
+	contextErr error, processErr error,
 	output string,
 ) error {
-	outcome := classifyFuzzProcess(contextErr, processErr, output, run)
+	outcome := classifyFuzzProcess(contextErr, processErr, output, phase, bound)
 	corpusName, evidenceErr := fuzzReplayCorpusSince(sandbox.source, run.target, output, sandbox.corpusBefore)
 	replay := run.failureReplayCommand(corpusName)
 	evidencePath := sandbox.source
@@ -655,12 +684,17 @@ func (a app) cleanupFuzzSandbox(directory string) error {
 }
 
 func (a app) runFuzzCommand(sandbox fuzzSandbox, run fuzzRun) (string, error, error) {
+	return a.runFuzzStage(sandbox, sandbox.source, fuzzProcessDuration(run.duration), "go", run.fuzzArguments()...)
+}
+
+func (a app) runFuzzStage(sandbox fuzzSandbox, directory string, bound time.Duration, name string,
+	args ...string,
+) (string, error, error) {
 	parent := a.ctx
 	if parent == nil {
 		parent = context.Background()
 	}
-	// The fixed 30-second margin covers setup and lets go test report after -fuzztime expires.
-	commandContext, cancel := context.WithTimeout(parent, fuzzProcessDuration(run.duration))
+	commandContext, cancel := context.WithTimeout(parent, bound)
 	defer cancel()
 	environment := fuzzGoEnvironment()
 	environment = append(environment,
@@ -668,8 +702,8 @@ func (a app) runFuzzCommand(sandbox fuzzSandbox, run fuzzRun) (string, error, er
 		"GOTMPDIR="+sandbox.tmp,
 		"GOMODCACHE="+sandbox.moduleCache,
 	)
-	output, err := a.commandOutputWithContextAndEnv(commandContext, sandbox.source, environment, nil,
-		"go", run.fuzzArguments()...)
+	output, err := a.commandOutputWithContextAndEnv(commandContext, directory, environment, nil,
+		name, args...)
 	contextErr := commandContext.Err()
 	if err == nil && contextErr != nil {
 		return output, contextErr, contextErr
@@ -681,19 +715,26 @@ func fuzzProcessDuration(duration time.Duration) time.Duration {
 	return duration + fuzzProcessMargin
 }
 
-func classifyFuzzProcess(contextErr error, processErr error, output string, run fuzzRun) fuzzProcessOutcome {
+func classifyFuzzProcess(contextErr error, processErr error, output, phase string,
+	bound time.Duration,
+) fuzzProcessOutcome {
+	causeErr := processErr
+	if contextErr != nil && !errors.Is(processErr, contextErr) {
+		causeErr = errors.Join(processErr, contextErr)
+	}
+	cause := fuzzProcessCause(causeErr, output)
 	if errors.Is(contextErr, context.DeadlineExceeded) || errors.Is(processErr, context.DeadlineExceeded) {
 		return fuzzProcessOutcome{
 			result: "timeout",
-			diagnostic: newFuzzDiagnostic(fuzzTimeoutCode, fuzzProcessCause(processErr, output),
-				"go test exceeded the %s fuzz bound", run.duration),
+			diagnostic: newFuzzDiagnostic(fuzzTimeoutCode, cause,
+				"%s exceeded the %s phase bound", phase, bound),
 		}
 	}
-	if errors.Is(contextErr, context.Canceled) {
+	if errors.Is(contextErr, context.Canceled) || errors.Is(processErr, context.Canceled) {
 		return fuzzProcessOutcome{
 			result: "canceled",
-			diagnostic: newFuzzDiagnostic(fuzzCanceledCode, fuzzProcessCause(processErr, output),
-				"go test fuzz campaign was canceled"),
+			diagnostic: newFuzzDiagnostic(fuzzCanceledCode, cause,
+				"%s was canceled", phase),
 		}
 	}
 	var exitErr *exec.ExitError
@@ -701,27 +742,27 @@ func classifyFuzzProcess(contextErr error, processErr error, output string, run 
 		if exitErr.ExitCode() < 0 {
 			return fuzzProcessOutcome{
 				result: "process-signaled",
-				diagnostic: newFuzzDiagnostic(fuzzProcessSignalCode, fuzzProcessCause(processErr, output),
-					"go test was terminated by a signal"),
+				diagnostic: newFuzzDiagnostic(fuzzProcessSignalCode, cause,
+					"%s was terminated by a signal", phase),
 			}
 		}
 		return fuzzProcessOutcome{
 			result: fmt.Sprintf("process-exit-%d", exitErr.ExitCode()),
-			diagnostic: newFuzzDiagnostic(fuzzProcessExitCode, fuzzProcessCause(processErr, output),
-				"go test exited with status %d", exitErr.ExitCode()),
+			diagnostic: newFuzzDiagnostic(fuzzProcessExitCode, cause,
+				"%s exited with status %d", phase, exitErr.ExitCode()),
 		}
 	}
 	if isFuzzProcessStartError(processErr) {
 		return fuzzProcessOutcome{
 			result: "process-start-failure",
-			diagnostic: newFuzzDiagnostic(fuzzProcessStartCode, fuzzProcessCause(processErr, output),
-				"start go test fuzz campaign"),
+			diagnostic: newFuzzDiagnostic(fuzzProcessStartCode, cause,
+				"start %s", phase),
 		}
 	}
 	return fuzzProcessOutcome{
 		result: "process-failure",
-		diagnostic: newFuzzDiagnostic(fuzzProcessExitCode, fuzzProcessCause(processErr, output),
-			"go test fuzz campaign failed"),
+		diagnostic: newFuzzDiagnostic(fuzzProcessExitCode, cause,
+			"%s failed", phase),
 	}
 }
 

@@ -51,11 +51,51 @@ func TestRunFuzzUsesOfflineSingleWorkerAndCleansSuccessfulSandbox(t *testing.T) 
 	}
 }
 
+func TestRunFuzzReplaysPackageCorpusFromPackageDirectory(t *testing.T) {
+	root := newFuzzFixtureWithFiles(t, []fuzzFixtureFile{
+		{name: "nested/fuzz_test.go", content: `package nested
+
+import "testing"
+
+func FuzzNested(f *testing.F) { f.Fuzz(func(*testing.T, string) {}) }
+`},
+		{name: "nested/testdata/fuzz/FuzzNested/seed", content: "go test fuzz v1\nstring(\"seed\")\n"},
+	})
+	var output bytes.Buffer
+	var directories []string
+	application := fuzzTestApplication(t, root, &output)
+	application.executeCommandWithContextAndEnv = func(_ context.Context, directory string,
+		_ []string, _ io.Reader, _ string, _ ...string,
+	) (string, error) {
+		directories = append(directories, directory)
+		return "", nil
+	}
+	if err := application.runFuzz([]string{
+		"--package", "./nested", "--target", "FuzzNested", "--duration", "250ms",
+	}); err != nil {
+		t.Fatalf("nested fuzz campaign: %v", err)
+	}
+	if len(directories) != 3 || directories[0] != directories[2] ||
+		directories[1] != filepath.Join(directories[0], "nested") {
+		t.Fatalf("build, seed, mutation directories = %#v", directories)
+	}
+	if !strings.Contains(output.String(), "package: ./nested\n") ||
+		!strings.Contains(output.String(), "result: success\n") {
+		t.Fatalf("nested campaign report = %q", output.String())
+	}
+}
+
 type fuzzCommandCapture struct {
 	deadlineSet bool
 	directory   string
 	environment []string
 	arguments   []string
+	stages      []fuzzStageCapture
+}
+
+type fuzzStageCapture struct {
+	name      string
+	arguments []string
 }
 
 func captureFuzzCommand(t *testing.T, capture *fuzzCommandCapture) commandContextEnvironmentExecutor {
@@ -63,10 +103,14 @@ func captureFuzzCommand(t *testing.T, capture *fuzzCommandCapture) commandContex
 	return func(ctx context.Context, directory string, environment []string, _ io.Reader, name string,
 		args ...string,
 	) (string, error) {
-		if name != "go" {
-			t.Fatalf("campaign command = %q, want go", name)
+		_, hasDeadline := ctx.Deadline()
+		if !hasDeadline {
+			t.Fatal("campaign stage has no deadline")
 		}
-		_, capture.deadlineSet = ctx.Deadline()
+		capture.deadlineSet = hasDeadline
+		capture.stages = append(capture.stages, fuzzStageCapture{
+			name: name, arguments: append([]string(nil), args...),
+		})
 		capture.directory = directory
 		capture.environment = append([]string(nil), environment...)
 		capture.arguments = append([]string(nil), args...)
@@ -94,6 +138,24 @@ func assertFuzzCommandCapture(t *testing.T, capture fuzzCommandCapture, root str
 	if !reflect.DeepEqual(capture.arguments, wantArguments) {
 		t.Fatalf("campaign arguments = %#v, want %#v", capture.arguments, wantArguments)
 	}
+	if len(capture.stages) != 3 {
+		t.Fatalf("campaign stages = %#v, want build, corpus replay, fuzz execution", capture.stages)
+	}
+	binary := filepath.Join(filepath.Dir(capture.directory), "tmp", "fuzz.test")
+	wantStages := []struct {
+		name      string
+		arguments []string
+	}{
+		{name: "go", arguments: []string{"test", "-c", ".", "-fuzz=^FuzzFixture$", "-o", binary, "-p=1"}},
+		{name: binary, arguments: []string{"-test.run=^FuzzFixture$", "-test.parallel=1", "-test.v"}},
+		{name: "go", arguments: wantArguments},
+	}
+	for index, want := range wantStages {
+		got := capture.stages[index]
+		if got.name != want.name || !reflect.DeepEqual(got.arguments, want.arguments) {
+			t.Fatalf("stage %d = %#v, want %q %v", index, got, want.name, want.arguments)
+		}
+	}
 	wantEnvironment := append(fuzzGoEnvironment(),
 		"GOCACHE="+filepath.Join(filepath.Dir(capture.directory), "cache"),
 		"GOTMPDIR="+filepath.Join(filepath.Dir(capture.directory), "tmp"),
@@ -119,8 +181,8 @@ func TestRunFuzzRepeatedSuccessesHaveStableReports(t *testing.T) {
 		application.executeCommandWithContextAndEnv = func(_ context.Context, _ string, _ []string,
 			_ io.Reader, name string, _ ...string,
 		) (string, error) {
-			if name != "go" {
-				t.Fatalf("campaign command = %q, want go", name)
+			if name != "go" && filepath.Base(name) != "fuzz.test" {
+				t.Fatalf("campaign command = %q, want go or fuzz.test", name)
 			}
 			return "", nil
 		}
@@ -366,6 +428,125 @@ func TestRunFuzzReportsTimeoutAndProcessStartFailures(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runFuzzProcessFailureCase(t, test)
 		})
+	}
+}
+
+type fuzzStageFailure struct {
+	name   string
+	cause  error
+	code   string
+	result string
+}
+
+type fuzzFailurePhase struct {
+	name  string
+	stage int
+}
+
+func TestRunFuzzStageFailuresNamePhaseAndPreserveCause(t *testing.T) {
+	exitFailure := fuzzTestExitError(t, 7)
+	signalFailure := fuzzTestSignalError(t)
+	failures := []fuzzStageFailure{
+		{name: "timeout", cause: context.DeadlineExceeded, code: fuzzTimeoutCode, result: "timeout"},
+		{name: "canceled", cause: context.Canceled, code: fuzzCanceledCode, result: "canceled"},
+		{name: "start", cause: &exec.Error{Name: "go", Err: os.ErrNotExist}, code: fuzzProcessStartCode, result: "process-start-failure"},
+		{name: "exit", cause: exitFailure, code: fuzzProcessExitCode, result: "process-exit-7"},
+		{name: "signal", cause: signalFailure, code: fuzzProcessSignalCode, result: "process-signaled"},
+		{name: "other", cause: errors.New("child I/O failed"), code: fuzzProcessExitCode, result: "process-failure"},
+	}
+	for _, phase := range []fuzzFailurePhase{
+		{name: "build", stage: 1},
+		{name: "corpus and seed replay", stage: 2},
+		{name: "fuzz execution", stage: 3},
+	} {
+		for _, failure := range failures {
+			t.Run(phase.name+"/"+failure.name, func(t *testing.T) {
+				runFuzzStageFailureCase(t, phase, failure)
+			})
+		}
+	}
+}
+
+func runFuzzStageFailureCase(t *testing.T, phase fuzzFailurePhase, failure fuzzStageFailure) {
+	t.Helper()
+	root := newFuzzFixture(t)
+	var report bytes.Buffer
+	application := fuzzTestApplication(t, root, &report)
+	stage := 0
+	application.executeCommandWithContextAndEnv = func(ctx context.Context, _ string,
+		_ []string, _ io.Reader, _ string, _ ...string,
+	) (string, error) {
+		stage++
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatal("stage has no terminating deadline")
+		}
+		if stage != phase.stage {
+			return "", nil
+		}
+		return "stage output", failure.cause
+	}
+	err := application.runFuzz([]string{
+		"--package", ".", "--target", "FuzzFixture", "--duration", "250ms",
+	})
+	if stage != phase.stage {
+		t.Fatalf("reached %d stages, want stop at %d", stage, phase.stage)
+	}
+	var diagnostic *fuzzDiagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.code != failure.code || !errors.Is(err, failure.cause) {
+		t.Fatalf("diagnostic = %v, want code %s preserving %v", err, failure.code, failure.cause)
+	}
+	if !strings.Contains(err.Error(), phase.name) || !strings.Contains(err.Error(), "stage output") {
+		t.Fatalf("diagnostic omitted phase or child output: %v", err)
+	}
+	if !strings.Contains(report.String(), "result: "+failure.result+"\n") ||
+		!strings.Contains(report.String(), "duration: 250ms\nworkers: 1\noffline: true\n") {
+		t.Fatalf("stage report = %q", report.String())
+	}
+	source := assertFuzzEvidenceSource(t, report.String())
+	if removeErr := os.RemoveAll(filepath.Dir(source)); removeErr != nil {
+		t.Fatalf("remove retained stage evidence: %v", removeErr)
+	}
+}
+
+func TestFuzzTimeoutPreservesDeadlineAndSignaledChild(t *testing.T) {
+	signalFailure := fuzzTestSignalError(t)
+	outcome := classifyFuzzProcess(context.DeadlineExceeded, signalFailure,
+		"worker output", "fuzz execution", 30*time.Second)
+	if outcome.result != "timeout" || !errors.Is(outcome.diagnostic, context.DeadlineExceeded) ||
+		!errors.Is(outcome.diagnostic, signalFailure) {
+		t.Fatalf("timeout outcome lost deadline or child signal: %#v", outcome)
+	}
+	if !strings.Contains(outcome.diagnostic.Error(), "fuzz execution exceeded the 30s phase bound") ||
+		!strings.Contains(outcome.diagnostic.Error(), "worker output") {
+		t.Fatalf("timeout diagnostic lost phase or child output: %v", outcome.diagnostic)
+	}
+}
+
+func TestRunFuzzCanceledParentStopsAtBuildBoundary(t *testing.T) {
+	root := newFuzzFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var report bytes.Buffer
+	application := fuzzTestApplication(t, root, &report)
+	application.ctx = ctx
+	stages := 0
+	application.executeCommandWithContextAndEnv = func(stageContext context.Context, _ string,
+		_ []string, _ io.Reader, _ string, _ ...string,
+	) (string, error) {
+		stages++
+		return "", stageContext.Err()
+	}
+	err := application.runFuzz([]string{"--package", ".", "--target", "FuzzFixture", "--duration", "250ms"})
+	if stages != 1 || !errors.Is(err, context.Canceled) ||
+		!strings.Contains(err.Error(), fuzzCanceledCode) || !strings.Contains(err.Error(), "build was canceled") {
+		t.Fatalf("canceled run reached %d stages and returned %v", stages, err)
+	}
+	if !strings.Contains(report.String(), "result: canceled\n") {
+		t.Fatalf("canceled report = %q", report.String())
+	}
+	source := assertFuzzEvidenceSource(t, report.String())
+	if removeErr := os.RemoveAll(filepath.Dir(source)); removeErr != nil {
+		t.Fatalf("remove retained cancellation evidence: %v", removeErr)
 	}
 }
 

@@ -664,8 +664,6 @@ func TestSchemaPositiveIntegerExcludedSchemaShapes(t *testing.T) {
 			cause    error
 			related  string
 		}{
-			{name: "local direct", body: `<xs:complexType name="Root"><xs:sequence><xs:element name="item" type="xs:positiveInteger"/></xs:sequence></xs:complexType>`, marker: `type="xs:positiveInteger"`},
-			{name: "local named", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="t:Alias"/></xs:sequence></xs:complexType>`, marker: `type="t:Alias"`},
 			{name: "local inline", body: `<xs:complexType name="Root"><xs:sequence><xs:element name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, marker: `<xs:simpleType>`},
 			{name: "global attribute unrelated integer kind", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:nonNegativeInteger"><xs:minInclusive value="1"/></xs:restriction></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`, cause: errSchemaAttributeTypeUnsupported},
 			{name: "global attribute list variety", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:list itemType="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`, cause: errSchemaAttributeTypeUnsupported},

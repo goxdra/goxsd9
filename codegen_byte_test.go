@@ -388,7 +388,7 @@ func TestGenerateGoGlobalByteRejectsNonOrdinaryDeclarationsAcrossPolicies(t *tes
 }
 
 func TestGenerateGoByteExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testing.T) {
-	tests := []codegenBoundedIntegerExclusionCase{
+	tests := []codegenByteLongExclusionCase{
 		{"inline global", `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:byte"/></xs:simpleType></xs:element>`, `<xs:element name="value"`, ""},
 		{"local sequence", `<xs:complexType name="Container"><xs:sequence><xs:element name="value" type="xs:byte"/></xs:sequence></xs:complexType>`, `<xs:element name="value"`, ""},
 		{"named local sequence", `<xs:complexType name="Container"><xs:sequence><xs:element name="value" type="t:Value"/></xs:sequence></xs:complexType><xs:simpleType name="Value"><xs:restriction base="xs:byte"/></xs:simpleType>`, `<xs:element name="value"`, ""},
@@ -407,18 +407,16 @@ func TestGenerateGoByteExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testin
 		{"named union", `<xs:simpleType name="Value"><xs:union memberTypes="xs:byte"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `<xs:union`},
 		{"short direct stays excluded", `<xs:element name="value" type="xs:short"/>`, `<xs:element name="value"`, ""},
 		{"short named stays excluded", `<xs:element name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType>`, `<xs:element name="value"`, ""},
-		{"int direct stays excluded", `<xs:element name="value" type="xs:int"/>`, `<xs:element name="value"`, ""},
-		{"int named stays excluded", `<xs:element name="value" type="t:Value"/><xs:simpleType name="Value"><xs:restriction base="xs:int"/></xs:simpleType>`, `<xs:element name="value"`, ""},
 	}
-	testGenerateGoBoundedIntegerExclusions(t, tests)
+	testGenerateGoByteLongExclusions(t, tests)
 }
 
-type codegenBoundedIntegerExclusionCase struct {
+type codegenByteLongExclusionCase struct {
 	name, body, marker, related string
 }
 
 //nolint:gocognit // Keep the policy and exclusion diagnostic matrix together.
-func testGenerateGoBoundedIntegerExclusions(t *testing.T, tests []codegenBoundedIntegerExclusionCase) {
+func testGenerateGoByteLongExclusions(t *testing.T, tests []codegenByteLongExclusionCase) {
 	for _, profile := range []struct {
 		name, version, specPrefix string
 		policy                    goxsd9.LanguagePolicy

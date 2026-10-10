@@ -127,16 +127,7 @@ var bootstrapProbeRows = []bootstrapProbeRow{
 		id:     "xml-schema",
 		policy: goxsd9.Compatibility,
 		expected: bootstrapProbeObservation{
-			stage: bootstrapProbeParserStage,
-			diagnostic: bootstrapProbeDiagnostic{
-				class:   goxsd9.FailureUnsupported,
-				code:    goxsd9.UnsupportedDatatypeFacetCode,
-				feature: goxsd9.FeatureDatatypeFacets,
-				source:  "xml-schema",
-				line:    107,
-				column:  5,
-				specRef: "xsd11-datatypes#decimal",
-			},
+			stage: bootstrapProbeParserSuccessStage,
 		},
 	},
 }
@@ -383,4 +374,73 @@ func (transport *bootstrapProbeTransport) RoundTrip(request *http.Request) (*htt
 		return nil, fmt.Errorf("unexpected bootstrap probe request %s", requestURL)
 	}
 	return testResponse(http.StatusOK, append([]byte(nil), transport.body...)), nil
+}
+
+//nolint:gocognit // Keep the pinned digest, public parse, and exact xml:space facts together.
+func TestPinnedXMLSpaceNCNameEnumerationPublicFacts(t *testing.T) {
+	manifest := readBootstrapProbeManifest(t)
+	entry, err := manifest.Find("xml-schema")
+	if err != nil {
+		t.Fatalf("manifest xml-schema: %v", err)
+	}
+	raw, err := bootstrapProbeFixtures.ReadFile("testdata/bootstrap/xml-schema.raw")
+	if err != nil {
+		t.Fatalf("pinned xml-schema: %v", err)
+	}
+	if got := testDigest(raw); !strings.EqualFold(got, entry.SHA256) {
+		t.Fatalf("raw digest=%s, want %s", got, entry.SHA256)
+	}
+	first, err := parseBootstrapProbe(t, entry, raw, goxsd9.Compatibility)
+	if err != nil {
+		t.Fatalf("pinned xml-schema parse: %v", err)
+	}
+	second, err := parseBootstrapProbe(t, entry, raw, goxsd9.Compatibility)
+	if err != nil || !slices.EqualFunc(first.Components(), second.Components(), func(a, b goxsd9.Component) bool { return a.ID() == b.ID() && a.Name() == b.Name() }) {
+		t.Fatalf("repeated xml-schema changed components: %v", err)
+	}
+	name, err := goxsd9.NewQName("http://www.w3.org/XML/1998/namespace", "space")
+	if err != nil {
+		t.Fatalf("NewQName: %v", err)
+	}
+	found := first.FindKind(goxsd9.ComponentKindAttributeDeclaration, name)
+	if len(found) != 1 {
+		t.Fatalf("xml:space attributes=%d, want one", len(found))
+	}
+	attribute, ok := found[0].AttributeDeclaration()
+	if !ok {
+		t.Fatal("xml:space has no attribute declaration")
+	}
+	reference, ok := attribute.TypeReference()
+	inline, hasInline := attribute.InlineSimpleType()
+	if !ok || !hasInline || !reference.IsAnonymous() {
+		t.Fatalf("xml:space inline reference=%#v/%t", reference, hasInline)
+	}
+	base, ok := inline.BaseReference()
+	if !ok || !base.IsBuiltin() || base.Name().Local() != "NCName" {
+		t.Fatalf("xml:space base=%#v/%t", base, ok)
+	}
+	facets := inline.StringEnumerationFacets()
+	if !facets.HasEnumeration() || facets.Version() != goxsd9.XSDVersion11 || !slices.Equal(facets.Values(), []string{"default", "preserve"}) {
+		t.Fatalf("xml:space facts=%#v", facets)
+	}
+	lines := strings.Split(string(raw), "\n")
+	for i, line := range []int{107, 108} {
+		marker := `value="` + []string{"default", "preserve"}[i] + `"`
+		column := strings.Index(lines[line-1], marker) + 1
+		if column == 0 {
+			t.Fatalf("pinned xml:space line %d missing %q", line, marker)
+		}
+		want, locErr := goxsd9.NewLoc("xml-schema", line, column)
+		if locErr != nil {
+			t.Fatalf("NewLoc: %v", locErr)
+		}
+		if facets.Locations()[i] != want || facets.Declarations()[i].Loc() != want {
+			t.Fatalf("facet %d Loc=%s, want %s", i, facets.Locations()[i], want)
+		}
+	}
+	copied := facets.Values()
+	copied[0] = "changed"
+	if inline.StringEnumerationFacets().Values()[0] != "default" {
+		t.Fatal("xml:space facts changed through copy")
+	}
 }

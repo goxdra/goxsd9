@@ -20,6 +20,21 @@ var schemaBuiltinReferenceCases = []schemaBuiltinReferenceCase{
 	{local: "ID", atomicKind: schemaSimpleTypeAtomicID},
 }
 
+func assertBuiltinReferenceFacetCategory(t *testing.T, reference SimpleTypeReference, local string, version XSDVersion) {
+	t.Helper()
+	if local == "NCName" {
+		whiteSpace, ok := reference.StringWhiteSpaceFacet()
+		facets := reference.StringEnumerationFacets()
+		if !ok || whiteSpace.Value() != "collapse" || !whiteSpace.Fixed() || !whiteSpace.Loc().IsZero() || facets.Version() != version || facets.HasEnumeration() {
+			t.Fatalf("NCName built-in facts = %#v/%#v, want intrinsic collapse without enumeration", whiteSpace, facets)
+		}
+		return
+	}
+	if _, ok := reference.facts.facets.(schemaAtomicFacetVariant); !ok {
+		t.Fatalf("reference facets = %T, want opaque atomic variant", reference.facts.facets)
+	}
+}
+
 //nolint:gocognit // Keep the direct global attribute reference contract together.
 func TestSchemaBuiltinGlobalAttributeReferencesPreserveIdentity(t *testing.T) {
 	for _, policy := range []struct {
@@ -67,9 +82,7 @@ func TestSchemaBuiltinGlobalAttributeReferencesPreserveIdentity(t *testing.T) {
 				if reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.facts == nil || reference.facts.atomicKind != test.atomicKind {
 					t.Fatalf("component %d reference variety/category = %q/%v, want atomic/%v", index, reference.Variety(), reference.facts, test.atomicKind)
 				}
-				if _, ok := reference.facts.facets.(schemaAtomicFacetVariant); !ok {
-					t.Fatalf("component %d reference facets = %T, want opaque atomic variant", index, reference.facts.facets)
-				}
+				assertBuiltinReferenceFacetCategory(t, reference, test.local, policy.version)
 				if typeID, hasTypeID := reference.ComponentID(); hasTypeID || !typeID.IsZero() {
 					t.Fatalf("component %d reference type ID = %v/%t, want zero/false", index, typeID, hasTypeID)
 				}
@@ -158,9 +171,7 @@ func TestSchemaBuiltinGlobalElementReferencesPreserveModelBoundary(t *testing.T)
 				if reference.Variety() != SimpleTypeVarietyAtomicRestriction || reference.facts == nil || reference.facts.atomicKind != test.atomicKind {
 					t.Fatalf("component %d reference variety/category = %q/%v, want atomic/%v", index, reference.Variety(), reference.facts, test.atomicKind)
 				}
-				if _, ok := reference.facts.facets.(schemaAtomicFacetVariant); !ok {
-					t.Fatalf("component %d reference facets = %T, want opaque atomic variant", index, reference.facts.facets)
-				}
+				assertBuiltinReferenceFacetCategory(t, reference, test.local, policy.version)
 				if typeID, hasTypeID := declaration.TypeID(); hasTypeID || !typeID.IsZero() {
 					t.Fatalf("component %d declaration type ID = %v/%t, want zero/false", index, typeID, hasTypeID)
 				}

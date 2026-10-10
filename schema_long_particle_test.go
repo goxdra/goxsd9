@@ -573,7 +573,6 @@ func TestSchemaLongLocalParticleExcludedShapesRemainUnsupported(t *testing.T) {
 			defs string
 		}{
 			{name: "inline long", body: `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element>`},
-			{name: "named non-positive integer", body: `<xs:element name="value" type="r:NonPositive"/>`, defs: `<xs:simpleType name="NonPositive"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType>`},
 			{name: "named list", body: `<xs:element name="value" type="r:List"/>`, defs: `<xs:simpleType name="List"><xs:list itemType="xs:long"/></xs:simpleType>`},
 			{name: "named union", body: `<xs:element name="value" type="r:Union"/>`, defs: `<xs:simpleType name="Union"><xs:union memberTypes="xs:long"/></xs:simpleType>`},
 			{name: "nested sequence", body: `<xs:sequence><xs:element name="value" type="xs:long"/></xs:sequence>`},

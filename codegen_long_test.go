@@ -215,11 +215,11 @@ func useLongScalars() {
 }
 
 func TestGenerateGoGlobalLongRejectsNonOrdinaryDeclarationsAcrossPolicies(t *testing.T) {
-	testGenerateGoGlobalBoundedIntegerRejectsNonOrdinaryDeclarationsAcrossPolicies(t, "long")
+	testGenerateGoBoundedIntegerFlags(t, "long")
 }
 
 func TestGenerateGoLongExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testing.T) {
-	tests := []codegenBoundedIntegerExclusionCase{
+	testGenerateGoBoundedIntegerExclusions(t, []codegenBoundedIntegerExclusion{
 		{"inline global", `<xs:element name="value"><xs:simpleType><xs:restriction base="xs:long"/></xs:simpleType></xs:element>`, `<xs:element name="value"`, ""},
 		{"local sequence", `<xs:complexType name="Container"><xs:sequence><xs:element name="value" type="xs:long"/></xs:sequence></xs:complexType>`, `<xs:element name="value"`, ""},
 		{"local choice", `<xs:complexType name="Container"><xs:choice><xs:element name="value" type="xs:long"/></xs:choice></xs:complexType>`, `<xs:element name="value"`, ""},
@@ -228,8 +228,7 @@ func TestGenerateGoLongExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testin
 		{"global attribute", `<xs:attribute name="value" type="xs:long"/>`, `<xs:attribute name="value"`, ""},
 		{"named final", `<xs:simpleType name="Value" final="restriction"><xs:restriction base="xs:long"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `final="restriction"`},
 		{"named union", `<xs:simpleType name="Value"><xs:union memberTypes="xs:long"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `<xs:union`},
-	}
-	testGenerateGoBoundedIntegerExclusions(t, tests)
+	})
 }
 
 func publicLongMarkerLoc(t *testing.T, source, marker string) goxsd9.Loc {

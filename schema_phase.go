@@ -1022,6 +1022,18 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
+	if kind == ComponentKindElementDeclaration &&
+		(attribute.name.local == "abstract" || attribute.name.local == "nillable") &&
+		inlineComplexTypeChild(element) != nil {
+		value, err := schemaBooleanValue(attribute)
+		if err != nil {
+			return "", newDiagnostic(FailureInvalid, invalidSchemaCompositionCode, attribute.loc, "global inline complex element "+attribute.name.local+" has an invalid boolean value", err)
+		}
+		if !value {
+			return "", nil
+		}
+		return "", newSchemaSyntaxUnsupportedForVersion(attribute.loc, "global element attribute \""+attribute.name.local+"\" is not implemented", version)
+	}
 	if implementedGlobalComplexTypeBooleanAttribute(kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
@@ -1035,8 +1047,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if version == XSDVersion11 &&
 		kind == ComponentKindComplexTypeDefinition &&
 		attribute.name.namespace == "" &&
-		attribute.name.local == "defaultAttributesApply" &&
-		len(syntaxAttributesByLocal(element, "name")) == 1 {
+		attribute.name.local == "defaultAttributesApply" {
 		return "", validateSchemaBoolean(attribute)
 	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
@@ -4297,6 +4308,22 @@ func validateInlineSchemaTypeWithFacetBridge(element *syntaxElement, version XSD
 			switch attribute.name.local {
 			case "abstract", "block", "final":
 				return newSchemaCompositionDiagnostic(attribute.loc, "inline complexType cannot specify "+attribute.name.local)
+			case "mixed":
+				mixed, err := schemaBooleanValue(attribute)
+				if err != nil {
+					return newDiagnostic(
+						FailureInvalid,
+						invalidSchemaCompositionCode,
+						attribute.loc,
+						"inline complexType mixed has an invalid boolean value",
+						err,
+					)
+				}
+				if !mixed {
+					continue
+				}
+				candidate.considerAtVersion(attribute.loc, "inline complexType attribute \"mixed\" is not implemented", version)
+				continue
 			}
 		}
 		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
@@ -4344,7 +4371,7 @@ func inlineSimpleTypeMayHaveStringRestrictionBase(element *syntaxElement) bool {
 			return false
 		}
 		if base.Namespace() == xsdNamespaceURI {
-			return base.Local() == "string" || base.Local() == "normalizedString" || base.Local() == "token" || base.Local() == "NMTOKEN" || base.Local() == "derivationControl"
+			return base.Local() == "string" || base.Local() == "normalizedString" || base.Local() == "token" || base.Local() == "NMTOKEN" || base.Local() == "NCName" || base.Local() == "derivationControl"
 		}
 		return true
 	}
