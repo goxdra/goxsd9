@@ -277,9 +277,9 @@ func (reference SimpleTypeReference) AnonymousType() (SimpleTypeDefinition, bool
 	return SimpleTypeDefinition{facts: reference.facts.anonymous}, true
 }
 
-// StringEnumerationFacets returns the effective lexical string enumeration
-// facets of the referenced type. It returns the zero value for a non-string
-// reference.
+// StringEnumerationFacets returns effective lexical enumeration facts for a
+// referenced string-facet type, including NCName. It returns zero when the
+// reference has no string-facet facts.
 func (reference SimpleTypeReference) StringEnumerationFacets() StringEnumerationFacets {
 	if reference.facts == nil {
 		return StringEnumerationFacets{}
@@ -291,9 +291,9 @@ func (reference SimpleTypeReference) StringEnumerationFacets() StringEnumeration
 	return facets.enumeration
 }
 
-// StringWhiteSpaceFacet returns the effective string whiteSpace facet of the
-// referenced type. It returns false for a non-string reference or incomplete
-// internal facet facts.
+// StringWhiteSpaceFacet returns the effective whiteSpace facet of a referenced
+// string-facet type, including NCName. It returns false when those facts or
+// the whiteSpace value are absent.
 func (reference SimpleTypeReference) StringWhiteSpaceFacet() (StringWhiteSpaceFacet, bool) {
 	if reference.facts == nil {
 		return StringWhiteSpaceFacet{}, false
@@ -519,6 +519,15 @@ func (declaration AttributeDeclaration) TypeReference() (SimpleTypeReference, bo
 		return SimpleTypeReference{}, false
 	}
 	return SimpleTypeReference{facts: &declaration.facts.typeReference}, true
+}
+
+// InlineSimpleType returns the anonymous simple type owned by the attribute.
+func (declaration AttributeDeclaration) InlineSimpleType() (SimpleTypeDefinition, bool) {
+	reference, ok := declaration.TypeReference()
+	if !ok {
+		return SimpleTypeDefinition{}, false
+	}
+	return reference.AnonymousType()
 }
 
 // TypeID returns the identity of a named declared type. Built-in datatypes do
@@ -837,7 +846,7 @@ func (definition SimpleTypeDefinition) VarietyLoc() Loc {
 // Final returns the effective non-empty final derivation controls in
 // specification order. The returned slice is independent of the schema.
 func (definition SimpleTypeDefinition) Final() []string {
-	if definition.facts == nil || definition.facts.anonymous {
+	if definition.facts == nil {
 		return nil
 	}
 	return definition.facts.final.set.values()
@@ -846,7 +855,7 @@ func (definition SimpleTypeDefinition) Final() []string {
 // FinalLoc returns the location of the effective final declaration or
 // document default.
 func (definition SimpleTypeDefinition) FinalLoc() Loc {
-	if definition.facts == nil || definition.facts.anonymous {
+	if definition.facts == nil {
 		return Loc{}
 	}
 	return definition.facts.final.loc
@@ -927,8 +936,9 @@ func (definition SimpleTypeDefinition) IsBoolean() bool {
 	return ok
 }
 
-// IsString reports whether the simple type is derived from the XSD string
-// datatype.
+// IsString reports whether the simple type is modeled as string,
+// normalizedString, token, or NMTOKEN. NCName returns false even though its
+// string enumeration and whiteSpace facts can be queried separately.
 func (definition SimpleTypeDefinition) IsString() bool {
 	if definition.facts == nil {
 		return false
@@ -982,8 +992,9 @@ func (definition SimpleTypeDefinition) DecimalEnumerationFacets() DecimalEnumera
 	return facets.enumeration
 }
 
-// StringEnumerationFacets returns the effective lexical string enumeration
-// facets. It returns the zero value for a non-string simple type.
+// StringEnumerationFacets returns effective lexical enumeration facts for a
+// string-facet type, including NCName. It returns zero when the type has no
+// string-facet facts.
 func (definition SimpleTypeDefinition) StringEnumerationFacets() StringEnumerationFacets {
 	if definition.facts == nil {
 		return StringEnumerationFacets{}
@@ -995,8 +1006,9 @@ func (definition SimpleTypeDefinition) StringEnumerationFacets() StringEnumerati
 	return facets.enumeration
 }
 
-// StringWhiteSpaceFacet returns the effective string whiteSpace facet. It
-// returns false for a non-string type or an incomplete internal facet value.
+// StringWhiteSpaceFacet returns the effective whiteSpace facet of a string-facet
+// type, including NCName. It returns false when those facts or the whiteSpace
+// value are absent.
 func (definition SimpleTypeDefinition) StringWhiteSpaceFacet() (StringWhiteSpaceFacet, bool) {
 	if definition.facts == nil {
 		return StringWhiteSpaceFacet{}, false
@@ -2656,10 +2668,11 @@ type schemaElementSubstitutionGroupInput struct {
 }
 
 type schemaAttributeInput struct {
-	declaredType    QName
-	typeLoc         Loc
-	inheritable     bool
-	valueConstraint *schemaAttributeValueConstraintInput
+	declaredType     QName
+	typeLoc          Loc
+	inlineSimpleType *schemaSimpleTypeInput
+	inheritable      bool
+	valueConstraint  *schemaAttributeValueConstraintInput
 }
 
 type schemaNotationInput struct {
@@ -4155,10 +4168,11 @@ func cloneSchemaAttributeInput(input *schemaAttributeInput) *schemaAttributeInpu
 		return nil
 	}
 	return &schemaAttributeInput{
-		declaredType:    input.declaredType,
-		typeLoc:         input.typeLoc,
-		inheritable:     input.inheritable,
-		valueConstraint: cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
+		declaredType:     input.declaredType,
+		typeLoc:          input.typeLoc,
+		inlineSimpleType: cloneSchemaSimpleTypeInput(input.inlineSimpleType),
+		inheritable:      input.inheritable,
+		valueConstraint:  cloneSchemaAttributeValueConstraintInput(input.valueConstraint),
 	}
 }
 
@@ -4258,6 +4272,11 @@ func allocateSchemaSimpleTypeNodeIDsForRecord(
 	}
 	if record.element != nil && record.element.inlineSimpleType != nil {
 		if err := allocateSchemaSimpleTypeNodeID(record.element.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
+			return err
+		}
+	}
+	if record.attribute != nil && record.attribute.inlineSimpleType != nil {
+		if err := allocateSchemaSimpleTypeNodeID(record.attribute.inlineSimpleType, record.id.Source(), nextBySource, seen); err != nil {
 			return err
 		}
 	}

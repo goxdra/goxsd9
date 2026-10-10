@@ -1022,6 +1022,18 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
+	if kind == ComponentKindElementDeclaration &&
+		(attribute.name.local == "abstract" || attribute.name.local == "nillable") &&
+		inlineComplexTypeChild(element) != nil {
+		value, err := schemaBooleanValue(attribute)
+		if err != nil {
+			return "", newDiagnostic(FailureInvalid, invalidSchemaCompositionCode, attribute.loc, "global inline complex element "+attribute.name.local+" has an invalid boolean value", err)
+		}
+		if !value {
+			return "", nil
+		}
+		return "", newSchemaSyntaxUnsupportedForVersion(attribute.loc, "global element attribute \""+attribute.name.local+"\" is not implemented", version)
+	}
 	if implementedGlobalComplexTypeBooleanAttribute(kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
@@ -1035,8 +1047,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if version == XSDVersion11 &&
 		kind == ComponentKindComplexTypeDefinition &&
 		attribute.name.namespace == "" &&
-		attribute.name.local == "defaultAttributesApply" &&
-		len(syntaxAttributesByLocal(element, "name")) == 1 {
+		attribute.name.local == "defaultAttributesApply" {
 		return "", validateSchemaBoolean(attribute)
 	}
 	status := globalSchemaAttributeStatus(kind, attribute.name.local)
@@ -1047,7 +1058,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 			return "", err
 		}
-		if kind == ComponentKindAttributeDeclaration && attribute.name.local == "inheritable" && len(syntaxAttributesByLocal(element, "type")) > 0 {
+		if kind == ComponentKindAttributeDeclaration && attribute.name.local == "inheritable" && (len(syntaxAttributesByLocal(element, "type")) > 0 || inlineSimpleTypeChild(element) != nil) {
 			if version == XSDVersion10 {
 				return "", newXSD11FeatureMismatch(
 					FeatureSchemaSyntax,
@@ -1692,6 +1703,7 @@ func validateAttributeGlobalChildren(parent *syntaxElement, children []*syntaxEl
 	annotationSeen := false
 	contentSeen := false
 	simpleTypeSeen := false
+	var firstSimpleTypeLoc Loc
 	var candidate schemaChildUnsupportedCandidate
 	for _, child := range children {
 		handled, err := consumeGlobalSchemaAnnotation(child, &annotationSeen, &contentSeen)
@@ -1703,17 +1715,16 @@ func validateAttributeGlobalChildren(parent *syntaxElement, children []*syntaxEl
 		}
 		if child.name.local == "simpleType" {
 			if typeAttributeSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "attribute cannot combine type attribute with an inline simpleType")
+				typeLoc := syntaxAttributesByLocal(parent, "type")[0].loc
+				return newSchemaAttributeTypeDiagnostic(invalidSchemaCompositionCode, child.loc, "attribute cannot combine type attribute with an inline simpleType", []Loc{typeLoc}, version, errSchemaAttributeInlineTypeConflict)
 			}
 			if simpleTypeSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "attribute simpleType child must be unique")
+				return newSchemaAttributeTypeDiagnostic(invalidSchemaCompositionCode, child.loc, "attribute simpleType child must be unique", []Loc{firstSimpleTypeLoc}, version, errSchemaAttributeInlineTypeDuplicate)
 			}
 			simpleTypeSeen = true
-			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
-				return err
-			}
-			if !candidate.present {
-				candidate.consider(child, parent.name.local)
+			firstSimpleTypeLoc = child.loc
+			if err := validateInlineSchemaTypeWithFacetBridge(child, version, true); err != nil && !candidate.considerError(err) {
+				return decorateMalformedSchemaAttributeInlineType(err, version)
 			}
 			continue
 		}
@@ -4275,8 +4286,12 @@ func validateChoiceElementAlternative(element *syntaxElement, version XSDVersion
 	return candidate.err()
 }
 
-//nolint:gocognit // Keep inline type attribute support and child preflight together.
 func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error {
+	return validateInlineSchemaTypeWithFacetBridge(element, version, false)
+}
+
+//nolint:gocognit // Keep inline type attribute support and child preflight together.
+func validateInlineSchemaTypeWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets bool) error {
 	kind, ok := schemaDeclarationKind(element.name.local)
 	if !ok || kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 		return newSchemaBridgeInvariant(element.loc, "inline schema type has an unknown kind")
@@ -4293,6 +4308,22 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 			switch attribute.name.local {
 			case "abstract", "block", "final":
 				return newSchemaCompositionDiagnostic(attribute.loc, "inline complexType cannot specify "+attribute.name.local)
+			case "mixed":
+				mixed, err := schemaBooleanValue(attribute)
+				if err != nil {
+					return newDiagnostic(
+						FailureInvalid,
+						invalidSchemaCompositionCode,
+						attribute.loc,
+						"inline complexType mixed has an invalid boolean value",
+						err,
+					)
+				}
+				if !mixed {
+					continue
+				}
+				candidate.considerAtVersion(attribute.loc, "inline complexType attribute \"mixed\" is not implemented", version)
+				continue
 			}
 		}
 		message, err := validateGlobalSchemaAttribute(element, kind, attribute, version)
@@ -4307,7 +4338,7 @@ func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error 
 		}
 	}
 	bridgeStringEnumeration := element.name.local == "simpleType" && inlineSimpleTypeMayHaveStringRestrictionBase(element)
-	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, false, bridgeStringEnumeration, false); err != nil {
+	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, bridgeFacets, bridgeStringEnumeration, false); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}
@@ -4340,7 +4371,7 @@ func inlineSimpleTypeMayHaveStringRestrictionBase(element *syntaxElement) bool {
 			return false
 		}
 		if base.Namespace() == xsdNamespaceURI {
-			return base.Local() == "string" || base.Local() == "normalizedString" || base.Local() == "token" || base.Local() == "NMTOKEN" || base.Local() == "derivationControl"
+			return base.Local() == "string" || base.Local() == "normalizedString" || base.Local() == "token" || base.Local() == "NMTOKEN" || base.Local() == "NCName" || base.Local() == "derivationControl"
 		}
 		return true
 	}

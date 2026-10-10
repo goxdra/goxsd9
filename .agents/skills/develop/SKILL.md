@@ -37,8 +37,9 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    Smith implements/tests/fixes; reports paths/tests. Follow `AGENTS.md`;
    mechanize. Unfinished boundaries need unsupported feature ID, `Loc`, and
    versioned SpecRef; issue actionable discoveries, not TODOs.
-6. Renew before pushes and required durable boundaries with `go tool
-   workflowctl claim renew`; never wake or poll solely to renew.
+6. Normally renew at boundaries/before pushes with `go tool workflowctl claim
+   renew`; recovered integration needs checked `pr open` first (see
+   `docs/operations.md`). Never poll.
 7. Run `go tool workflowctl check`; fix failures and update docs.
 8. Commit/push using `AGENTS.md`; open the initial draft PR from that head with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`, including
@@ -106,7 +107,7 @@ and under 50% effective root context before review are optimization signals, nev
 gates. Quality must not regress; require no sessions or telemetry.
 ## Failure behavior
 
-- Dirty no-PR: run `go tool workflowctl claim resume-state`; follow
-  `docs/operations.md`. Clean proof stays strict; never infer.
+- Dirty no-PR: use `claim resume-state` and `docs/operations.md`.
+  Unpublished descendants require `--unpublished-local-head`, then `--integrate`.
 - Preserve worktrees; never force-push/bypass checks. One bounded reselection;
   no widening.

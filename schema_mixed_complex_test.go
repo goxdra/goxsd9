@@ -306,15 +306,11 @@ func TestSchemaComplexTypeMixedUnsupportedDoesNotHideLaterInvalidChild(t *testin
 }
 
 //nolint:gocognit // Keep the named/anonymous/inline/content boundary matrix together.
-func TestSchemaComplexTypeMixedFalseDoesNotCrossInlineOrUnsupportedBoundaries(t *testing.T) {
+func TestSchemaComplexTypeMixedFalseDoesNotCrossUnsupportedBoundaries(t *testing.T) {
 	cases := []struct {
 		name string
 		root string
 	}{
-		{
-			name: "inline",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="root"><xs:complexType mixed="false"><xs:sequence/></xs:complexType></xs:element></xs:schema>`,
-		},
 		{
 			name: "anonymous global",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType mixed="false"><xs:sequence/></xs:complexType></xs:schema>`,

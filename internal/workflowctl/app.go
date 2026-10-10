@@ -121,7 +121,7 @@ Usage:
   go tool workflowctl sync              # Project status + claim-ref fetches; no base sync
   go tool workflowctl pick [--json]
   go tool workflowctl claim acquire ISSUE
-  go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--dry-run]
+  go tool workflowctl claim resume ISSUE --expected-head SHA --run-id RUN --handoff-comment COMMENT-ID --acknowledge-needs-human [--unpublished-local-head SHA] [--integrate] [--dry-run]
   go tool workflowctl claim resume-state
   go tool workflowctl claim release-archived ISSUE --run-id RUN --expected-head SHA [--dry-run]
   go tool workflowctl claim renew

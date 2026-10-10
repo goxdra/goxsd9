@@ -29,6 +29,18 @@ remains isolated, and token substrings or contradictory prose never authenticate
 Forms are case-insensitive and permit only historical line-wrap whitespace;
 punctuation, word boundaries, conjunctions, and clause boundaries stay exact.
 
+For an unpublished local source descendant, require the explicit local source
+SHA in addition to the original remote anchor. The existing trusted dirty
+handoff keeps both claim-head fields at the original anchor and its exact
+state digest. Prove the local source ancestry and live ref, and seal pending
+merge metadata separately. Renewal publishes only an empty marker rooted at
+the original anchor. A later explicit integration produces a local two-parent
+commit with the source tree, preserving the index, files, and resolved pending
+merge. Keep issue metadata in Backlog/needs-human until integration is verified.
+Retries reuse the original anchor, source SHA, and canonical marker without
+duplicating either marker or integration. Source remains unpublished until
+normal checked PR publication.
+
 The reusable matrix accepts authentic clean and dirty terminal handoffs, blocks
 missing or mismatched evidence, and preserves rejected local artifacts. Ordinary
 acquisition remains unchanged. Cover pre-existing local-only, remote-only, and
@@ -40,5 +52,6 @@ retain their original retryable disposition and cause; malformed successful
 API/ref/history data is terminal. Agent, checkout, transport, and challenge
 failures remain retryable;
 exactly three authenticated Examiner `fail` receipts trigger escalation.
-Keep `needs-human` until renewal is verified, then reconcile label and Project
-`Picked`, rereading after every ambiguous response and preserving artifacts.
+Keep `needs-human` until verified renewal for no-source claims or verified local
+integration for unpublished source; then reconcile label and Project `Picked`,
+rereading ambiguous responses and preserving artifacts.

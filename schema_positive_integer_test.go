@@ -664,14 +664,11 @@ func TestSchemaPositiveIntegerExcludedSchemaShapes(t *testing.T) {
 			cause    error
 			related  string
 		}{
-			{name: "local direct", body: `<xs:complexType name="Root"><xs:sequence><xs:element name="item" type="xs:positiveInteger"/></xs:sequence></xs:complexType>`, marker: `type="xs:positiveInteger"`},
-			{name: "local named", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:complexType name="Root"><xs:sequence><xs:element name="item" type="t:Alias"/></xs:sequence></xs:complexType>`, marker: `type="t:Alias"`},
 			{name: "local inline", body: `<xs:complexType name="Root"><xs:sequence><xs:element name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, marker: `<xs:simpleType>`},
-			{name: "global attribute inline", specKind: "inline", body: `<xs:attribute name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType>`},
 			{name: "global attribute unrelated integer kind", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:nonNegativeInteger"><xs:minInclusive value="1"/></xs:restriction></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`, cause: errSchemaAttributeTypeUnsupported},
 			{name: "global attribute list variety", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:list itemType="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`, cause: errSchemaAttributeTypeUnsupported},
 			{name: "global attribute union variety", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:union memberTypes="xs:positiveInteger"/></xs:simpleType><xs:attribute name="item" type="t:Alias"/>`, marker: `type="t:Alias"`, cause: errSchemaAttributeTypeUnsupported},
-			{name: "attribute value inline", specKind: "inline", body: `<xs:attribute name="item" default="1"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `<xs:simpleType>`},
+			{name: "attribute value inline", specKind: "value", body: `<xs:attribute name="item" default="1"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute>`, marker: `default="1"`, cause: errSchemaAttributeValueConstraintUnsupported},
 			{name: "local attribute direct", specKind: "attribute", body: `<xs:complexType name="Root"><xs:attribute name="item" type="xs:positiveInteger"/></xs:complexType>`, marker: `type="xs:positiveInteger"`, cause: errSchemaAttributeUseUnsupported},
 			{name: "local attribute named", specKind: "attribute", body: `<xs:simpleType name="Alias"><xs:restriction base="xs:positiveInteger"/></xs:simpleType><xs:complexType name="Root"><xs:attribute name="item" type="t:Alias"/></xs:complexType>`, marker: `type="t:Alias"`, cause: errSchemaAttributeUseUnsupported},
 			{name: "local attribute inline", specKind: "attribute", body: `<xs:complexType name="Root"><xs:attribute name="item"><xs:simpleType><xs:restriction base="xs:positiveInteger"/></xs:simpleType></xs:attribute></xs:complexType>`, marker: `<xs:simpleType>`},
@@ -700,8 +697,6 @@ func TestSchemaPositiveIntegerExcludedSchemaShapes(t *testing.T) {
 					wantSpec = schemaAttributeValueConstraintSpecRef(profile.version)
 				case "attributeUse":
 					wantSpec = schemaAttributeUseSpecRef(profile.version)
-				case "inline":
-					wantSpec = "xsd10-structures#schema-document"
 				case "simpleContent":
 					wantSpec = schemaSimpleContentSpecRef(profile.version)
 				}

@@ -1508,7 +1508,11 @@ func validateIntegerInterval(lower, upper *integerBoundEndpoint, version XSDVers
 	if comparison < 0 || (comparison == 0 && lower.inclusive == upper.inclusive) {
 		return nil
 	}
-	return invalidBoundCombinationDiagnostic(lower.loc, facetLocations(upper.loc), version, integerLowerBoundKind(lower), integerUpperBoundKind(upper), "integer lower and upper bounds describe an empty ordered interval")
+	primary, related := lower.loc, facetLocations(upper.loc)
+	if primary.IsZero() {
+		primary, related = upper.loc, nil
+	}
+	return invalidBoundCombinationDiagnostic(primary, related, version, integerLowerBoundKind(lower), integerUpperBoundKind(upper), "integer lower and upper bounds describe an empty ordered interval")
 }
 
 func validateDecimalInterval(lower, upper *decimalBoundEndpoint, version XSDVersion) error {

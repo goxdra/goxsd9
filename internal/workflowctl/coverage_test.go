@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -193,6 +194,126 @@ func TestRunCoverageRejectsInvalidBaseBeforeTests(t *testing.T) {
 		if strings.Contains(call, "go ") || strings.Contains(call, "worktree") {
 			t.Fatalf("invalid base ran execution command %q", call)
 		}
+	}
+}
+
+//nolint:gocognit,funlen // The injected boundary proves exact-commit coverage, fuzz input, caller bytes, and cleanup together.
+func TestCoverageAndSignalsUseExactHeadAfterCallerEdit(t *testing.T) {
+	for _, command := range []string{"coverage", "develop-signals"} {
+		t.Run(command, func(t *testing.T) {
+			root := t.TempDir()
+			writeFuzzFixtureFile(t, root, "go.mod", "module example.com/exacthead\n\ngo 1.26.0\n")
+			originalSource := "package exacthead\n\nfunc Value() int { return 1 }\n"
+			originalTests := "package exacthead\n\nimport \"testing\"\n\nfunc TestValue(t *testing.T) { if Value() != 1 { t.Fatal(\"value\") } }\nfunc FuzzCommit(f *testing.F) { f.Add(1); f.Fuzz(func(t *testing.T, value int) { _ = value }) }\n"
+			writeFuzzFixtureFile(t, root, "sample.go", originalSource)
+			writeFuzzFixtureFile(t, root, "sample_test.go", originalTests)
+			runGitTest(t, root, "init", "--initial-branch=main")
+			runGitTest(t, root, "config", "user.name", "Workflow Test")
+			runGitTest(t, root, "config", "user.email", "workflow@example.test")
+			runGitTest(t, root, "add", ".")
+			runGitTest(t, root, "commit", "--no-gpg-sign", "-m", "fixture")
+			head := runGitTest(t, root, "rev-parse", "HEAD")
+			editedSource := originalSource + "\nfunc NewUncommittedValue() int { return 2 }\n"
+			editedTests := originalTests + "\nfunc TestUncommitted(t *testing.T) { t.Fatal(\"caller edit ran\") }\n"
+			var output bytes.Buffer
+			application := app{ctx: context.Background(), stdout: &output}
+			var snapshotRevisions []string
+			submoduleUpdates := 0
+			application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+				if dir == "" && name == "git" && reflect.DeepEqual(args, []string{"rev-parse", "--show-toplevel"}) {
+					return root, nil
+				}
+				if name == "git" && len(args) == 6 && args[0] == "worktree" && args[1] == "add" {
+					snapshotRevisions = append(snapshotRevisions, args[5])
+				}
+				if name == "git" && reflect.DeepEqual(args, []string{"submodule", "update", "--init", "--recursive"}) {
+					submoduleUpdates++
+				}
+				return (app{ctx: context.Background()}).commandOutput(dir, input, true, name, args...)
+			}
+			modified := false
+			application.executeCommandWithEnv = func(dir string, env []string, input io.Reader, name string, args ...string) (string, error) {
+				result, err := (app{ctx: context.Background()}).commandOutputWithEnv(dir, env, input, true, name, args...)
+				if err != nil || modified || name != "go" || len(args) == 0 || args[0] != "test" {
+					return result, err
+				}
+				modified = true
+				writeFuzzFixtureFile(t, root, "sample.go", editedSource)
+				writeFuzzFixtureFile(t, root, "sample_test.go", editedTests)
+				return result, nil
+			}
+			fuzzCopies := 0
+			application.fuzzCopyWorktree = func(source, destination string) error {
+				fuzzCopies++
+				if samePath(source, root) {
+					t.Fatal("fuzz copied mutable caller worktree")
+				}
+				// #nosec G304 -- source is the temporary worktree created from the fixture's exact commit.
+				contents, err := os.ReadFile(filepath.Join(source, "sample_test.go"))
+				if err != nil {
+					return err
+				}
+				if string(contents) != originalTests {
+					t.Fatalf("fuzz source test bytes = %q, want committed bytes", contents)
+				}
+				return copyFuzzWorktree(source, destination)
+			}
+			application.executeCommandWithContextAndEnv = func(_ context.Context, _ string, _ []string, _ io.Reader, _ string, _ ...string) (string, error) {
+				return "", nil
+			}
+			args := []string{"--base", head, "--format", "json"}
+			var runErr error
+			switch command {
+			case "coverage":
+				runErr = application.runCoverage(args)
+			case "develop-signals":
+				args = append(args, "--additional-fuzz", ".:FuzzCommit")
+				runErr = application.runDevelopmentSignals(args)
+			}
+			if runErr != nil {
+				t.Fatalf("%s after caller edit: %v", command, runErr)
+			}
+			if !modified {
+				t.Fatal("base coverage command did not introduce caller edit")
+			}
+			var report coverageReport
+			switch command {
+			case "coverage":
+				if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+					t.Fatalf("decode coverage report: %v", err)
+				}
+			case "develop-signals":
+				var signals developmentSignalsReport
+				if err := json.Unmarshal(output.Bytes(), &signals); err != nil {
+					t.Fatalf("decode signals report: %v", err)
+				}
+				if len(signals.AdditionalFuzz) != 1 || signals.AdditionalFuzz[0].Result != "success" || fuzzCopies != 1 {
+					t.Fatalf("additional fuzz signal = %#v, copies=%d", signals.AdditionalFuzz, fuzzCopies)
+				}
+				report = signals.Coverage
+			}
+			if report.Base != head || report.Head != head || len(report.Packages) != 1 || report.Packages[0].Base != report.Packages[0].Head {
+				t.Fatalf("coverage did not measure the same exact commit: %#v", report)
+			}
+			wantRevisions := []string{head, head}
+			if command == "develop-signals" {
+				wantRevisions = append(wantRevisions, head)
+			}
+			if !reflect.DeepEqual(snapshotRevisions, wantRevisions) || submoduleUpdates != len(wantRevisions) {
+				t.Fatalf("snapshot revisions = %#v, submodule updates = %d, want %#v", snapshotRevisions, submoduleUpdates, wantRevisions)
+			}
+			for _, file := range []struct{ name, want string }{{"sample.go", editedSource}, {"sample_test.go", editedTests}} {
+				// #nosec G304 -- root and file.name are test-owned fixture paths.
+				contents, err := os.ReadFile(filepath.Join(root, file.name))
+				if err != nil || string(contents) != file.want {
+					t.Fatalf("caller bytes for %s = %q, err %v", file.name, contents, err)
+				}
+			}
+			worktrees := runGitTest(t, root, "worktree", "list", "--porcelain")
+			if strings.Count(worktrees, "worktree ") != 1 {
+				t.Fatalf("temporary worktree registrations remain: %s", worktrees)
+			}
+		})
 	}
 }
 
