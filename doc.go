@@ -431,10 +431,15 @@
 // It preserves arbitrary precision, schema-owned bounds, enumeration, and their
 // located diagnostic causes.
 //
+// Global built-in and named effective xs:negativeInteger roots use the same
+// on-demand exact integer plan, with intrinsic maxInclusive=-1 and effective
+// named facets. Their lexical form requires a leading minus; XSD 1.0 treats
+// -0 as a bound violation, while Compatibility and Strict11 reject it lexically.
+//
 // ValidateInstance supports one complete instance rooted at a global element
 // declared as direct xs:string or a named/anonymous restriction with effective
 // xs:string atomic kind, or built-in/named xs:boolean/xs:token/xs:NMTOKEN/
-// xs:integer/xs:nonNegativeInteger/xs:byte/xs:short/xs:int/xs:long/xs:unsignedLong/xs:decimal
+// xs:integer/xs:negativeInteger/xs:nonNegativeInteger/xs:byte/xs:short/xs:int/xs:long/xs:unsignedLong/xs:decimal
 // under all policies, or built-in/named xs:precisionDecimal under Compatibility
 // or Strict11, or as a supported local-attribute complex root or bounded
 // direct sequence of global complex refs or named local complex targets.
@@ -630,9 +635,13 @@
 // retain schema/query facts; GenerateGo and ValidateInstance reject them with
 // their existing diagnostics.
 // Standalone global inline-element Boolean/integer/decimal declarations and global
-// element/type negativeInteger/nonPositiveInteger/positiveInteger and
+// element/type nonPositiveInteger/positiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their root
 // validation and generation consumers reject.
+// Direct built-in and supported named effective-negativeInteger global roots validate
+// under Compatibility, Strict10, and Strict11. Global inline negativeInteger roots
+// retain schema/query facts but reject validation; GenerateGo rejects all three
+// global negativeInteger shapes.
 // Direct built-in and supported named atomic-byte global roots validate;
 // global inline byte roots and admitted local/reference byte uses reject validation.
 // Nonzero local inline byte particles reject schema admission; valid 0/0 terms

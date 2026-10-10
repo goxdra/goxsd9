@@ -15,7 +15,7 @@ namespaces, and targets;
 consumers reject pending identity semantics. Atomic NCName enumerations, including global inline attributes, are query-only; enumerated list items/union members reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
-built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
+built-in/named `xs:negativeInteger`, `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
 precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:long`/`xs:int`:

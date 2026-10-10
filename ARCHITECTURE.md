@@ -120,7 +120,7 @@ precisionDecimal facets, Boolean whitespace; broader facets/temporal values reje
 ## Validation and code generation
 
 `ValidateInstance` handles built-in/named Boolean/token/NMTOKEN/integer/
-nonNegativeInteger/decimal/byte/short/int/long/unsignedLong and atomic `xs:string`
+negativeInteger/nonNegativeInteger/decimal/byte/short/int/long/unsignedLong and atomic `xs:string`
 roots. Compatibility/Strict11 also handle precisionDecimal roots, named/inline
 global lists, bounded unions, and ordered typed/ref sequences with anonymous
 targets/inline roots; Strict10 rejects before publication. Lists split XML

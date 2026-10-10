@@ -123,6 +123,8 @@ var (
 	errInstanceLocalElementFacts       = errors.New("local element nillable facts are outside instance validation")
 	errInstanceElementSubstitution     = errors.New("referenced global element substitution is outside instance validation")
 	errInstanceUnsignedLong10Lexical   = errors.New("XSD 1.0 unsignedLong lexical representation requires digits only")
+	errInstanceNegativeIntegerLexical  = errors.New("negativeInteger lexical representation requires a minus sign and decimal digits")
+	errInstanceNegativeIntegerZero11   = errors.New("XSD 1.1 negativeInteger lexical representation requires a nonzero digit")
 	errInstanceValidationInvariant     = errors.New("scalar validation invariant is broken")
 )
 
@@ -213,7 +215,7 @@ type instanceChoiceProgram struct {
 // validates one XML instance against schema. The supported semantic slice is
 // a single global root of built-in xs:string, a named/anonymous restriction
 // with effective xs:string atomic kind, built-in/named Boolean, token, NMTOKEN,
-// integer, nonNegativeInteger, byte, short, int, long, unsignedLong, decimal, or precisionDecimal, or a named complex
+// integer, negativeInteger, nonNegativeInteger, byte, short, int, long, unsignedLong, decimal, or precisionDecimal, or a named complex
 // type with one direct choice or sequence. Bounded precisionDecimal list/union
 // varieties validate on global simple roots, selected local attributes, and
 // ordered direct sequences with local or referenced simple children. Local precisionDecimal uses also
@@ -259,7 +261,7 @@ type instanceChoiceProgram struct {
 // uses the repository's compatibility/default XSD 1.1-compatible datatype
 // rules for built-in integer and decimal values. Built-in nonNegativeInteger,
 // byte, short, int, and long values use the selected graph-wide policy for
-// their versioned datatype diagnostics. Built-in unsignedLong uses the
+// versioned diagnostics. Built-in negativeInteger and unsignedLong use the
 // completed type reference's graph-policy version. Boolean values use the
 // selected graph-wide policy for their versioned datatype diagnostics. Built-in
 // NMTOKEN values also use that selected policy. Named numeric types use the
@@ -418,7 +420,7 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 	if err := validateScalarStructure(root, scalar); err != nil {
 		return err
 	}
-	return validateScalarValue(root, scalar)
+	return validateRootScalarValue(root, scalar)
 }
 
 func rejectUnsupportedInstanceElementFacts(schema Schema, declaration ElementDeclaration, loc Loc) error {
@@ -1428,6 +1430,36 @@ func validateScalarValue(root *instanceElement, scalar instanceScalarType) error
 	return validateScalarLexicalValue(root.name, lexical, valueLoc, scalar)
 }
 
+func validateRootScalarValue(root *instanceElement, scalar instanceScalarType) error {
+	lexical, valueLoc := instanceScalarText(root)
+	if digit, ok := scalar.value.(instanceDigitScalar); ok && digit.integerKind == schemaSimpleTypeAtomicNegativeInteger {
+		valid, hasNonzero := instanceNegativeIntegerLexical(collapseXMLWhitespace(lexical))
+		if !valid {
+			return newInstanceValidationInvalid(InvalidIntegerLexicalCode, valueLoc, "invalid xs:negativeInteger lexical representation", scalar.related, instanceNegativeIntegerSpecRef(scalar.version), errInstanceNegativeIntegerLexical)
+		}
+		if scalar.version == XSDVersion11 && !hasNonzero {
+			return newInstanceValidationInvalid(InvalidIntegerLexicalCode, valueLoc, "invalid XSD 1.1 xs:negativeInteger lexical representation", scalar.related, instanceNegativeIntegerSpecRef(scalar.version), errInstanceNegativeIntegerZero11)
+		}
+	}
+	return validateScalarLexicalValue(root.name, lexical, valueLoc, scalar)
+}
+
+func instanceNegativeIntegerLexical(lexeme string) (bool, bool) {
+	if len(lexeme) <= 1 || lexeme[0] != '-' {
+		return false, false
+	}
+	hasNonzero := false
+	for index := 1; index < len(lexeme); index++ {
+		if lexeme[index] < '0' || lexeme[index] > '9' {
+			return false, false
+		}
+		if lexeme[index] != '0' {
+			hasNonzero = true
+		}
+	}
+	return true, hasNonzero
+}
+
 func validateScalarLexicalValue(name syntaxName, lexical string, valueLoc Loc, scalar instanceScalarType) error {
 	switch typed := scalar.value.(type) {
 	case instanceDigitScalar:
@@ -1683,8 +1715,13 @@ func validateNMTOKENEnumerationValue(facets StringEnumerationFacets, normalized 
 
 func instanceScalarTypeFor(schema Schema, declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
 	version := instanceSchemaValidationVersion(schema)
-	if declaration.DeclaredType().Namespace() == xsdNamespaceURI && declaration.DeclaredType().Local() == "unsignedLong" {
-		return instanceBuiltInUnsignedLongScalarType(declaration, loc)
+	if declaration.DeclaredType().Namespace() == xsdNamespaceURI {
+		switch declaration.DeclaredType().Local() {
+		case "negativeInteger":
+			return instanceBuiltInNegativeIntegerScalarType(declaration, loc)
+		case "unsignedLong":
+			return instanceBuiltInUnsignedLongScalarType(declaration, loc)
+		}
 	}
 	if inline, ok := declaration.InlineSimpleType(); ok && inline.facts != nil && inline.facts.atomicKind == schemaSimpleTypeAtomicString {
 		return instanceStringScalarFor(inline, []Loc{declaration.Loc(), inline.Loc()}, loc, version)
@@ -1721,7 +1758,7 @@ func instanceScalarTypeForTarget(
 	allowToken bool,
 	allowNMTOKEN bool,
 	allowString bool,
-	allowNonNegativeInteger bool,
+	allowRootIntegerTypes bool,
 	allowBoundedIntegerRoot bool,
 	booleanVersion XSDVersion,
 ) (instanceScalarType, error) {
@@ -1735,7 +1772,7 @@ func instanceScalarTypeForTarget(
 		)
 	}
 	if declaredType.Namespace() == xsdNamespaceURI {
-		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, allowBoundedIntegerRoot, booleanVersion)
+		return instanceBuiltInScalarType(declaredType, related, loc, fallbackVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowRootIntegerTypes, allowBoundedIntegerRoot, booleanVersion)
 	}
 	if !hasTypeID || typeID.IsZero() {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
@@ -1841,7 +1878,7 @@ func instanceScalarTypeForTarget(
 	if definition.facts != nil {
 		atomicKind = definition.facts.atomicKind
 	}
-	if atomicKind == schemaSimpleTypeAtomicNonNegativeInteger && !allowNonNegativeInteger {
+	if (atomicKind == schemaSimpleTypeAtomicNegativeInteger || atomicKind == schemaSimpleTypeAtomicNonNegativeInteger) && !allowRootIntegerTypes {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()),
@@ -1865,7 +1902,7 @@ func instanceScalarTypeForTarget(
 	if atomicKind == schemaSimpleTypeAtomicUnsignedLong && !allowBoundedIntegerRoot {
 		return instanceScalarType{}, newInstanceValidationUnsupported(loc, fmt.Sprintf("named simple type %q is outside scalar validation", definition.Name()), related, fallbackVersion, errInstanceUnsupportedType)
 	}
-	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicByte && atomicKind != schemaSimpleTypeAtomicShort && atomicKind != schemaSimpleTypeAtomicInt && atomicKind != schemaSimpleTypeAtomicLong && atomicKind != schemaSimpleTypeAtomicUnsignedLong && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
+	if atomicKind != schemaSimpleTypeAtomicInteger && atomicKind != schemaSimpleTypeAtomicNegativeInteger && atomicKind != schemaSimpleTypeAtomicNonNegativeInteger && atomicKind != schemaSimpleTypeAtomicByte && atomicKind != schemaSimpleTypeAtomicShort && atomicKind != schemaSimpleTypeAtomicInt && atomicKind != schemaSimpleTypeAtomicLong && atomicKind != schemaSimpleTypeAtomicUnsignedLong && atomicKind != schemaSimpleTypeAtomicDecimal && atomicKind != schemaSimpleTypeAtomicPrecisionDecimal {
 		return instanceScalarType{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named simple type %q has an unsupported atomic datatype", definition.Name()),
@@ -1892,6 +1929,14 @@ func instanceScalarTypeForTarget(
 			errInstanceValidationInvariant,
 		)
 	}
+	if atomicKind == schemaSimpleTypeAtomicNegativeInteger && facets.Kind() != DigitDatatypeInteger {
+		return instanceScalarType{}, newInstanceValidationInternal(
+			loc,
+			fmt.Sprintf("named simple type %q has non-integer negativeInteger digit facts", definition.Name()),
+			related,
+			errInstanceValidationInvariant,
+		)
+	}
 	var digitScalar instanceDigitScalar
 	switch facets.Kind() {
 	case DigitDatatypeInteger:
@@ -1900,6 +1945,14 @@ func instanceScalarTypeForTarget(
 			return instanceScalarType{}, newInstanceValidationInternal(
 				loc,
 				fmt.Sprintf("named simple type %q has incomplete integer bounds", definition.Name()),
+				related,
+				errInstanceValidationInvariant,
+			)
+		}
+		if atomicKind == schemaSimpleTypeAtomicNegativeInteger && !instanceHasNegativeIntegerUpperBound(bounds) {
+			return instanceScalarType{}, newInstanceValidationInternal(
+				loc,
+				fmt.Sprintf("named simple type %q has no effective negativeInteger upper bound", definition.Name()),
 				related,
 				errInstanceValidationInvariant,
 			)
@@ -2033,12 +2086,12 @@ func instanceNMTOKENScalarValue(enumeration StringEnumerationFacets) instanceSca
 	return instanceNMTOKENScalar{enumeration: enumeration}
 }
 
-func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowNonNegativeInteger, allowBoundedIntegerRoot bool, booleanVersion XSDVersion) (instanceScalarType, error) {
+func instanceBuiltInScalarType(declaredType QName, related []Loc, loc Loc, fallbackVersion XSDVersion, allowPrecisionDecimal, allowToken, allowNMTOKEN, allowString, allowRootIntegerTypes, allowBoundedIntegerRoot bool, booleanVersion XSDVersion) (instanceScalarType, error) {
 	switch declaredType.Local() {
 	case "integer":
 		return instanceBuiltInIntegerScalarType(related, loc)
 	case "nonNegativeInteger":
-		if !allowNonNegativeInteger {
+		if !allowRootIntegerTypes {
 			return instanceBuiltInUnsupportedScalarTypeForVersion(declaredType, related, loc, fallbackVersion)
 		}
 		return instanceBuiltInNonNegativeIntegerScalarType(related, loc, booleanVersion)
@@ -2123,6 +2176,48 @@ func instanceBuiltInNonNegativeIntegerScalarType(related []Loc, loc Loc, version
 		version: version,
 		related: related,
 	}, nil
+}
+
+func instanceBuiltInNegativeIntegerScalarType(declaration ElementDeclaration, loc Loc) (instanceScalarType, error) {
+	related := []Loc{declaration.Loc()}
+	reference, ok := declaration.TypeReference()
+	if !ok || !reference.IsBuiltin() || reference.Name() != declaration.DeclaredType() || reference.facts == nil || reference.facts.atomicKind != schemaSimpleTypeAtomicNegativeInteger {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "built-in negativeInteger reference is incomplete", related, errInstanceValidationInvariant)
+	}
+	facets, ok := reference.facts.facets.(schemaDigitFacetVariant)
+	if !ok || facets.value.Kind() != DigitDatatypeInteger {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "built-in negativeInteger digit facts are incomplete", related, errInstanceValidationInvariant)
+	}
+	bounds, ok := reference.IntegerBounds()
+	if !ok || (bounds.Version() != XSDVersion10 && bounds.Version() != XSDVersion11) || bounds.Version() != facets.value.Version() {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "built-in negativeInteger bounds are incomplete", related, errInstanceValidationInvariant)
+	}
+	maximum, ok := bounds.MaxInclusiveFacet()
+	if !ok || maximum.Value().Canonical() != "-1" || !maximum.Loc().IsZero() || maximum.Version() != bounds.Version() || len(bounds.Bounds()) != 1 {
+		return instanceScalarType{}, newInstanceValidationInternal(loc, "built-in negativeInteger maximum is inconsistent", related, errInstanceValidationInvariant)
+	}
+	return instanceScalarType{
+		value:   instanceDigitScalar{facets: facets.value, integerKind: schemaSimpleTypeAtomicNegativeInteger, integerBounds: bounds},
+		version: bounds.Version(),
+		related: related,
+	}, nil
+}
+
+func instanceHasNegativeIntegerUpperBound(bounds IntegerBoundFacets) bool {
+	found := false
+	if maximum, ok := bounds.MaxInclusiveFacet(); ok {
+		if maximum.Value().Sign() >= 0 || maximum.Version() != bounds.Version() {
+			return false
+		}
+		found = true
+	}
+	if maximum, ok := bounds.MaxExclusiveFacet(); ok {
+		if maximum.Value().Sign() > 0 || maximum.Version() != bounds.Version() {
+			return false
+		}
+		found = true
+	}
+	return found
 }
 
 func instanceBuiltInByteScalarType(related []Loc, loc Loc, version XSDVersion) (instanceScalarType, error) {
