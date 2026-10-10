@@ -106,8 +106,8 @@ Global inline `mixed=false/0` and element `abstract=false/0`/`nillable=false/0` 
 Compatibility/Strict11 omit valid `defaultAttributesApply` values; Strict10 rejects them. Schema `defaultAttributes` stays unsupported. Diagnostics stay located; no presence state or widened shapes/consumers.
 Inline IDs stay outside walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
-Strict10 rejects precisionDecimal. Element refs retain ranges. Strings validate
-with bounded varieties; `normalizedString` supports replace whitespace/facets.
+Strict10 rejects precisionDecimal. Element refs retain ranges.
+Named-complex direct sequences query built-in/named `normalizedString` locals; consumers reject.
 Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values and consumers reject.
 
 ## Datatypes
