@@ -27,7 +27,7 @@ See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model)
 
 Direct choices/sequences and bounded attribute-free extensions expose built-in/named long locals; valid inline `0/0` omits, nonzero rejects.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
-direct sequences query built-in/named `xs:normalizedString` facets/ranges; consumers reject.
+named-complex direct sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
 default integer/decimal sequence refs; other targets or occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
