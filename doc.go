@@ -638,8 +638,14 @@
 // validation and generation consumers reject.
 // Direct built-in and supported named atomic-byte global roots validate;
 // global inline byte roots and admitted local/reference byte uses reject validation.
-// Nonzero local inline byte particles reject schema admission; valid 0/0 terms
-// omit after applicable semantic gates. GenerateGo rejects byte-bearing components.
+// Nonzero local inline byte particles reject schema admission; valid 0/0 omit
+// after applicable gates. Standalone named effective-byte simple types and
+// direct or named global byte elements generate under every policy. Built-in
+// fields use StrictInteger; named fields use their generated named type.
+// Exact inclusive [-128,127] bounds and effective named facets are checked
+// before output; malformed facts yield FailureInternal/GOXSD9030 and nil output.
+// Inline global byte elements, local/choice/sequence/reference consumers,
+// and global byte attributes remain unsupported for generation.
 // Direct built-in and supported named atomic-short global roots validate;
 // global inline short roots and admitted local/reference short uses reject validation.
 // Nonzero local inline short particles reject schema admission; valid 0/0 terms

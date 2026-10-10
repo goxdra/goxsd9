@@ -142,17 +142,17 @@ schema `Loc`s. Occurrence and scalar failures differ. `xsi:schemaLocation` never
 resolves. Other byte/short/int/long/unsignedLong validation uses reject.
 
 Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-atomic
-`xs:string`, inline string/token/NMTOKEN, and global
-`nonNegativeInteger`/`long`/`int`. Local Boolean/integer/decimal
-default choices/sequences and all-token choices generate; other locals/attributes
-reject. Standalone `normalizedString` and global `short`/`byte`/`unsignedLong`/
-`negativeInteger`/`nonPositiveInteger`/`positiveInteger`/`nonNegativeInteger`/`long`/`int`
-refs reject. Abstract/nillable globals and identity constraints (first constraint `Loc`) yield
-`GOXSD9029`, nil output. Default integer/decimal sequence refs retain
-TargetID/order. `nonNegativeInteger`, `long`, and `int` use `StrictInteger`;
-`IntegerBounds()` copies effective bounds. Unsupported final/variety/effective facets yield
-`GOXSD9029`, malformed facts `GOXSD9030`. Nonzero inline `nonNegativeInteger`
-has no schema; built-in/named locals remain query-only, while valid `0/0` terms omit.
+`xs:string`, inline string/token/NMTOKEN, and global `nonNegativeInteger`/
+`long`/`int`/`byte`. Default Boolean/integer/decimal choices/sequences and
+all-token choices generate; other locals/attributes reject. `normalizedString`
+and global `short`/`unsignedLong`/`negativeInteger`/`nonPositiveInteger`/
+`positiveInteger`/`nonNegativeInteger`/`long`/`int`/`byte` refs reject.
+Abstract/nillable globals and identity constraints yield `GOXSD9029`, nil output.
+Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
+integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.
+Byte bounds [-128,127]; named facets retain provenance. Unsupported final/
+variety/effective facets yield `GOXSD9029`; malformed facts `GOXSD9030`.
+Nonzero inline `nonNegativeInteger` has no schema; valid `0/0` terms omit.
 
 ## Conformance
 

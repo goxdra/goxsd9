@@ -10,19 +10,20 @@ includes/imports. It receives namespace URNs and
 lexical schema locations; the library opens no paths or URLs. `ParseSchema`
 defaults to Compatibility for mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects graph-wide policy. Queries and walks are
-immutable and deterministic. Global `xs:unique`, `xs:key`, and `xs:keyref` retain ordered XPath,
-namespaces, and targets;
-consumers reject pending identity semantics. Atomic NCName enumerations, including global inline attributes, are query-only; enumerated list items/union members reject.
+immutable and deterministic. Identity constraints retain ordered XPath,
+namespaces, and targets; consumers reject. Atomic NCName enumerations,
+including inline attributes, are query-only; enumerated list/union members reject.
 
-`ValidateInstance(schema, sourceID, reader)` checks one XML instance, including
+`ValidateInstance(schema, sourceID, reader)` checks an instance, including
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
 precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
-never resolves. `GenerateGo(schema, packageName)` emits global `xs:long`/`xs:int`:
-built-in fields use `StrictInteger`, named fields use generated types; global
-long/int attributes remain query-only. Named empty/choice/sequence/grouped
-owners expose built-in/facet-free `xs:ID` locals (Strict10: one ID);
-consumers reject.
+never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
+built-in fields use `StrictInteger`, named fields use generated types; their
+attributes remain query-only. Named empty/choice/sequence/grouped owners
+expose built-in/facet-free `xs:ID` locals (Strict10: one ID); consumers reject.
+Grouped extensions retain refs/attributes over named empty bases; valid `0/0`
+omits particles and prohibited uses may leave no effective uses.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), and [decision 0007](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded attribute-free extensions expose built-in/named long locals; valid inline `0/0` omits, nonzero rejects.
@@ -45,12 +46,10 @@ go run ./cmd/goxsd9 validate schema.xsd instance.xml
 go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
-`parse` prints a schema summary, successful `validate` is silent, and
-`generate` writes Go to standard output unless `--output` names a file. Use
-`--schema-root DIR` to set the local resolution boundary; it is required when
-reading a schema from standard input. `--diagnostics json` selects
-machine-readable errors; input/processing failures exit 1 and usage failures
-exit 2.
+`parse` summarizes schemas; successful `validate` is silent; `generate` writes
+Go to standard output or `--output`. `--schema-root DIR` sets the local
+resolution boundary and is required for standard input. `--diagnostics json`
+selects machine-readable errors; processing failures exit 1, usage errors 2.
 
 ## Development
 

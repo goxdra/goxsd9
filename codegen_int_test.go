@@ -268,8 +268,6 @@ func TestGenerateGoIntExcludedShapesHaveLocatedUnsupportedDiagnostics(t *testing
 		{"named union", `<xs:simpleType name="Value"><xs:union memberTypes="xs:int"/></xs:simpleType>`, `<xs:simpleType name="Value"`, `<xs:union`},
 		{"short root", `<xs:element name="value" type="xs:short"/>`, `<xs:element name="value"`, ""},
 		{"derived short", `<xs:simpleType name="Value"><xs:restriction base="xs:short"/></xs:simpleType>`, `<xs:simpleType name="Value"`, ""},
-		{"byte root", `<xs:element name="value" type="xs:byte"/>`, `<xs:element name="value"`, ""},
-		{"derived byte", `<xs:simpleType name="Value"><xs:restriction base="xs:byte"/></xs:simpleType>`, `<xs:simpleType name="Value"`, ""},
 		{"unsignedLong root", `<xs:element name="value" type="xs:unsignedLong"/>`, `<xs:element name="value"`, ""},
 		{"derived unsignedLong", `<xs:simpleType name="Value"><xs:restriction base="xs:unsignedLong"/></xs:simpleType>`, `<xs:simpleType name="Value"`, ""},
 		{"negativeInteger root", `<xs:element name="value" type="xs:negativeInteger"/>`, `<xs:element name="value"`, ""},
