@@ -5807,7 +5807,7 @@ func resolveSchemaElementType(
 		}, nil
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes, version, "for global elements", schemaScalarTypeGlobalElement, true, false, false)
+		return resolveSchemaScalarType(input, records, byName, visibleSources, record.id.Source(), simpleTypes, version, "for global elements", schemaScalarTypeGlobalElement, true, false, false, false)
 	}
 
 	candidates := byName[input.declaredType]
@@ -5881,6 +5881,7 @@ func resolveSchemaScalarType(
 	allowPrecisionDecimal bool,
 	allowPrecisionVariety bool,
 	allowDirectNamedComplexPositiveOrNonPositiveInteger bool,
+	allowDirectNamedComplexNormalizedString bool,
 ) (schemaElementTypeResult, error) {
 	if input.inlineSimpleType != nil {
 		result, ok := simpleTypes.byInput[input.inlineSimpleType]
@@ -5890,7 +5891,7 @@ func resolveSchemaScalarType(
 		if err := rejectUnsupportedSchemaSimpleTypeVariety(input, result, version, complexTargetSuffix); err != nil {
 			return schemaElementTypeResult{}, err
 		}
-		if err := rejectUnsupportedLocalScalarType(input, result, version, complexTargetSuffix, scope, allowPrecisionDecimal, false); err != nil {
+		if err := rejectUnsupportedLocalScalarType(input, result, version, complexTargetSuffix, scope, allowPrecisionDecimal, false, false); err != nil {
 			return schemaElementTypeResult{}, err
 		}
 		reference, err := resolvedAnonymousSchemaSimpleTypeReference(input, result)
@@ -5907,7 +5908,7 @@ func resolveSchemaScalarType(
 		}, nil
 	}
 	if input.declaredType.Namespace() == xsdNamespaceURI {
-		return resolveBuiltinSchemaScalarType(input, version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger)
+		return resolveBuiltinSchemaScalarType(input, version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger, allowDirectNamedComplexNormalizedString)
 	}
 
 	candidates := byName[input.declaredType]
@@ -5969,7 +5970,7 @@ func resolveSchemaScalarType(
 			}
 		}
 	}
-	if err := rejectUnsupportedLocalScalarType(input, simpleTypes.results[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger); err != nil {
+	if err := rejectUnsupportedLocalScalarType(input, simpleTypes.results[candidate], version, complexTargetSuffix, scope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger, allowDirectNamedComplexNormalizedString); err != nil {
 		return schemaElementTypeResult{}, err
 	}
 	reference := schemaNamedSimpleTypeReferenceFromResult(input, records[candidate].id, simpleTypes.results[candidate])
@@ -6131,10 +6132,10 @@ func rejectUnsupportedSchemaSimpleTypeVariety(input *schemaElementInput, simpleT
 	)
 }
 
-func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal, allowDirectBuiltinPositiveOrNonPositiveInteger bool) (schemaElementTypeResult, error) {
+func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal, allowDirectBuiltinPositiveOrNonPositiveInteger, allowDirectNamedComplexNormalizedString bool) (schemaElementTypeResult, error) {
 	switch input.declaredType.Local() {
 	case "string", "normalizedString", "token", "NMTOKEN", "language", "NCName", "anyURI", "ID", "QName":
-		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope) {
+		if !builtinStringSchemaScalarTypeAllowedInScope(input.declaredType.Local(), scope, allowDirectNamedComplexNormalizedString) {
 			return schemaElementTypeResult{}, unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 		}
 	case "integer", "decimal":
@@ -6160,9 +6161,12 @@ func resolveBuiltinSchemaScalarType(input *schemaElementInput, version XSDVersio
 	return resolveBuiltinSchemaScalarTypeReference(input, version)
 }
 
-func builtinStringSchemaScalarTypeAllowedInScope(local string, scope schemaScalarTypeScope) bool {
+func builtinStringSchemaScalarTypeAllowedInScope(local string, scope schemaScalarTypeScope, allowDirectNamedComplexNormalizedString bool) bool {
 	if scope == schemaScalarTypeGlobalElement {
 		return true
+	}
+	if local == "normalizedString" {
+		return allowDirectNamedComplexNormalizedString
 	}
 	return local == "string" || local == "token" || local == "NMTOKEN"
 }
@@ -6201,7 +6205,7 @@ func builtinSchemaElementTypeReference(input *schemaElementInput, version XSDVer
 	}, version)
 }
 
-func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger bool) error {
+func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType schemaSimpleTypeResult, version XSDVersion, complexTargetSuffix string, scope schemaScalarTypeScope, allowPrecisionDecimal, allowDirectNamedComplexPositiveOrNonPositiveInteger, allowDirectNamedComplexNormalizedString bool) error {
 	if scope != schemaScalarTypeLocalParticle {
 		return nil
 	}
@@ -6211,8 +6215,12 @@ func rejectUnsupportedLocalScalarType(input *schemaElementInput, simpleType sche
 	switch simpleType.atomicKind {
 	case schemaSimpleTypeAtomicString:
 		return nil
+	case schemaSimpleTypeAtomicNormalizedString:
+		if input.inlineSimpleType == nil && allowDirectNamedComplexNormalizedString && simpleType.variety == SimpleTypeVarietyAtomicRestriction {
+			return nil
+		}
+		return unsupportedLocalSchemaScalarType(input, version, complexTargetSuffix)
 	case schemaSimpleTypeAtomicLanguage,
-		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI,
 		schemaSimpleTypeAtomicID,
@@ -8620,6 +8628,7 @@ func resolveSchemaElementParticle(
 		model != "sequence" || !schemaComplexTypeIsExtension(owner),
 		model == "sequence" && !schemaComplexTypeIsExtension(owner),
 		schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner, model, input.typeInput),
+		schemaDirectNamedComplexNormalizedString(owner, model),
 	)
 	if err != nil {
 		if !input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err) {
@@ -8662,6 +8671,14 @@ func schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner schemaComponentR
 		return input.declaredType.Local() == "positiveInteger" || input.declaredType.Local() == "nonPositiveInteger"
 	}
 	return true
+}
+
+func schemaDirectNamedComplexNormalizedString(owner schemaComponentRecord, model string) bool {
+	if model != "sequence" || owner.complexType == nil {
+		return false
+	}
+	_, direct := owner.complexType.body.(*schemaComplexTypeDirectBodyInput)
+	return direct
 }
 
 func schemaComplexTypeIsExtension(owner schemaComponentRecord) bool {

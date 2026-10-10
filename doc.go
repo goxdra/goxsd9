@@ -17,10 +17,13 @@
 // xs:normalizedString has distinct built-in identity and replace whiteSpace.
 // Restrictions, list items, and union members may reference it. Direct,
 // named-typed, and inline atomic-restriction global elements are queryable;
-// list/union-typed global elements reject. Mapped nonzero local typed particles
-// reject at schema admission; explicit built-in and supported named
-// xs:normalizedString global attributes retain query facts. Applicable 0/0 local forms
-// omit after reference, facet, and policy gates. Element-ref particles to
+// list/union-typed global elements reject. Direct named-complex sequences
+// retain built-in and supported named effective xs:normalizedString locals for
+// queries, including inherited string facets and exact occurrences. Other
+// mapped nonzero xs:normalizedString locals reject at schema admission;
+// explicit built-in and supported named xs:normalizedString global
+// attributes retain query facts. Applicable 0/0 locals omit after reference,
+// facet, and policy gates. Element-ref particles to
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
 // xs:QName references are distinct context-sensitive atomics in facet-free
 // restrictions, lists, unions, and direct/named/inline global elements.

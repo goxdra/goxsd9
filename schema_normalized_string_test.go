@@ -318,8 +318,6 @@ func TestNormalizedStringExcludedComponentShapes(t *testing.T) {
 			name, body, mark, code, spec string
 		}{
 			{"global attribute inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:normalizedString"/></xs:simpleType></xs:attribute>`, `<xs:simpleType`, UnsupportedSchemaSyntaxCode, schemaAttributeTypeSpecRef(profile.version)},
-			{"local direct", `<xs:complexType name="Box"><xs:sequence><xs:element name="a" type="xs:normalizedString"/></xs:sequence></xs:complexType>`, `type="xs:normalizedString"`, UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.version)},
-			{"local named", `<xs:complexType name="Box"><xs:sequence><xs:element name="a" type="t:T"/></xs:sequence></xs:complexType><xs:simpleType name="T"><xs:restriction base="xs:normalizedString"/></xs:simpleType>`, `type="t:T"`, UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.version)},
 			{"local inline", `<xs:complexType name="Box"><xs:sequence><xs:element name="a"><xs:simpleType><xs:restriction base="xs:normalizedString"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, `<xs:simpleType`, UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.version)},
 			{"length facet", `<xs:simpleType name="T"><xs:restriction base="xs:normalizedString"><xs:length value="2"/></xs:restriction></xs:simpleType>`, `<xs:length`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal")},
 			{"pattern facet", `<xs:simpleType name="T"><xs:restriction base="xs:normalizedString"><xs:pattern value=".*"/></xs:restriction></xs:simpleType>`, `<xs:pattern`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal")},
