@@ -635,9 +635,13 @@
 // retain schema/query facts; GenerateGo and ValidateInstance reject them with
 // their existing diagnostics.
 // Standalone global inline-element Boolean/integer/decimal declarations and global
-// element/type negativeInteger/nonPositiveInteger/positiveInteger and
+// element/type nonPositiveInteger/positiveInteger and
 // language/NCName/anyURI/ID declarations retain schema/query facts but their root
 // validation and generation consumers reject.
+// Direct built-in and supported named effective-negativeInteger global roots validate
+// under Compatibility, Strict10, and Strict11. Global inline negativeInteger roots
+// retain schema/query facts but reject validation; GenerateGo rejects all three
+// global negativeInteger shapes.
 // Direct built-in and supported named atomic-byte global roots validate;
 // global inline byte roots and admitted local/reference byte uses reject validation.
 // Nonzero local inline byte particles reject schema admission; valid 0/0 terms
