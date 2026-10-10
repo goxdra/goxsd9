@@ -311,7 +311,6 @@ func TestSchemaNonPositiveIntegerLocalAttributeExclusions(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Enumerate excluded owner and type shapes at one schema boundary.
 func assertDirectLocalIntegerExclusions(t *testing.T, profileName string, policy LanguagePolicy, version XSDVersion, atomic string) {
 	t.Helper()
 	for _, model := range []string{"choice", "sequence"} {
@@ -338,16 +337,6 @@ func assertDirectLocalIntegerExclusions(t *testing.T, profileName string, policy
 			})
 		}
 	}
-	t.Run(profileName+"/all member", func(t *testing.T) {
-		root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + string(version) + `"><xs:complexType name="Record"><xs:all><xs:element name="value" type="xs:` + atomic + `"/></xs:all></xs:complexType></xs:schema>`
-		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-		assertZeroSchema(t, schema)
-		diagnostic := requireDiagnostic(t, err)
-		wantLoc := elementReferenceTestAttributeLoc(t, root, `type="xs:`+atomic+`"`)
-		if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || !errors.Is(err, ErrUnsupported) || diagnostic.SpecRef() != positiveIntegerFeatureSpecRef(t, FeatureSchemaSyntax, version) || len(diagnostic.Related()) != 0 {
-			t.Fatalf("all diagnostic = %s, want unsupported at %s", diagnostic, wantLoc)
-		}
-	})
 }
 
 //nolint:gocognit // Verify both particle views keep only ordered mapped children.

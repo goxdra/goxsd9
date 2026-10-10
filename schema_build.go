@@ -8348,7 +8348,7 @@ func resolveSchemaAllParticle(
 			if memberInput.typeInput != nil {
 				loc = memberInput.typeInput.typeLoc
 			}
-			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string, and built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/int/short/byte/unsignedLong scalars", version)
+			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string/positiveInteger/nonPositiveInteger, and built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/int/short/byte/unsignedLong scalars", version)
 			diagnostic.specRef = schemaAllLimitedSpecRef(version)
 			diagnostic.cause = errSchemaAllMemberScalar
 			return nil, diagnostic
@@ -8389,13 +8389,14 @@ func schemaAllScalarAllowed(reference schemaSimpleTypeReferenceComponent) bool {
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNegativeInteger:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
+	case schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicNonPositiveInteger:
+		return reference.kind == SimpleTypeReferenceBuiltin
 	case schemaSimpleTypeAtomicNonNegativeInteger:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNormalizedString,
-		schemaSimpleTypeAtomicNonPositiveInteger,
-		schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicPrecisionDecimal,
 		schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicNCName,
 		schemaSimpleTypeAtomicAnyURI, schemaSimpleTypeAtomicID,
 		schemaSimpleTypeAtomicQName:
@@ -8645,7 +8646,7 @@ func resolveSchemaElementParticle(
 }
 
 func schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner schemaComponentRecord, model string, input *schemaElementInput) bool {
-	if model != "choice" && model != "sequence" {
+	if model != "choice" && model != "sequence" && model != "all" {
 		return false
 	}
 	if owner.complexType == nil || input == nil || input.inlineSimpleType != nil {
@@ -8653,6 +8654,12 @@ func schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner schemaComponentR
 	}
 	if _, direct := owner.complexType.body.(*schemaComplexTypeDirectBodyInput); !direct {
 		return false
+	}
+	if model == "all" {
+		if input.declaredType.Namespace() != xsdNamespaceURI {
+			return false
+		}
+		return input.declaredType.Local() == "positiveInteger" || input.declaredType.Local() == "nonPositiveInteger"
 	}
 	return true
 }

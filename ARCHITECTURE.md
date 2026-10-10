@@ -60,8 +60,8 @@ Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
 `nonNegativeInteger`; built-in/named `positiveInteger` and
 `nonPositiveInteger` admit direct named-complex choice/sequence locals with
-bounds. Anonymous derivatives, all, extensions, and
-local attributes exclude.
+bounds. Direct named-complex `all` admits built-ins; derivatives, extensions,
+and local attributes exclude.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 need bounded list/union. Other derivatives/extensions are query-only;
 named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
@@ -71,9 +71,10 @@ choices resolve refs once; named groups before omission. Refs retain
 QName/RefLoc/TargetID/order without expansion; broader consumers reject.
 Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
+built-in `positiveInteger`/`nonPositiveInteger` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0
 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
-Resolved anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members reject even at `0/0`, and `all` consumers reject.
+Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
 AttributeUse keeps order, names, use/type/form `Loc`s, target IDs; grouped
 extensions resolve uses. Prohibited uses and `0/0` groups
 omit. Chameleon adopts; XSD 1.1 `targetNamespace` must match the container.
