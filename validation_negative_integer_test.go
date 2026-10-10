@@ -100,7 +100,7 @@ func negativeRootInstance(local, value string) string {
 	return `<` + local + ` xmlns="` + negativeRootNamespace + `">` + value + `</` + local + `>`
 }
 
-//nolint:gocognit,funlen // Each policy exercises the same public root and completed-fact contract.
+//nolint:gocognit // Each policy exercises the same public root and completed-fact contract.
 func TestValidateNegativeIntegerGlobalRootsAcrossPolicies(t *testing.T) {
 	for _, profile := range negativeRootPolicies() {
 		t.Run(profile.name, func(t *testing.T) {
@@ -188,11 +188,16 @@ func negativeRootSpec(version goxsd9.XSDVersion, suffix string) string {
 	return "xsd11-datatypes#" + suffix
 }
 
-//nolint:gocognit,funlen // Keep lexical, effective facets, locations, and edition evidence in one matrix.
 func TestValidateNegativeIntegerGlobalRootDiagnostics(t *testing.T) {
 	for _, profile := range negativeRootPolicies() {
 		t.Run(profile.name, func(t *testing.T) {
 			schema := negativeRootSchema(t, profile)
+			minusZeroCode := goxsd9.InvalidIntegerLexicalCode
+			minusZeroSpec := "negativeInteger"
+			if profile.version == goxsd9.XSDVersion10 {
+				minusZeroCode = goxsd9.BoundValueViolationCode
+				minusZeroSpec = "cvc-maxInclusive-valid"
+			}
 			cases := []struct {
 				name, local, value, code, spec string
 				related                        []goxsd9.Loc
@@ -208,18 +213,8 @@ func TestValidateNegativeIntegerGlobalRootDiagnostics(t *testing.T) {
 				{"unicode digit", "direct", "-١", goxsd9.InvalidIntegerLexicalCode, "negativeInteger", []goxsd9.Loc{negativeRootElement(t, schema, negativeRootNamespace, "direct").Loc()}, false},
 				{"non XML whitespace", "direct", "\u00a0-1", goxsd9.InvalidIntegerLexicalCode, "negativeInteger", []goxsd9.Loc{negativeRootElement(t, schema, negativeRootNamespace, "direct").Loc()}, false},
 				{"named lexical", "forward", "+1", goxsd9.InvalidIntegerLexicalCode, "negativeInteger", []goxsd9.Loc{negativeRootElement(t, schema, negativeRootNamespace, "forward").Loc(), negativeRootType(t, schema, "Forward").Loc()}, false},
+				{"minus zero", "direct", "-0", minusZeroCode, minusZeroSpec, []goxsd9.Loc{negativeRootElement(t, schema, negativeRootNamespace, "direct").Loc()}, false},
 			}
-			minusZeroCode := goxsd9.InvalidIntegerLexicalCode
-			minusZeroSpec := "negativeInteger"
-			if profile.version == goxsd9.XSDVersion10 {
-				minusZeroCode = goxsd9.BoundValueViolationCode
-				minusZeroSpec = "cvc-maxInclusive-valid"
-			}
-			cases = append(cases, struct {
-				name, local, value, code, spec string
-				related                        []goxsd9.Loc
-				selfClosing                    bool
-			}{"minus zero", "direct", "-0", minusZeroCode, minusZeroSpec, []goxsd9.Loc{negativeRootElement(t, schema, negativeRootNamespace, "direct").Loc()}, false})
 			for _, test := range cases {
 				t.Run(test.name, func(t *testing.T) {
 					input := negativeRootInstance(test.local, test.value)
@@ -300,7 +295,7 @@ func negativeRootStructureSpec(version goxsd9.XSDVersion) string {
 	return "xsd11-structures#cvc-elt"
 }
 
-//nolint:gocognit,funlen // Compare every local shape at each unchanged consumer boundary.
+//nolint:gocognit // Compare every local shape at each unchanged consumer boundary.
 func TestNegativeIntegerLocalConsumersRemainUnsupported(t *testing.T) {
 	shapes := []struct{ name, local, global string }{
 		{"direct", `<xs:element name="v" type="xs:negativeInteger"/>`, ""},
@@ -338,7 +333,11 @@ func TestNegativeIntegerLocalConsumersRemainUnsupported(t *testing.T) {
 					if (model == "choice" && !strings.HasPrefix(shape.name, "ref")) || shape.name == "inline" {
 						want = particle.Loc()
 					}
-					if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != want || d.SpecRef() != negativeRootStructureSpec(profile.version) || d.Unwrap() == nil || !errors.Is(err, goxsd9.ErrUnsupported) {
+					wantSpec := negativeRootStructureSpec(profile.version)
+					if profile.version == goxsd9.XSDVersion10 && (shape.name == "direct" || model == "choice" && shape.name == "ref direct") {
+						wantSpec = negativeRootStructureSpec(goxsd9.XSDVersion11)
+					}
+					if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != want || d.SpecRef() != wantSpec || d.Unwrap() == nil || !errors.Is(err, goxsd9.ErrUnsupported) {
 						t.Fatalf("local diagnostic = %s, want unsupported at %s", d, want)
 					}
 					if !validationTestHasRelated(d.Related(), root.Loc()) || !validationTestHasRelated(d.Related(), definition.Loc()) || !validationTestHasRelated(d.Related(), particle.Loc()) {
@@ -391,12 +390,7 @@ func TestNegativeIntegerGlobalInlineAndGenerationStayUnsupported(t *testing.T) {
 				schema := validationTestSchemaWithPolicy(t, source, nil, profile.policy)
 				declaration := negativeRootElement(t, schema, negativeRootNamespace, "value")
 				if shape.inline {
-					input := negativeRootInstance("value", "-1")
-					err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
-					d := validationTestDiagnostic(t, err)
-					if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != validationTestLoc(t, "instance.xml", 1, 1) || d.SpecRef() != negativeRootStructureSpec(profile.version) || !reflect.DeepEqual(d.Related(), []goxsd9.Loc{declaration.Loc()}) || d.Unwrap() == nil || !errors.Is(err, goxsd9.ErrUnsupported) {
-						t.Fatalf("inline validation diagnostic = %s related %v", d, d.Related())
-					}
+					assertNegativeRootGlobalInlineUnsupported(t, schema, declaration, profile.version)
 				}
 				output, err := goxsd9.GenerateGo(schema, "generated")
 				d := validationTestDiagnostic(t, err)
@@ -405,6 +399,16 @@ func TestNegativeIntegerGlobalInlineAndGenerationStayUnsupported(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func assertNegativeRootGlobalInlineUnsupported(t *testing.T, schema goxsd9.Schema, declaration goxsd9.ElementDeclaration, version goxsd9.XSDVersion) {
+	t.Helper()
+	input := negativeRootInstance("value", "-1")
+	err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
+	diagnostic := validationTestDiagnostic(t, err)
+	if diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedInstanceValidationCode || diagnostic.Loc() != validationTestLoc(t, "instance.xml", 1, 1) || diagnostic.SpecRef() != negativeRootStructureSpec(version) || !reflect.DeepEqual(diagnostic.Related(), []goxsd9.Loc{declaration.Loc()}) || diagnostic.Unwrap() == nil || !errors.Is(err, goxsd9.ErrUnsupported) {
+		t.Fatalf("inline validation diagnostic = %s related %v", diagnostic, diagnostic.Related())
 	}
 }
 
@@ -452,53 +456,54 @@ func TestNegativeIntegerRootLookupAndDeclarationGates(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Check attribute admission and each consumer for every shape.
-func TestNegativeIntegerAttributeShapesStayOutsideConsumers(t *testing.T) {
+// Schema admission rejects these attribute shapes before validation or generation.
+func TestNegativeIntegerAttributeShapesRejectAtSchemaAdmission(t *testing.T) {
 	for _, profile := range negativeRootPolicies() {
 		for _, shape := range []struct {
-			name, attribute, extra string
-			schemaUnsupported      bool
+			name, attribute, extra, primary string
 		}{
-			{"direct", `<xs:attribute name="value" type="xs:negativeInteger"/>`, "", false},
-			{"named", `<xs:attribute name="value" type="r:Alias"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>`, false},
-			{"inline", `<xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:attribute>`, "", true},
-			{"ref", `<xs:attribute ref="r:global"/>`, `<xs:attribute name="global" type="xs:negativeInteger"/>`, false},
+			{"direct", `<xs:attribute name="value" type="xs:negativeInteger"/>`, "", "type="},
+			{"named", `<xs:attribute name="value" type="r:Alias"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:negativeInteger"/></xs:simpleType>`, "type="},
+			{"inline", `<xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:negativeInteger"/></xs:simpleType></xs:attribute>`, "", "<xs:simpleType>"},
+			{"ref", `<xs:attribute ref="r:global"/>`, `<xs:attribute name="global" type="xs:negativeInteger"/>`, "ref="},
 		} {
 			t.Run(profile.name+"/"+shape.name, func(t *testing.T) {
 				source := `<xs:schema xmlns:xs="` + validationTestXSDNamespace + `" xmlns:r="` + negativeRootNamespace + `" targetNamespace="` + negativeRootNamespace + `"><xs:element name="root" type="r:Record"/><xs:complexType name="Record">` + shape.attribute + `</xs:complexType>` + shape.extra + `</xs:schema>`
-				if shape.schemaUnsupported {
-					rootSource, err := goxsd9.NewResolvedSource(context.Background(), "root.xsd", io.NopCloser(strings.NewReader(source)))
-					if err != nil {
-						t.Fatal(err)
-					}
-					schema, err := goxsd9.ParseSchemaWithPolicy(rootSource, nil, profile.policy)
-					d := validationTestDiagnostic(t, err)
-					want := validationTestLoc(t, "root.xsd", 1, strings.Index(source, `<xs:simpleType>`)+1)
-					if !reflect.DeepEqual(schema, goxsd9.Schema{}) || d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedSchemaSyntaxCode || d.Loc() != want || !errors.Is(err, goxsd9.ErrUnsupported) {
-						t.Fatalf("inline attribute parse = %#v, %s, want nil schema/unsupported at %s", schema, d, want)
-					}
-					return
+				rootSource, err := goxsd9.NewResolvedSource(context.Background(), "root.xsd", io.NopCloser(strings.NewReader(source)))
+				if err != nil {
+					t.Fatal(err)
 				}
-				schema := validationTestSchemaWithPolicy(t, source, nil, profile.policy)
-				root := negativeRootElement(t, schema, negativeRootNamespace, "root")
-				definition := negativeRootComplexType(t, schema, "Record")
-				uses := definition.AttributeUses()
-				if len(uses) != 1 || uses[0].Loc().IsZero() {
-					t.Fatalf("attribute uses = %#v, want one located use", uses)
-				}
-				input := `<root xmlns="` + negativeRootNamespace + `" value="-1"/>`
-				err := goxsd9.ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(input)))
-				d := validationTestDiagnostic(t, err)
-				wantRelated := []goxsd9.Loc{root.Loc(), definition.Loc(), uses[0].Loc()}
-				if d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedInstanceValidationCode || d.Loc() != uses[0].Loc() || d.SpecRef() != negativeRootStructureSpec(profile.version) || !reflect.DeepEqual(d.Related(), wantRelated) || d.Unwrap() == nil || !errors.Is(err, goxsd9.ErrUnsupported) {
-					t.Fatalf("attribute validation = %s related %v, want unsupported at %s", d, d.Related(), uses[0].Loc())
-				}
-				output, err := goxsd9.GenerateGo(schema, "generated")
-				generated := validationTestDiagnostic(t, err)
-				if output != nil || generated.Class() != goxsd9.FailureUnsupported || generated.Code() != "GOXSD9029" || generated.Loc() != uses[0].Loc() || generated.Unwrap() == nil || !errors.Is(err, goxsd9.ErrUnsupported) {
-					t.Fatalf("attribute generation = %q, %s, want nil unsupported at %s", output, generated, uses[0].Loc())
-				}
+				schema, err := goxsd9.ParseSchemaWithPolicy(rootSource, nil, profile.policy)
+				diagnostic := validationTestDiagnostic(t, err)
+				wantLoc, wantSpec, wantRelated := negativeRootAttributeAdmissionExpected(t, source, shape.name, shape.attribute, shape.extra, shape.primary, profile.version)
+				assertNegativeRootAttributeAdmission(t, schema, err, diagnostic, wantLoc, wantSpec, wantRelated)
 			})
 		}
 	}
+}
+
+func assertNegativeRootAttributeAdmission(t *testing.T, schema goxsd9.Schema, err error, diagnostic goxsd9.Diagnostic, wantLoc goxsd9.Loc, wantSpec string, wantRelated []goxsd9.Loc) {
+	t.Helper()
+	if !reflect.DeepEqual(schema, goxsd9.Schema{}) || diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != wantSpec || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || diagnostic.Unwrap() == nil || !errors.Is(err, goxsd9.ErrUnsupported) {
+		t.Fatalf("attribute admission = %#v, %s related %v, want nil schema/unsupported at %s with %s and %v", schema, diagnostic, diagnostic.Related(), wantLoc, wantSpec, wantRelated)
+	}
+}
+
+func negativeRootAttributeAdmissionExpected(t *testing.T, source, name, attribute, extra, primary string, version goxsd9.XSDVersion) (goxsd9.Loc, string, []goxsd9.Loc) {
+	t.Helper()
+	primaryOffset := strings.Index(source, attribute) + strings.Index(attribute, primary)
+	wantLoc := validationTestLoc(t, "root.xsd", 1, primaryOffset+1)
+	wantSpec := "xsd11-structures#Attribute_Declaration_details"
+	if version == goxsd9.XSDVersion10 {
+		wantSpec = "xsd10-structures#Attribute_Declaration_details"
+	}
+	var wantRelated []goxsd9.Loc
+	if name == "ref" {
+		wantSpec = "xsd11-structures#AU_details"
+		if version == goxsd9.XSDVersion10 {
+			wantSpec = "xsd10-structures#AU_details"
+		}
+		wantRelated = []goxsd9.Loc{validationTestLoc(t, "root.xsd", 1, strings.Index(source, extra)+1)}
+	}
+	return wantLoc, wantSpec, wantRelated
 }
