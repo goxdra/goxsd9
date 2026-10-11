@@ -125,11 +125,12 @@
 // unsupported forms may omit. Direct-all anonymous complex members remain
 // located unsupported at every occurrence because their semantic gates are unavailable.
 // Direct sequences resolve children before owner omission; direct choices resolve
-// child refs without duplicate checks before child omission; named groups
-// resolve/check duplicate refs before owner/child omission; child refs resolve
-// before child omission. Mapped non-0/0 unsupported scalar forms return located
-// schema-syntax diagnostics. Ordinary 0/0 forms are admitted only after the
-// applicable gates, then the local public particle is absent; this is not a
+// child refs without duplicate checks before child omission. Named groups check
+// duplicate element refs; named choices resolve group-ref dependencies, including
+// repeated targets, before owner/child omission. Mapped non-0/0 unsupported
+// scalar forms return located schema-syntax diagnostics. Ordinary 0/0 forms
+// are admitted only after the applicable gates, then the local public particle
+// is absent; this is not a
 // universal named-type/facet or validation bypass. Strict10 policy admission precedes omission for explicitly typed local
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
 // including zero-occurrence cases. Ordinary `int`/`short`/`unsignedLong` and other long-family 0/0
@@ -380,14 +381,16 @@
 // References to global `nonNegativeInteger` remain queryable without target-type
 // gating; direct-choice and sequence consumers reject them with located
 // unsupported diagnostics and nil GenerateGo output.
-// Outside bounded variety sequences and the selected forms above, anonymous
-// targets, substitution, nested, recursive, and broader forms are consumer
+// Outside bounded variety sequences and selected element-reference forms above,
+// anonymous targets, substitution, nested, recursive, and broader forms are consumer
 // exclusions; query references retain their resolved facts. Direct model-group
 // references retain ordered facts and TargetID. Named global model-group choices
 // also admit direct, acyclic references to supported named choices or sequences
 // alongside element references. Their members remain opaque. Nested anonymous
-// compositors, recursive groups, and broader model-group references remain
-// unsupported. Named global model-group sequences expose element references only.
+// compositors, local and broader model-group references remain unsupported.
+// Direct/indirect named-group cycles fail schema admission with invalid XSD3062
+// at the closing ref and related path; no Schema is published. Named global
+// model-group sequences expose element references only.
 // Top-level direct model-group references on named complex types and bounded
 // attribute-free extensions over named empty-content bases or named
 // complexContent/restriction over built-in xs:anyType with representable
@@ -399,7 +402,6 @@
 // effective 0/0 omits the group, and prohibited uses may leave no effective uses.
 // Consumers reject at the first effective use Loc, then a present group RefLoc,
 // or the extension Loc when both are absent.
-// Nested, local, recursive, and broader group-reference shapes remain unsupported.
 // Default-bounded sequences of supported built-in/named integer/decimal or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
 // Boolean/integer/decimal/negativeInteger particles retain query facts;
