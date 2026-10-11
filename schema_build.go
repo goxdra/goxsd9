@@ -1489,11 +1489,11 @@ func schemaAttributeValueConstraintInputFromElement(element *syntaxElement, vers
 }
 
 func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaElementInput, error) {
-	abstract, abstractPresent, abstractLoc, err := schemaElementBooleanAttribute(element, "abstract")
+	abstract, abstractLoc, err := schemaElementBooleanAttribute(element, "abstract")
 	if err != nil {
 		return nil, err
 	}
-	nillable, nillablePresent, nillableLoc, err := schemaElementBooleanAttribute(element, "nillable")
+	nillable, nillableLoc, err := schemaElementBooleanAttribute(element, "nillable")
 	if err != nil {
 		return nil, err
 	}
@@ -1521,9 +1521,9 @@ func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, v
 		return schemaElementTypeInputWithoutDeclaredType(
 			element,
 			version,
-			abstractPresent,
+			abstract,
 			abstractLoc,
-			nillablePresent,
+			nillable,
 			nillableLoc,
 			substitutionGroup,
 			block,
@@ -1620,15 +1620,15 @@ func inlineComplexTypeChild(element *syntaxElement) *syntaxElement {
 func schemaElementTypeInputWithoutDeclaredType(
 	element *syntaxElement,
 	version XSDVersion,
-	abstractPresent bool,
+	abstract bool,
 	abstractLoc Loc,
-	nillablePresent bool,
+	nillable bool,
 	nillableLoc Loc,
 	substitutionGroup []schemaElementSubstitutionGroupInput,
 	block schemaBlockPolicy,
 	explicitBlock bool,
 ) (*schemaElementInput, error) {
-	if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstractPresent, abstractLoc, nillablePresent, nillableLoc); noTypeErr != nil {
+	if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstract, abstractLoc, nillable, nillableLoc); noTypeErr != nil {
 		return nil, noTypeErr
 	}
 	if explicitBlock || block.set != 0 {
@@ -1717,17 +1717,19 @@ func schemaElementSubstitutionGroupInputs(element *syntaxElement, version XSDVer
 	return inputs, nil
 }
 
-func validateSchemaElementWithoutDeclaredType(element *syntaxElement, version XSDVersion, abstractPresent bool, abstractLoc Loc, nillablePresent bool, nillableLoc Loc) error {
-	if abstractPresent {
-		return newSchemaSyntaxUnsupported(
+func validateSchemaElementWithoutDeclaredType(element *syntaxElement, version XSDVersion, abstract bool, abstractLoc Loc, nillable bool, nillableLoc Loc) error {
+	if abstract {
+		return newSchemaSyntaxUnsupportedForVersion(
 			abstractLoc,
 			"global element abstract is not implemented without a declared type",
+			version,
 		)
 	}
-	if nillablePresent {
-		return newSchemaSyntaxUnsupported(
+	if nillable {
+		return newSchemaSyntaxUnsupportedForVersion(
 			nillableLoc,
 			"global element nillable is not implemented without a declared type",
+			version,
 		)
 	}
 	for _, node := range element.children {
@@ -1747,19 +1749,19 @@ func validateSchemaElementWithoutDeclaredType(element *syntaxElement, version XS
 	return nil
 }
 
-func schemaElementBooleanAttribute(element *syntaxElement, local string) (bool, bool, Loc, error) {
+func schemaElementBooleanAttribute(element *syntaxElement, local string) (bool, Loc, error) {
 	attributes := syntaxAttributesByLocal(element, local)
 	if len(attributes) == 0 {
-		return false, false, Loc{}, nil
+		return false, Loc{}, nil
 	}
 	if len(attributes) != 1 {
-		return false, true, element.loc, newSchemaCompositionDiagnostic(
+		return false, element.loc, newSchemaCompositionDiagnostic(
 			element.loc,
 			fmt.Sprintf("element %s attribute %q must be unique", element.name.local, local),
 		)
 	}
 	value, err := schemaBooleanValue(attributes[0])
-	return value, true, attributes[0].loc, err
+	return value, attributes[0].loc, err
 }
 
 func schemaComplexTypeBooleanAttribute(element *syntaxElement, local string) (bool, error) {
@@ -2846,7 +2848,7 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 	if err != nil {
 		return schemaElementParticleInput{}, err
 	}
-	nillable, _, _, err := schemaElementBooleanAttribute(element, "nillable")
+	nillable, _, err := schemaElementBooleanAttribute(element, "nillable")
 	if err != nil {
 		return schemaElementParticleInput{}, err
 	}

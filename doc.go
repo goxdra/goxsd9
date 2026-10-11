@@ -291,6 +291,12 @@
 // as omission under every policy. True/1 stays located unsupported, and malformed
 // Boolean values stay located invalid with their lexical cause; neither returns
 // a Schema.
+// Otherwise-supported global elements without a declared type accept those
+// same false spellings as omission. They retain no element-declaration view;
+// true/1 remain located unsupported, and existing shape limits apply. With
+// omitted or false flags, ValidateInstance rejects at the instance root and
+// relates the declaration Loc; GenerateGo rejects at the declaration Loc
+// with nil output. Both diagnostics are unsupported.
 // On supported global inline complex types, unqualified defaultAttributesApply
 // true/false/1/0 is inert under Compatibility/Strict11 after XML whitespace
 // collapse. Strict10 reports a located edition mismatch; malformed Boolean

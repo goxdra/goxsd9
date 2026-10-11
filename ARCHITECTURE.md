@@ -100,8 +100,8 @@ chameleon adoption, and `0/0` omission. Compatibility/Strict11 direct strict
 `xs:any` retains normalized `notQName` tokens, bindings, `Loc`, and sorted names.
 Inconsistent exclusions fail before omission; consumers/broader forms reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
-Global inline `mixed=false/0`, element `abstract=false/0`/`nillable=false/0` collapse to omission; true/1 reject, malformed values invalid with cause/`Loc`.
-Compatibility/Strict11 omit valid `defaultAttributesApply`; Strict10 and schema `defaultAttributes` reject. No presence state or widened shapes/consumers.
+Inline-complex `mixed=false/0` and inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` equal omission; true/1 reject, malformed retain cause/`Loc`. Globals with `@type` or inline `simpleType` expose true.
+Compatibility/Strict11 omit valid `defaultAttributesApply`; Strict10 and schema `defaultAttributes` reject.
 Inline IDs stay outside walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
@@ -145,7 +145,7 @@ Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-atomic
 all-token choices generate; other locals/attributes reject. `normalizedString`
 and global `short`/`unsignedLong`/`negativeInteger`/`nonPositiveInteger`/
 `positiveInteger`/`nonNegativeInteger`/`long`/`int`/`byte` refs reject.
-Abstract/nillable globals and identity constraints yield `GOXSD9029`, nil output.
+No-view globals, admitted `abstract=true`/`nillable=true` globals, identity constraints yield `GOXSD9029`, nil output.
 Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
 integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.
 Byte bounds [-128,127]; named facets retain provenance. Unsupported final/
