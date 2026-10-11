@@ -264,7 +264,8 @@
 // named-effective, inline, anonymous, and admitted extension shapes.
 // The supported local element anonymous model is limited to atomic
 // Boolean/integer/decimal/negativeInteger restrictions in the direct choice/sequence
-// and bounded attribute-free extension shapes above. Local anonymous
+// and bounded extension shapes above; extension choices remain attribute-free,
+// while direct-sequence extensions may also have local uses. Local anonymous
 // Boolean/integer/decimal/negativeInteger restrictions remain queryable; bounded
 // list/union direct sequences validate anonymous integer/negativeInteger siblings,
 // while other direct validation paths and generation reject them;
@@ -313,10 +314,9 @@
 // anonymous grouped-extension owners remain unsupported, including applicable
 // 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
-// Named complex owners with empty, direct choice, direct sequence, grouped, or
-// direct-sequence extension
-// extension bodies also admit explicit built-in or facet-free named effective
-// xs:ID local uses for queries.
+// Named complex owners with empty, direct choice, direct sequence, grouped
+// extension, or direct-sequence extension bodies admit built-in or facet-free
+// named effective xs:ID local uses for queries.
 // Strict10 rejects a second effective ID. Global ID refs, inline ID, ID
 // default/fixed/facets/lists/unions, other owners, validation, and generation
 // remain unsupported.
@@ -343,7 +343,9 @@
 // unsupported. Validation supports local precisionDecimal atomic and bounded
 // variety uses on direct empty-content roots and direct sequences of global
 // element references to inline or named complex targets or named local complex
-// targets; grouped extensions remain consumer-unsupported.
+// targets. ValidateInstance and GenerateGo reject grouped and direct-sequence
+// complexContent extensions with located unsupported diagnostics, even when
+// 0/0 or prohibited uses leave no effective particle or use.
 // SimpleContent text uses built-in string only
 // with selected local precisionDecimal uses, or built-in/named effective
 // precisionDecimal. Named effective string remains excluded. Generation rejects these forms.
@@ -416,11 +418,12 @@
 // Ordinary direct-choice/direct-sequence target checks use element/particle
 // locations and may include the anonymous type location in related facts.
 // Extension checks without an effective AttributeUse or group-reference particle
-// use the extension boundary: code generation uses the extension location as
-// primary with related complex-content/extension/base/particle facts (and
-// anyAttribute when present); validation retains declaration/definition owner
-// locations, uses the extension boundary for choices and the instance root for
-// sequences, and never adds an anonymous type location. Direct and grouped
+// use the extension boundary: generation uses its location as primary with
+// related complex-content/base/particle facts (and anyAttribute when present).
+// Validation retains declaration/definition owner locations; a present sequence
+// uses the instance root, while a choice or omitted sequence uses the extension
+// location. Generation with effective uses uses the first use Loc. Neither
+// adds an anonymous type location. Direct and grouped
 // model-group-reference bodies with AttributeUse facts hit the consumer gates
 // first: the first use's Loc is primary, with declaration/definition and
 // AttributeUse locations related. Direct and extension model-group-reference
