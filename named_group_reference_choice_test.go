@@ -369,3 +369,139 @@ func TestNamedGroupChoiceReferenceInvalidAttributesPrecedeTargetResolution(t *te
 		})
 	}
 }
+
+func TestNamedGroupChoiceGroupReferenceUnsupportedDoesNotHideInvalidSyntax(t *testing.T) { //nolint:gocognit // Public diagnostic matrix covers the sibling and child exits of one boundary.
+	for _, profile := range []struct {
+		name, version string
+		policy        LanguagePolicy
+		factVersion   XSDVersion
+	}{
+		{"Compatibility", "1.0", Compatibility, XSDVersion11},
+		{"Strict10", "1.0", Strict10, XSDVersion10},
+		{"Strict11", "1.1", Strict11, XSDVersion11},
+	} {
+		for _, test := range []struct {
+			name, children, marker string
+			related                []string
+			spec                   func(XSDVersion) string
+			lexical, reversed      bool
+		}{
+			{
+				name: "group attribute before later malformed element occurrence",
+				children: `<xs:group ref="g:Target" xml:base="child/"/>` +
+					`<xs:element ref="g:item" minOccurs="bad"/>`,
+				marker: `minOccurs="bad"`, spec: schemaParticleOccurrenceDatatypeSpecRef, lexical: true,
+			},
+			{
+				name: "group annotation before later reversed element occurrences",
+				children: `<xs:group ref="g:Target"><xs:annotation xml:base="child/"/></xs:group>` +
+					`<xs:element ref="g:item" minOccurs="2" maxOccurs="1"/>`,
+				marker: `<xs:element ref="g:item"`, related: []string{`minOccurs="2"`, `maxOccurs="1"`},
+				spec: schemaParticleCorrectSpecRef, reversed: true,
+			},
+			{
+				name:     "group attribute before forbidden group attribute",
+				children: `<xs:group ref="g:Target" xml:base="child/" bogus="1"/>`,
+				marker:   `bogus="1"`, spec: schemaGroupParticleSpecRef,
+			},
+			{
+				name:     "group attribute before forbidden group child",
+				children: `<xs:group ref="g:Target" xml:base="child/"><xs:element/></xs:group>`,
+				marker:   `<xs:element/>`, spec: schemaGroupParticleSpecRef,
+			},
+			{
+				name:     "group attribute before invalid annotation",
+				children: `<xs:group ref="g:Target" xml:base="child/"><xs:annotation id="bad:id"/></xs:group>`,
+				marker:   `id="bad:id"`, spec: schemaGroupParticleSpecRef,
+			},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := namedGroupChoiceGroupReferenceStagingRoot(profile.version, "", test.children)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantLoc := namedGroupChoiceLoc(t, root, test.marker)
+				wantSpec := test.spec(profile.factVersion)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != wantSpec || errors.Is(err, ErrUnsupported) {
+					t.Fatalf("diagnostic = %s (spec %s), want invalid XSD3010 at %s with %s", diagnostic, diagnostic.SpecRef(), wantLoc, wantSpec)
+				}
+				var wantRelated []Loc
+				for _, marker := range test.related {
+					wantRelated = append(wantRelated, namedGroupChoiceLoc(t, root, marker))
+				}
+				if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+					t.Fatalf("related = %v, want %v", diagnostic.Related(), wantRelated)
+				}
+				if test.reversed {
+					if !errors.Is(err, errParticleOccurrenceMinimumExceedsMaximum) {
+						t.Fatalf("reversed occurrence lost cause: %v", err)
+					}
+					return
+				}
+				if test.lexical {
+					var cause Diagnostic
+					if !errors.As(errors.Unwrap(diagnostic), &cause) || cause.Code() != InvalidIntegerLexicalCode || cause.Loc() != wantLoc {
+						t.Fatalf("malformed occurrence lost located lexical cause: %v", errors.Unwrap(diagnostic))
+					}
+					return
+				}
+				if errors.Unwrap(diagnostic) != nil {
+					t.Fatalf("composition error has unexpected cause: %v", errors.Unwrap(diagnostic))
+				}
+			})
+		}
+	}
+}
+
+func TestNamedGroupChoiceGroupReferenceUnsupportedOrdering(t *testing.T) {
+	for _, profile := range []struct {
+		name, version string
+		policy        LanguagePolicy
+	}{
+		{"Compatibility", "1.0", Compatibility},
+		{"Strict10", "1.0", Strict10},
+		{"Strict11", "1.1", Strict11},
+	} {
+		for _, test := range []struct {
+			name, choiceAttrs, children, marker string
+		}{
+			{
+				name: "first group attribute before later annotation",
+				children: `<xs:group ref="g:Target" xml:base="first/"/>` +
+					`<xs:group ref="g:Target"><xs:annotation xml:base="second/"/></xs:group>`,
+				marker: `xml:base="first/"`,
+			},
+			{
+				name: "first group annotation before later attribute",
+				children: `<xs:group ref="g:Target"><xs:annotation xml:base="first/"/></xs:group>` +
+					`<xs:group ref="g:Target" xml:base="second/"/>`,
+				marker: `xml:base="first/"`,
+			},
+			{
+				name:        "outer choice attribute before group attribute",
+				choiceAttrs: ` xml:base="first/"`,
+				children:    `<xs:group ref="g:Target" xml:base="second/"/>`,
+				marker:      `xml:base="first/"`,
+			},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := namedGroupChoiceGroupReferenceStagingRoot(profile.version, test.choiceAttrs, test.children)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantLoc := namedGroupChoiceLoc(t, root, test.marker)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != featureSchemaXMLBase || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != "xmlbase#matching" || len(diagnostic.Related()) != 0 || errors.Unwrap(diagnostic) != nil || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("diagnostic = %s (feature %s, spec %s, related %v, cause %v), want first XML Base candidate at %s", diagnostic, diagnostic.Feature(), diagnostic.SpecRef(), diagnostic.Related(), errors.Unwrap(diagnostic), wantLoc)
+				}
+			})
+		}
+	}
+}
+
+func namedGroupChoiceGroupReferenceStagingRoot(version, choiceAttrs, children string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:g="urn:group-choice-ref" targetNamespace="urn:group-choice-ref" version="` + version + `">
+  <xs:group name="Outer"><xs:choice` + choiceAttrs + `>` + children + `</xs:choice></xs:group>
+  <xs:group name="Target"><xs:sequence/></xs:group>
+  <xs:element name="item" type="xs:string"/>
+</xs:schema>`
+}
