@@ -421,21 +421,20 @@
 // with a nil optional particle, no occurrence, and no synthetic content.
 // Ordinary direct-choice/direct-sequence target checks use element/particle
 // locations and may include the anonymous type location in related facts.
-// Extension checks without an effective AttributeUse or group-reference particle
-// use the extension boundary: generation uses its location as primary with
-// related complex-content/base/particle facts (and anyAttribute when present).
-// Validation retains declaration/definition owner locations; a present sequence
-// uses the instance root, while a choice or omitted sequence uses the extension
-// location. Generation with effective uses uses the first use Loc. Neither
-// adds an anonymous type location. Direct and grouped
-// model-group-reference bodies with AttributeUse facts hit the consumer gates
-// first: the first use's Loc is primary, with declaration/definition and
-// AttributeUse locations related. Direct and extension model-group-reference
-// checks with no effective use and a present group use RefLoc as validation and
-// generation primary; validation relates the group particle and supplied
-// extension context, while generation relates group/component/reference/target
-// locations. These gates return located FailureUnsupported/ErrUnsupported
-// diagnostics; GenerateGo returns no output.
+// Generation checks effective AttributeUse facts first: the first use Loc is
+// primary, with definition and use locations related. Without effective uses
+// or a present group reference, extension Loc is primary with related
+// complex-content/base/particle facts (and anyAttribute when present).
+// Validation rejects a present extension sequence at the instance root before
+// checking uses, retaining declaration/definition and extension context.
+// Its nonstreaming choice/omitted-sequence path checks effective uses first,
+// then a present group RefLoc, then the extension Loc. Direct and grouped
+// model-group-reference bodies follow the same use-before-group order: use
+// diagnostics relate declaration/definition and AttributeUse locations;
+// group diagnostics relate the group particle and extension context for
+// validation, or group/component/reference/target for generation. These
+// extension and group gates do not add an anonymous type location. They return
+// located FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
 //
 // Global built-in and named xs:nonNegativeInteger roots validate under
 // Compatibility, Strict10, and Strict11 through the exact integer scalar plan.
