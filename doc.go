@@ -382,13 +382,12 @@
 // unsupported diagnostics and nil GenerateGo output.
 // Outside bounded variety sequences and the selected forms above, anonymous
 // targets, substitution, nested, recursive, and broader forms are consumer
-// exclusions; query references
-// retain their resolved facts. Model-group references are a separate top-level
-// direct query boundary with ordered facts and TargetID; nested, local,
-// recursive, and broader model-group references remain unsupported.
-// Model-group reference particles are limited to the supported top-level direct
-// `ModelGroupReferenceParticle` form. Named global model groups expose direct
-// element-reference choices or sequences without expansion.
+// exclusions; query references retain their resolved facts. Direct model-group
+// references retain ordered facts and TargetID. Named global model-group choices
+// also admit direct, acyclic references to supported named choices or sequences
+// alongside element references. Their members remain opaque. Nested anonymous
+// compositors, recursive groups, and broader model-group references remain
+// unsupported. Named global model-group sequences expose element references only.
 // Top-level direct model-group references on named complex types and bounded
 // attribute-free extensions over named empty-content bases or named
 // complexContent/restriction over built-in xs:anyType with representable

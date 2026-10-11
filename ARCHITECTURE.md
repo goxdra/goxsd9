@@ -67,8 +67,8 @@ need bounded list/union. Other derivatives/extensions are query-only;
 named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
 Syntax/occurrence/policy precede mapping; child/use refs precede `0/0`/prohibited omission.
 Errors retain cause/`Loc`; no `Schema`. Extension sequences resolve children first;
-choices resolve refs once; named groups before omission. Refs retain
-QName/RefLoc/TargetID/order; broader consumers reject.
+named choices complete opaque acyclic group refs before omission. Nested/all/cyclic
+reject. Refs retain QName/RefLoc/TargetID/order.
 Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
 built-in `positiveInteger`/`nonPositiveInteger` locals,

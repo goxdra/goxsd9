@@ -61,6 +61,7 @@ const (
 	diagnosticSchemaSimpleContentBaseAmbiguousCode   = "XSD3051"
 	diagnosticSchemaAttributeUseDuplicateCode        = "XSD3052"
 	diagnosticSchemaAttributeUseIDDuplicateCode      = "XSD3061"
+	diagnosticSchemaModelGroupReferenceCycleCode     = "XSD3062"
 )
 
 const (
@@ -159,6 +160,7 @@ var (
 	errSchemaModelGroupReferenceWrongKind        = errors.New("model-group reference has the wrong target kind")
 	errSchemaModelGroupReferenceAmbiguous        = errors.New("model-group reference is ambiguous")
 	errSchemaModelGroupReferenceNamespace        = errors.New("model-group reference namespace is not imported")
+	errSchemaModelGroupReferenceCycle            = errors.New("model-group reference is cyclic")
 	errSchemaAttributeTypeUnresolved             = errors.New("attribute type is unresolved")
 	errSchemaAttributeTypeWrongKind              = errors.New("attribute type has the wrong kind")
 	errSchemaAttributeTypeAmbiguous              = errors.New("attribute type is ambiguous")
@@ -2363,27 +2365,38 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 		if !ok || child.name.local == "annotation" {
 			continue
 		}
-		if child.name.local != "element" {
-			return nil, newSchemaSyntaxUnsupportedForVersion(
-				child.loc,
-				fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local),
-				version,
-			)
-		}
-		alternative, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, false, false)
+		alternative, err := schemaNamedModelGroupChoiceTermInput(child, facts, version)
 		if err != nil {
 			return nil, err
-		}
-		if alternative.reference == nil {
-			return nil, newSchemaSyntaxUnsupportedForVersion(
-				child.loc,
-				"named model-group choices require global element references",
-				version,
-			)
 		}
 		choice.alternatives = append(choice.alternatives, alternative)
 	}
 	return &schemaModelGroupInput{particle: choice}, nil
+}
+
+func schemaNamedModelGroupChoiceTermInput(child *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (schemaParticleTermInput, error) {
+	if child.name.local == "group" {
+		occurrences, err := schemaParticleOccurrenceRange(child, version)
+		if err != nil {
+			return nil, err
+		}
+		return schemaModelGroupReferenceParticleInputFromElementWithFacts(child, occurrences, facts)
+	}
+	if child.name.local != "element" {
+		return nil, newSchemaSyntaxUnsupportedForVersion(
+			child.loc,
+			fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local),
+			version,
+		)
+	}
+	element, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, false, false)
+	if err != nil {
+		return nil, err
+	}
+	if element.reference == nil {
+		return nil, newSchemaSyntaxUnsupportedForVersion(child.loc, "named model-group choices require global element references", version)
+	}
+	return element, nil
 }
 
 func schemaModelGroupSequenceInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaModelGroupInput, error) {
@@ -8052,72 +8065,164 @@ func resolveSchemaModelGroups(
 	if len(simpleTypes.results) != len(records) || simpleTypes.byInput == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "model group resolution has incomplete simple type results")
 	}
-	results := make([]schemaModelGroupResult, len(records))
+	resolver := schemaModelGroupResolver{
+		records: records, byName: byName, visibleSources: visibleSources,
+		version: version,
+		results: make([]schemaModelGroupResult, len(records)),
+		states:  make([]uint8, len(records)),
+	}
 	for index, record := range records {
 		if record.modelGroup == nil {
 			continue
 		}
-		if record.modelGroup.particle == nil {
-			return nil, newSchemaBridgeInvariant(record.loc, "model group resolution has no particle input")
+		if err := resolver.visit(index, Loc{}); err != nil {
+			return nil, err
 		}
-		particle, err := resolveSchemaModelGroupParticle(
-			record.modelGroup.particle,
-			record,
-			records,
-			byName,
-			visibleSources,
-			simpleTypes,
-			version,
-		)
+	}
+	return resolver.results, nil
+}
+
+type schemaModelGroupResolver struct {
+	records        []schemaComponentRecord
+	byName         map[QName][]int
+	visibleSources map[SourceID][]SourceID
+	version        XSDVersion
+	results        []schemaModelGroupResult
+	states         []uint8
+	stack          []int
+	incoming       []Loc
+}
+
+func (resolver *schemaModelGroupResolver) visit(index int, incoming Loc) error {
+	if resolver.states[index] == 2 {
+		return nil
+	}
+	if resolver.states[index] == 1 {
+		return resolver.cycleDiagnostic(index, incoming)
+	}
+	record := resolver.records[index]
+	if record.modelGroup == nil || record.modelGroup.particle == nil {
+		return newSchemaBridgeInvariant(record.loc, "model group resolution has no particle input")
+	}
+	resolver.states[index] = 1
+	resolver.stack = append(resolver.stack, index)
+	resolver.incoming = append(resolver.incoming, incoming)
+	var particle Particle
+	var err error
+	switch input := record.modelGroup.particle.(type) {
+	case *schemaChoiceParticleInput:
+		if input == nil {
+			return newSchemaBridgeInvariant(record.loc, "model group choice particle input is nil")
+		}
+		particle, err = resolver.resolveChoice(input, record)
+	case *schemaSequenceParticleInput:
+		if input == nil {
+			return newSchemaBridgeInvariant(record.loc, "model group sequence particle input is nil")
+		}
+		if termsErr := schemaModelGroupParticleTermsAreElements(input.particles, input.loc); termsErr != nil {
+			return termsErr
+		}
+		particle, err = resolveSchemaModelGroupSequenceParticle(input, record, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+	default:
+		return newSchemaBridgeInvariant(record.loc, "model group has an unknown particle input")
+	}
+	if err != nil {
+		return err
+	}
+	resolver.results[index] = schemaModelGroupResult{present: true, particle: particle}
+	resolver.states[index] = 2
+	resolver.stack = resolver.stack[:len(resolver.stack)-1]
+	resolver.incoming = resolver.incoming[:len(resolver.incoming)-1]
+	return nil
+}
+
+func (resolver *schemaModelGroupResolver) cycleDiagnostic(index int, closing Loc) error {
+	start := 0
+	for start < len(resolver.stack) && resolver.stack[start] != index {
+		start++
+	}
+	related := make([]Loc, 0, 2*(len(resolver.stack)-start))
+	for offset := start; offset < len(resolver.stack); offset++ {
+		related = append(related, resolver.records[resolver.stack[offset]].loc)
+		if offset > start {
+			related = append(related, resolver.incoming[offset])
+		}
+	}
+	diagnostic := newSchemaModelGroupReferenceDiagnostic(
+		diagnosticSchemaModelGroupReferenceCycleCode, closing,
+		"model-group reference forms a cycle", related, resolver.version,
+		errSchemaModelGroupReferenceCycle,
+	)
+	if resolver.version == XSDVersion10 {
+		diagnostic.specRef = "xsd10-structures#mg-props-correct"
+		return diagnostic
+	}
+	diagnostic.specRef = "xsd11-structures#mg-props-correct"
+	return diagnostic
+}
+
+func (resolver *schemaModelGroupResolver) resolveChoice(input *schemaChoiceParticleInput, owner schemaComponentRecord) (Particle, error) {
+	alternatives := make([]Particle, 0, len(input.alternatives))
+	seenElements := make(map[QName]Loc)
+	for _, term := range input.alternatives {
+		var particle Particle
+		var err error
+		switch typed := term.(type) {
+		case schemaElementParticleInput:
+			particle, err = resolver.resolveChoiceElement(typed, owner, seenElements)
+		case *schemaElementParticleInput:
+			if typed == nil {
+				return nil, newSchemaBridgeInvariant(input.loc, "model group choice has a nil element input")
+			}
+			particle, err = resolver.resolveChoiceElement(*typed, owner, seenElements)
+		case *schemaModelGroupReferenceParticleInput:
+			particle, err = resolver.resolveChoiceGroup(typed, owner)
+		default:
+			return nil, newSchemaBridgeInvariant(input.loc, "model group choice has an unsupported term input")
+		}
 		if err != nil {
 			return nil, err
 		}
-		results[index] = schemaModelGroupResult{
-			present:  true,
-			particle: particle,
+		if particle != nil {
+			alternatives = append(alternatives, particle)
 		}
 	}
-	return results, nil
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	return ChoiceParticle{facts: &schemaChoiceParticle{loc: input.loc, occurrences: input.occurrences.clone(), alternatives: alternatives}}, nil
 }
 
-func resolveSchemaModelGroupParticle(
-	input schemaModelGroupParticleInput,
-	owner schemaComponentRecord,
-	records []schemaComponentRecord,
-	byName map[QName][]int,
-	visibleSources map[SourceID][]SourceID,
-	simpleTypes schemaSimpleTypeResolution,
-	version XSDVersion,
-) (Particle, error) {
-	switch particle := input.(type) {
-	case *schemaChoiceParticleInput:
-		if particle == nil {
-			return nil, newSchemaBridgeInvariant(Loc{}, "model group choice particle input is nil")
-		}
-		if err := schemaModelGroupParticleTermsAreElements(particle.alternatives, particle.loc); err != nil {
-			return nil, err
-		}
-		return resolveSchemaChoiceParticleWithOptions(
-			particle,
-			owner,
-			records,
-			byName,
-			visibleSources,
-			simpleTypes,
-			version,
-			true,
-		)
-	case *schemaSequenceParticleInput:
-		if particle == nil {
-			return nil, newSchemaBridgeInvariant(Loc{}, "model group sequence particle input is nil")
-		}
-		if err := schemaModelGroupParticleTermsAreElements(particle.particles, particle.loc); err != nil {
-			return nil, err
-		}
-		return resolveSchemaModelGroupSequenceParticle(particle, owner, records, byName, visibleSources, version)
-	default:
-		return nil, newSchemaBridgeInvariant(Loc{}, "model group has an unknown particle input")
+func (resolver *schemaModelGroupResolver) resolveChoiceElement(input schemaElementParticleInput, owner schemaComponentRecord, seen map[QName]Loc) (Particle, error) {
+	if input.reference == nil {
+		return nil, newSchemaBridgeInvariant(input.loc, "model group choice has a non-reference element input")
 	}
+	particle, err := resolveSchemaElementReferenceParticle(input, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+	if err != nil {
+		return nil, err
+	}
+	if first, duplicate := seen[input.reference.name]; duplicate {
+		return nil, newSchemaElementReferenceDuplicateDiagnostic(input.reference, first, resolver.version)
+	}
+	seen[input.reference.name] = input.reference.loc
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	return particle, nil
+}
+
+func (resolver *schemaModelGroupResolver) resolveChoiceGroup(input *schemaModelGroupReferenceParticleInput, owner schemaComponentRecord) (Particle, error) {
+	if input == nil || input.reference == nil {
+		return nil, newSchemaBridgeInvariant(owner.loc, "model group choice has a nil group reference input")
+	}
+	targetIndex, err := schemaModelGroupReferenceTarget(input, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+	if err != nil {
+		return nil, err
+	}
+	if err := resolver.visit(targetIndex, input.reference.loc); err != nil {
+		return nil, err
+	}
+	return newSchemaModelGroupReferenceParticle(input, resolver.records[targetIndex]), nil
 }
 
 func schemaModelGroupParticleTermsAreElements(terms []schemaParticleTermInput, loc Loc) error {
@@ -8816,13 +8921,31 @@ func resolveSchemaModelGroupReferenceParticle(
 	visibleSources map[SourceID][]SourceID,
 	version XSDVersion,
 ) (Particle, error) {
-	if input.reference == nil {
-		return nil, newSchemaBridgeInvariant(input.loc, "model-group reference input is nil")
+	if input == nil || input.reference == nil {
+		return nil, newSchemaBridgeInvariant(owner.loc, "model-group reference input is nil")
+	}
+	targetIndex, err := schemaModelGroupReferenceTarget(input, owner, records, byName, visibleSources, version)
+	if err != nil {
+		return nil, err
+	}
+	return newSchemaModelGroupReferenceParticle(input, records[targetIndex]), nil
+}
+
+func schemaModelGroupReferenceTarget(
+	input *schemaModelGroupReferenceParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	version XSDVersion,
+) (int, error) {
+	if input == nil || input.reference == nil {
+		return 0, newSchemaBridgeInvariant(owner.loc, "model-group reference input is nil")
 	}
 	reference := input.reference
 	candidates := byName[reference.name]
 	if len(candidates) == 0 {
-		return nil, newSchemaModelGroupReferenceDiagnostic(
+		return 0, newSchemaModelGroupReferenceDiagnostic(
 			diagnosticSchemaModelGroupReferenceUnresolvedCode,
 			reference.loc,
 			fmt.Sprintf("model-group reference %q is unresolved", reference.name),
@@ -8833,10 +8956,10 @@ func resolveSchemaModelGroupReferenceParticle(
 	}
 	groupCandidates, err := schemaModelGroupReferenceCandidates(candidates, records, reference.loc)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	if len(groupCandidates) == 0 {
-		return nil, newSchemaModelGroupReferenceDiagnostic(
+		return 0, newSchemaModelGroupReferenceDiagnostic(
 			diagnosticSchemaModelGroupReferenceWrongKindCode,
 			reference.loc,
 			fmt.Sprintf("model-group reference %q does not name a global model-group definition", reference.name),
@@ -8847,13 +8970,13 @@ func resolveSchemaModelGroupReferenceParticle(
 	}
 	visible, err := schemaVisibleCandidates(groupCandidates, owner.id.Source(), records, visibleSources, reference.loc)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	if len(visible) == 0 {
-		return nil, schemaModelGroupReferenceVisibilityDiagnostic(reference, owner, records, groupCandidates, version)
+		return 0, schemaModelGroupReferenceVisibilityDiagnostic(reference, owner, records, groupCandidates, version)
 	}
 	if len(visible) > 1 {
-		return nil, newSchemaModelGroupReferenceDiagnostic(
+		return 0, newSchemaModelGroupReferenceDiagnostic(
 			diagnosticSchemaModelGroupReferenceAmbiguousCode,
 			reference.loc,
 			fmt.Sprintf("model-group reference %q is ambiguous", reference.name),
@@ -8864,22 +8987,26 @@ func resolveSchemaModelGroupReferenceParticle(
 	}
 	target := records[visible[0]]
 	if target.modelGroup == nil {
-		return nil, newSchemaBridgeInvariant(reference.loc, "model-group reference target has no model-group input")
+		return 0, newSchemaBridgeInvariant(reference.loc, "model-group reference target has no model-group input")
 	}
 	if target.id.IsZero() || target.id.Source() == "" || target.id.Ordinal() == 0 {
-		return nil, newSchemaBridgeInvariant(reference.loc, "model-group reference target has no allocated identity")
+		return 0, newSchemaBridgeInvariant(reference.loc, "model-group reference target has no allocated identity")
 	}
+	return visible[0], nil
+}
+
+func newSchemaModelGroupReferenceParticle(input *schemaModelGroupReferenceParticleInput, target schemaComponentRecord) Particle {
 	facts := &schemaModelGroupReferenceParticle{
 		loc:         input.loc,
 		occurrences: input.occurrences.clone(),
-		name:        reference.name,
-		refLoc:      reference.loc,
+		name:        input.reference.name,
+		refLoc:      input.reference.loc,
 		targetID:    target.id,
 	}
 	if !input.occurrences.mapsToParticle() {
-		return nil, nil
+		return nil
 	}
-	return ModelGroupReferenceParticle{facts: facts}, nil
+	return ModelGroupReferenceParticle{facts: facts}
 }
 
 func schemaModelGroupReferenceCandidates(

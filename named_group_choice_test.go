@@ -375,7 +375,6 @@ func TestNamedGroupExcludesOtherParticleShapes(t *testing.T) {
 		last   bool
 	}{
 		{name: "all", model: "<xs:all/>", marker: "<xs:all"},
-		{name: "group reference", model: `<xs:choice><xs:group ref="g:Other"/></xs:choice>`, marker: `ref="g:Other"`},
 		{name: "nested choice", model: "<xs:choice><xs:choice/></xs:choice>", marker: "<xs:choice", last: true},
 		{name: "wildcard", model: "<xs:choice><xs:any/></xs:choice>", marker: "<xs:any"},
 	}
