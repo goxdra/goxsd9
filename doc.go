@@ -126,10 +126,11 @@
 // located unsupported at every occurrence because their semantic gates are unavailable.
 // Direct sequences resolve children before owner omission; direct choices resolve
 // child refs without duplicate checks before child omission. Named groups check
-// duplicate element refs; named choices resolve group-ref dependencies, including
-// repeated targets, before owner/child omission. Mapped non-0/0 unsupported
-// scalar forms return located schema-syntax diagnostics. Ordinary 0/0 forms
-// are admitted only after the applicable gates, then the local public particle
+// duplicate element refs. As repository policy, named choices and sequences
+// resolve direct group refs, including repeated refs and 0/0 terms, before
+// owner/child omission. Mapped non-0/0 unsupported scalar forms return located
+// schema-syntax diagnostics. Ordinary 0/0 forms are admitted only after the
+// applicable gates, then the local public particle
 // is absent; this is not a
 // universal named-type/facet or validation bypass. Strict10 policy admission precedes omission for explicitly typed local
 // built-in or named-effective and inline anonymous `precisionDecimal` forms,
@@ -393,8 +394,8 @@
 // exclusions; query references retain their resolved facts. Direct model-group
 // references retain ordered facts and TargetID. Named global model-group choices
 // and sequences admit direct, acyclic references to supported named choices or
-// alongside element references. Their members remain opaque. Nested anonymous
-// compositors, local and broader model-group references remain unsupported.
+// sequences alongside element references. Their members remain opaque. Nested
+// anonymous compositors, local and broader model-group references remain unsupported.
 // Direct/indirect named-group cycles fail schema admission with invalid XSD3062
 // at the closing ref and related path; no Schema is published. Reference targets
 // are resolved and traversed before an effective 0/0 term is omitted.
