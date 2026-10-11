@@ -84,13 +84,13 @@
 // supported named xs:token/xs:NMTOKEN particles for named global and global
 // inline complex types, and atomic xs:string particles for named global
 // complex types, global element inline complex types, and supported bounded
-// attribute-free extensions. Inline complexes retain anonymous IDs and query facts
+// extensions. Inline complexes retain anonymous IDs and query facts
 // outside the global walk; supported precisionDecimal attribute roots and
 // ordered sequence targets validate, while generation rejects them. The model also admits
 // built-in/named/inline xs:negativeInteger and built-in or supported
 // named-effective xs:long/xs:int/xs:short/xs:byte/xs:unsignedLong/
 // xs:nonNegativeInteger particles in
-// supported attribute-free extension choices and sequences under every policy.
+// supported extension choices and sequences under every policy.
 // Direct-sequence negativeInteger validates beside bounded list/union; long-family and
 // nonNegativeInteger remain query-only. Generation rejects all these particles.
 // Direct and supported extension
@@ -108,7 +108,7 @@
 // exposes local inline anonymous atomic
 // Boolean, integer, decimal, and
 // negativeInteger restrictions
-// in direct choices/sequences and bounded attribute-free extensions under Compatibility,
+// in direct choices/sequences and bounded extensions under Compatibility,
 // Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
@@ -147,7 +147,7 @@
 // return located diagnostics and no Schema.
 // ValidateInstance rejects modeled all
 // particles; GenerateGo returns nil output with an unsupported diagnostic.
-// In supported direct choices, direct sequences, and bounded attribute-free
+// In supported direct choices, direct sequences, and bounded
 // extensions, local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
 // when their effective atomic kind is integer or negativeInteger through named,
@@ -169,7 +169,7 @@
 // a resolved 0/0 local term omits after applicable gates.
 // Inline/anonymous long/int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
 // type/simpleType Loc; supported direct choices, direct sequences, and bounded
-// attribute-free extensions admit built-in and named-effective
+// extensions admit built-in and named-effective
 // long/int/short/byte/unsignedLong/nonNegativeInteger as query-only forms.
 // The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
@@ -197,7 +197,7 @@
 // restrictions fail at the local type location with no schema. NCName instance
 // validation and Go generation remain unsupported.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
-// named local particles in direct choices, sequences, and bounded attribute-free
+// named local particles in direct choices, sequences, and bounded
 // extensions are modeled and queryable. Direct named-complex xs:all also models
 // built-in/named effective token/NMTOKEN locals; inline token/NMTOKEN locals remain excluded there,
 // and both consumers reject xs:all. Only non-extension default-occurrence
@@ -264,7 +264,8 @@
 // named-effective, inline, anonymous, and admitted extension shapes.
 // The supported local element anonymous model is limited to atomic
 // Boolean/integer/decimal/negativeInteger restrictions in the direct choice/sequence
-// and bounded attribute-free extension shapes above. Local anonymous
+// and bounded extension shapes above; extension choices remain attribute-free,
+// while direct-sequence extensions may also have local uses. Local anonymous
 // Boolean/integer/decimal/negativeInteger restrictions remain queryable; bounded
 // list/union direct sequences validate anonymous integer/negativeInteger siblings,
 // while other direct validation paths and generation reject them;
@@ -306,15 +307,16 @@
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
 // anonymous atomic uses retain AnonymousID/NodeID. One named complexContent
 // extension composes a direct opaque named-group reference, ordered local uses,
-// and the supported named empty base; broader attribute-bearing extensions
-// remain unsupported. Direct model-group references and grouped extensions
+// and the supported named empty base. Direct-sequence extensions compose their
+// supported ordered members and local uses over the same base; broader
+// attribute-bearing extensions remain unsupported. Direct model-group references and grouped extensions
 // require supported named complex owners. Global inline direct-group and
 // anonymous grouped-extension owners remain unsupported, including applicable
 // 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
-// Named complex owners with empty, direct choice, direct sequence, or grouped
-// extension bodies also admit explicit built-in or facet-free named effective
-// xs:ID local uses for queries.
+// Named complex owners with empty, direct choice, direct sequence, grouped
+// extension, or direct-sequence extension bodies admit built-in or facet-free
+// named effective xs:ID local uses for queries.
 // Strict10 rejects a second effective ID. Global ID refs, inline ID, ID
 // default/fixed/facets/lists/unions, other owners, validation, and generation
 // remain unsupported.
@@ -341,7 +343,9 @@
 // unsupported. Validation supports local precisionDecimal atomic and bounded
 // variety uses on direct empty-content roots and direct sequences of global
 // element references to inline or named complex targets or named local complex
-// targets; grouped extensions remain consumer-unsupported.
+// targets. ValidateInstance and GenerateGo reject grouped and direct-sequence
+// complexContent extensions with located unsupported diagnostics, even when
+// 0/0 or prohibited uses leave no effective particle or use.
 // SimpleContent text uses built-in string only
 // with selected local precisionDecimal uses, or built-in/named effective
 // precisionDecimal. Named effective string remains excluded. Generation rejects these forms.
@@ -414,11 +418,12 @@
 // Ordinary direct-choice/direct-sequence target checks use element/particle
 // locations and may include the anonymous type location in related facts.
 // Extension checks without an effective AttributeUse or group-reference particle
-// use the extension boundary: code generation uses the extension location as
-// primary with related complex-content/extension/base/particle facts (and
-// anyAttribute when present); validation retains declaration/definition owner
-// locations, uses the extension boundary for choices and the instance root for
-// sequences, and never adds an anonymous type location. Direct and grouped
+// use the extension boundary: generation uses its location as primary with
+// related complex-content/base/particle facts (and anyAttribute when present).
+// Validation retains declaration/definition owner locations; a present sequence
+// uses the instance root, while a choice or omitted sequence uses the extension
+// location. Generation with effective uses uses the first use Loc. Neither
+// adds an anonymous type location. Direct and grouped
 // model-group-reference bodies with AttributeUse facts hit the consumer gates
 // first: the first use's Loc is primary, with declaration/definition and
 // AttributeUse locations related. Direct and extension model-group-reference

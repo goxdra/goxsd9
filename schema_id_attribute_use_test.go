@@ -307,21 +307,21 @@ func TestIDLocalAttributeNamedFacetStaysUnsupported(t *testing.T) {
 	}
 }
 
-func TestIDAttributeUseDoesNotAdmitParticleBearingExtensionComposition(t *testing.T) {
+func TestIDAttributeUseInDirectSequenceExtension(t *testing.T) {
 	root := idUseRoot(`<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:attribute name="id" type="xs:ID"/></xs:extension></xs:complexContent></xs:complexType>`, ``)
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		schema, err := parseIDUseSchema(t, root, nil, policy)
-		if err == nil {
-			t.Fatalf("%s admitted particle-bearing extension ID use", policy)
+		if err != nil {
+			t.Fatalf("%s extension ID use: %v", policy, err)
 		}
-		assertZeroSchema(t, schema)
-		d := requireDiagnostic(t, err)
-		version := XSDVersion11
-		if policy == Strict10 {
-			version = XSDVersion10
+		found := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Record"))
+		if len(found) != 1 {
+			t.Fatalf("%s Record components = %d", policy, len(found))
 		}
-		if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="id"`) || d.SpecRef() != schemaComplexTypeExtensionSpecRef(version) || len(d.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
-			t.Fatalf("%s extension diagnostic = %v", policy, err)
+		definition := requireTestComplexTypeDefinition(t, found[0], "Record")
+		uses := definition.AttributeUses()
+		if len(uses) != 1 || uses[0].Name().Local() != "id" || uses[0].Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="id"`) {
+			t.Fatalf("%s extension uses = %v", policy, uses)
 		}
 	}
 }

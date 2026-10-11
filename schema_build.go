@@ -210,6 +210,7 @@ var (
 	errSchemaComplexTypeBaseCycle                = errors.New("complex type bases form a cycle")
 	errSchemaComplexTypeBaseNonEmpty             = errors.New("complex type base has nonempty content")
 	errSchemaGroupedExtensionAnonymousOwner      = errors.New("grouped extension on an anonymous complex type is not implemented")
+	errSchemaSequenceExtensionAnonymousOwner     = errors.New("attribute-bearing sequence extension on an anonymous complex type is not implemented")
 	errLanguagePolicyMismatch                    = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -1585,6 +1586,16 @@ func schemaElementTypeInputForInlineComplex(
 			schemaComplexContentExtensionSpecRef(version),
 		)
 	}
+	if extension, ok := complexType.body.(*schemaComplexTypeExtensionBodyInput); ok && len(extension.attributeUses) > 0 {
+		return nil, newSchemaComplexTypeUnsupportedWithSpec(
+			extension.extensionLoc,
+			"sequence extensions with local attributes on anonymous complex types are not implemented",
+			[]Loc{inline.loc},
+			version,
+			errSchemaSequenceExtensionAnonymousOwner,
+			schemaComplexContentExtensionSpecRef(version),
+		)
+	}
 	return &schemaElementInput{
 		typeLoc:           inline.loc,
 		inlineComplexType: complexType,
@@ -1927,7 +1938,7 @@ func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block sche
 	}, nil
 }
 
-//nolint:gocognit // Keep direct extension particle conversion in source order.
+//nolint:gocognit,funlen // Keep direct extension particle and use conversion in source order.
 func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
 	extension := schemaComplexContentExtensionChild(complexContent)
 	if extension == nil {
@@ -1997,6 +2008,13 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 	if model != nil && model.name.local == "group" {
 		return schemaGroupedComplexTypeExtensionInput(complexContent, extension, model, particle, facts, version, block, base, baseAttributes[0].loc)
 	}
+	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version)
+	if err != nil {
+		return nil, err
+	}
+	if len(attributeUses) > 0 && (model == nil || model.name.local != "sequence") {
+		return nil, newSchemaBridgeInvariant(extension.loc, "attribute-bearing extension has no direct sequence")
+	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeExtensionBodyInput{
 			complexContentLoc: complexContent.loc,
@@ -2006,7 +2024,8 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 				name: base,
 				loc:  baseAttributes[0].loc,
 			},
-			particle: particle,
+			particle:      particle,
+			attributeUses: attributeUses,
 		},
 		prohibitedSubstitutions: block,
 	}, nil
@@ -6331,6 +6350,7 @@ type schemaComplexTypeExtensionBodyResult struct {
 	extensionLoc      Loc
 	base              schemaComplexTypeReferenceComponent
 	particle          Particle
+	attributeUses     []AttributeUse
 	anyAttribute      schemaAnyAttributeResult
 }
 
@@ -6536,6 +6556,10 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 			}
 			particle = resolvedParticle
 		}
+		attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version)
+		if err != nil {
+			return nil, reframeSchemaSimpleTypeBuildError(resolver.records, resolver.byName, err, resolver.version)
+		}
 		base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
 		if err != nil {
 			return nil, err
@@ -6545,6 +6569,7 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 			extensionLoc:      body.extensionLoc,
 			base:              base,
 			particle:          particle,
+			attributeUses:     attributeUses,
 			anyAttribute:      anyAttribute,
 		}, nil
 	case *schemaComplexTypeGroupedExtensionBodyInput:
@@ -6942,6 +6967,12 @@ func schemaDirectLocalIDAttributeTypeSupported(reference schemaSimpleTypeReferen
 	switch body := owner.complexType.body.(type) {
 	case *schemaComplexTypeAttributeOnlyBodyInput, *schemaComplexTypeGroupedExtensionBodyInput:
 		return true
+	case *schemaComplexTypeExtensionBodyInput:
+		if body == nil {
+			return false
+		}
+		_, sequence := body.particle.(*schemaSequenceParticleInput)
+		return sequence
 	case *schemaComplexTypeDirectBodyInput:
 		if body == nil {
 			return false

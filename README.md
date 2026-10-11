@@ -20,13 +20,14 @@ precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
 built-in fields use `StrictInteger`, named fields use generated types; their
-attributes remain query-only. Named empty/choice/sequence/grouped owners
-expose built-in/facet-free `xs:ID` locals (Strict10: one ID); consumers reject.
-Grouped extensions retain refs/attributes over named empty bases; valid `0/0`
-omits particles and prohibited uses may leave no effective uses.
-See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), and [decision 0007](docs/decisions/0007-particle-occurrence.md).
+attributes remain query-only. Named empty/choice/sequence types and grouped/
+direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10:
+one effective ID). They retain ordered refs/uses over named empty bases; valid `0/0` omits
+particles, prohibited uses may leave none. `ValidateInstance` and `GenerateGo` reject even then.
+See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
-Direct choices/sequences and bounded attribute-free extensions expose built-in/named long locals; valid inline `0/0` omits, nonzero rejects.
+Direct choices/sequences and bounded extensions expose built-in/named long locals;
+extension choices are attribute-free. Inline `0/0` omits; nonzero rejects.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered

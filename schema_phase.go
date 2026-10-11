@@ -2896,6 +2896,7 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 	}
 	modelCount := 0
 	groupModel := false
+	sequenceModel := false
 	attributeCount := 0
 	openContentSeen := false
 	for _, node := range element.children {
@@ -2914,13 +2915,14 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 		case "choice", "sequence", "group":
 			modelCount++
 			groupModel = child.name.local == "group"
+			sequenceModel = child.name.local == "sequence"
 		case "attribute":
 			attributeCount++
 		default:
 			return false
 		}
 	}
-	return modelCount <= 1 && (attributeCount == 0 || modelCount == 1 && groupModel && !openContentSeen)
+	return modelCount <= 1 && (attributeCount == 0 || modelCount == 1 && (groupModel || sequenceModel) && !openContentSeen)
 }
 
 func schemaBooleanAttributeTrue(element *syntaxElement) bool {
@@ -3045,10 +3047,12 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	simpleInlineSeen := false
 	var particleUnsupported error
 	groupExtension := false
+	sequenceExtension := false
 	groupedAttributes := false
 	if complexContent && element.name.local == "extension" {
 		model := schemaComplexTypeModel(element)
 		groupExtension = model != nil && model.name.local == "group"
+		sequenceExtension = model != nil && model.name.local == "sequence"
 		if groupExtension {
 			for _, child := range children {
 				if child.name.local == "attribute" {
@@ -3150,10 +3154,10 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
 			}
-			if child.name.local == "attribute" && groupExtension {
+			if child.name.local == "attribute" && (groupExtension || sequenceExtension) {
 				childErr = schemaInvalidWithSpecRef(childErr, schemaAttributeUseSpecRef(version))
 			}
-			if child.name.local == "attribute" && complexContent && childErr == nil && !groupExtension {
+			if child.name.local == "attribute" && complexContent && childErr == nil && !groupExtension && !sequenceExtension {
 				childErr = newSchemaSyntaxUnsupported(child.loc, "local attribute declarations are not implemented")
 			}
 			if childErr != nil && !candidate.considerError(childErr) {

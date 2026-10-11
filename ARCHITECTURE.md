@@ -51,11 +51,11 @@ ordered identity constraints, XPath, namespace scopes, `Loc`s, and keyref target
 IDs/duplicates precede refer resolution; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`. Publication is atomic.
 
-`DeclaredType` is primitive. Bounded attribute-free complexContent extensions over
-named empty bases and restrictions over `xs:anyType` retain refs, base IDs/`Loc`s,
-and inherited `##other`/`lax` wildcards. Scalar simpleContent retains base/type/use
-`Loc`s and nil particle; restrictions reject. Bases are Boolean/string/integer/decimal
-or policy-gated `precisionDecimal`.
+Bounded complexContent extensions over empty named bases and restrictions over
+`xs:anyType` retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
+Direct-sequence extensions retain local uses; choice extensions are attribute-free.
+SimpleContent retains base/type/use
+`Loc`s and nil particle; restrictions reject. Bases are Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
 `nonNegativeInteger`; built-in/named `positiveInteger` and
@@ -75,12 +75,12 @@ built-in `positiveInteger`/`nonPositiveInteger` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0
 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
-AttributeUse keeps order, names, use/type/form `Loc`s, target IDs; grouped
-extensions resolve uses. Prohibited uses and `0/0` groups
-omit. Chameleon adopts; XSD 1.1 `targetNamespace` must match the container.
-Named empty/choice/sequence and grouped extensions admit built-in/facet-free
-named `xs:ID` locals. Strict10 rejects a second effective ID; inline/ref/value
-forms and consumers reject.
+AttributeUse retains order, names, type/use/form `Loc`s, IDs. Grouped extensions
+resolve group, uses/base; direct-sequence extensions resolve children then uses/base.
+`0/0` and prohibited uses omit. Chameleon adopts; XSD 1.1 `targetNamespace`
+must match. Named empty/choice/sequence and grouped/direct-sequence extensions
+admit built-in/facet-free `xs:ID` locals. Strict10 allows one effective ID;
+inline/ref/value forms and validation/generation reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
 Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; `string` admits,
