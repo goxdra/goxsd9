@@ -5406,7 +5406,12 @@ func validateNamedModelGroupChild(child *syntaxElement, version XSDVersion, mode
 	switch child.name.local {
 	case "element":
 		return validateNamedModelGroupElementChild(child, version, model, candidate)
-	case "group", "choice", "sequence", "any":
+	case "group":
+		if model == "choice" {
+			return stageSchemaCandidateError(candidate, schemaInvalidWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version)))
+		}
+		return validateNamedModelGroupUnsupportedChild(child, version, model, candidate)
+	case "choice", "sequence", "any":
 		return validateNamedModelGroupUnsupportedChild(child, version, model, candidate)
 	case "all":
 		return newSchemaCompositionDiagnostic(child.loc, model+" cannot contain an all particle")

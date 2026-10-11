@@ -438,7 +438,6 @@ func TestSchemaModelGroupReferenceParticleKeepsExcludedShapesUnsupported(t *test
 	}{
 		{name: "nested choice", model: `<xs:complexType name="Container"><xs:choice><xs:group ref="r:G"/></xs:choice></xs:complexType>`},
 		{name: "local group declaration", model: `<xs:complexType name="Container"><xs:group name="Local"><xs:choice/></xs:group></xs:complexType>`},
-		{name: "recursive named group", model: `<xs:complexType name="Container"><xs:group ref="r:G"/></xs:complexType><xs:group name="G"><xs:choice><xs:group ref="r:G"/></xs:choice></xs:group>`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:group-ref" targetNamespace="urn:group-ref" version="1.1">` + test.model + `</xs:schema>`

@@ -3000,6 +3000,7 @@ type schemaModelGroupReferenceParticleInput struct {
 }
 
 func (*schemaModelGroupReferenceParticleInput) schemaComplexTypeParticleInput() {}
+func (*schemaModelGroupReferenceParticleInput) schemaParticleTermInput()        {}
 
 type schemaElementParticleInput struct {
 	loc         Loc
@@ -4516,6 +4517,8 @@ func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaPar
 				clone.qnameConstraint = cloneSchemaWildcardQNameConstraint(term.qnameConstraint)
 				clones[index] = clone
 			}
+		case *schemaModelGroupReferenceParticleInput:
+			clones[index] = cloneSchemaModelGroupReferenceParticleInput(term)
 		default:
 			clones[index] = nil
 		}
