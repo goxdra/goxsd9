@@ -322,9 +322,11 @@
 // Strict10 rejects a second effective ID. Global ID refs, inline ID, ID
 // default/fixed/facets/lists/unions, other owners, validation, and generation
 // remain unsupported.
-// Local named/inline lists with atomic precisionDecimal items and two-member
-// unions of precisionDecimal then negativeInteger are also admitted; other
-// local varieties and explicit xs:int remain unsupported. Strict10 rejects
+// On attribute-bearing owners other than direct-sequence extensions, local
+// named/inline lists with atomic precisionDecimal items and two-member unions
+// of precisionDecimal then negativeInteger are admitted. Direct-sequence
+// extensions admit only existing atomic local-use types. Other local varieties
+// and explicit xs:int remain unsupported. Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
 // and effective use. Explicit form or attributeFormDefault selects qualified or
 // unqualified local names; XSD 1.1 local targetNamespace selects a namespace only

@@ -65,19 +65,19 @@ and local attributes exclude.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 need bounded list/union. Other derivatives/extensions are query-only;
 named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
-Syntax/occurrence/reference/policy gates precede mapping and `0/0` omission;
-errors keep cause/`Loc` and prevent `Schema`. Sequences resolve children first;
+Syntax/occurrence/policy precede mapping; child/use refs precede `0/0`/prohibited omission.
+Errors retain cause/`Loc`; no `Schema`. Extension sequences resolve children first;
 choices resolve refs once; named groups before omission. Refs retain
-QName/RefLoc/TargetID/order without expansion; broader consumers reject.
+QName/RefLoc/TargetID/order; broader consumers reject.
 Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
 built-in `positiveInteger`/`nonPositiveInteger` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0
 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
-AttributeUse retains order, names, type/use/form `Loc`s, IDs. Grouped extensions
-resolve group, uses/base; direct-sequence extensions resolve children then uses/base.
-`0/0` and prohibited uses omit. Chameleon adopts; XSD 1.1 `targetNamespace`
+AttributeUse retains order, names, type/use/form `Loc`s, IDs. Grouped:
+group → lexical uses → base; direct-sequence: children → lexical uses → base.
+`0/0`/prohibited uses omit. Chameleon adopts; XSD 1.1 `targetNamespace`
 must match. Named empty/choice/sequence and grouped/direct-sequence extensions
 admit built-in/facet-free `xs:ID` locals. Strict10 allows one effective ID;
 inline/ref/value forms and validation/generation reject.

@@ -371,3 +371,175 @@ func TestSequenceExtensionInlineAtomicUseAndConsumers(t *testing.T) {
 		t.Fatalf("generation: %v", generationErr)
 	}
 }
+
+//nolint:gocognit // Keep the owner-specific variety gate and provenance together.
+func TestSequenceExtensionRejectsLocalVarieties(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, test := range []struct {
+			name, outer, use, declaration, marker string
+			related                               []string
+		}{
+			{"inline list", "", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:precisionDecimal"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType><xs:list`, []string{`<xs:list`}},
+			{"inline union", "", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="xs:precisionDecimal xs:negativeInteger"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType><xs:union`, []string{`<xs:union`}},
+			{"named list", "", `<xs:attribute name="a" type="t:ListType"/>`, `<xs:simpleType name="ListType"><xs:list itemType="xs:precisionDecimal"/></xs:simpleType>`, `type="t:ListType"`, []string{`<xs:simpleType name="ListType"`, `<xs:list`}},
+			{"named union", "", `<xs:attribute name="a" type="t:UnionType"/>`, `<xs:simpleType name="UnionType"><xs:union memberTypes="xs:precisionDecimal xs:negativeInteger"/></xs:simpleType>`, `type="t:UnionType"`, []string{`<xs:simpleType name="UnionType"`, `<xs:union`}},
+			{"prohibited list", "", `<xs:attribute name="a" use="prohibited"><xs:simpleType><xs:list itemType="xs:precisionDecimal"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType><xs:list`, []string{`<xs:list`}},
+			{"zero union", ` minOccurs="0" maxOccurs="0"`, `<xs:attribute name="a" type="t:UnionType" use="prohibited"/>`, `<xs:simpleType name="UnionType"><xs:union memberTypes="xs:precisionDecimal xs:negativeInteger"/></xs:simpleType>`, `type="t:UnionType"`, []string{`<xs:simpleType name="UnionType"`, `<xs:union`}},
+		} {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				root := sequenceAttributeExtensionSchema("1.1", test.outer, `<xs:element name="v" type="xs:integer"/>`, test.use, ``)
+				root = strings.Replace(root, `</xs:schema>`, test.declaration+`</xs:schema>`, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err == nil {
+					t.Fatal("sequence extension admitted a local list or union")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.SpecRef() != schemaAttributeUseSpecRef(XSDVersion11) || diagnostic.Loc() != complexContentTestLoc(t, root, test.marker) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeUseUnsupported) {
+					t.Fatalf("diagnostic: %v, related=%v", err, diagnostic.Related())
+				}
+				wantRelated := make([]Loc, 0, len(test.related))
+				for _, marker := range test.related {
+					wantRelated = append(wantRelated, complexContentTestLoc(t, root, marker))
+				}
+				if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+					t.Fatalf("related = %v, want %v", diagnostic.Related(), wantRelated)
+				}
+			})
+		}
+	}
+}
+
+func TestSequenceExtensionInlineUseDiagnosticOrder(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		version := XSDVersion11
+		if policy == Strict10 {
+			version = XSDVersion10
+		}
+		for _, test := range []struct {
+			name, outer, members, uses, marker, code, spec string
+			cause                                          error
+		}{
+			{"child ref before inline use", "", `<xs:element ref="t:MissingElement"/>`, `<xs:attribute name="second"><xs:simpleType><xs:restriction base="t:SecondMissing"/></xs:simpleType></xs:attribute>`, `ref="t:MissingElement"`, diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(version), errSchemaElementReferenceUnresolved},
+			{"zero child ref before inline use", ` minOccurs="0" maxOccurs="0"`, `<xs:element ref="t:MissingElement"/>`, `<xs:attribute name="second" use="prohibited"><xs:simpleType><xs:restriction base="t:SecondMissing"/></xs:simpleType></xs:attribute>`, `ref="t:MissingElement"`, diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(version), errSchemaElementReferenceUnresolved},
+			{"first named use before inline use", "", ``, `<xs:attribute name="first" type="t:FirstMissing"/><xs:attribute name="second"><xs:simpleType><xs:restriction base="t:SecondMissing"/></xs:simpleType></xs:attribute>`, `type="t:FirstMissing"`, diagnosticSchemaAttributeTypeUnresolvedCode, schemaAttributeTypeSpecRef(version), errSchemaAttributeTypeUnresolved},
+			{"prohibited first use before inline use", ` minOccurs="0" maxOccurs="0"`, ``, `<xs:attribute name="first" type="t:FirstMissing" use="prohibited"/><xs:attribute name="second"><xs:simpleType><xs:restriction base="t:SecondMissing"/></xs:simpleType></xs:attribute>`, `type="t:FirstMissing"`, diagnosticSchemaAttributeTypeUnresolvedCode, schemaAttributeTypeSpecRef(version), errSchemaAttributeTypeUnresolved},
+		} {
+			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
+				root := sequenceAttributeExtensionSchema("1.0", test.outer, test.members, test.uses, ``)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err == nil {
+					t.Fatal("competing invalid extension passed")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code || diagnostic.Loc() != complexContentTestLoc(t, root, test.marker) || diagnostic.SpecRef() != test.spec || len(diagnostic.Related()) != 0 || !errors.Is(err, test.cause) {
+					t.Fatalf("diagnostic: %v, related=%v", err, diagnostic.Related())
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Preserve semantic exits before the owner-specific variety gate.
+func TestSequenceExtensionVarietySemanticGates(t *testing.T) {
+	for _, test := range []struct {
+		name, use, declaration, marker, code, spec string
+		policy                                     LanguagePolicy
+		class                                      FailureClass
+		feature                                    FeatureID
+		causes                                     []error
+		related                                    []string
+	}{
+		{"Strict10 inline list policy", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:precisionDecimal"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType><xs:list`, diagnosticSchemaPrecisionDecimalVersionCode, "xsd11-datatypes#dt-primitive", Strict10, FailureUnsupported, FeatureDatatypeFacets, []error{ErrUnsupported, errSchemaPrecisionDecimalVersion, errLanguagePolicyMismatch}, []string{`itemType="xs:precisionDecimal"`}},
+		{"bad inline union member", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="t:Missing"/></xs:simpleType></xs:attribute>`, "", `memberTypes="t:Missing"`, diagnosticSchemaSimpleTypeUnresolvedCode, schemaSimpleTypeSpecRef(XSDVersion11), Strict11, FailureInvalid, "", []error{errSchemaSimpleTypeBaseUnresolved}, nil},
+		{"restricted list", `<xs:attribute name="a" type="t:Restricted"/>`, `<xs:simpleType name="ListType"><xs:list itemType="xs:precisionDecimal"/></xs:simpleType><xs:simpleType name="Restricted"><xs:restriction base="t:ListType"/></xs:simpleType>`, `base="t:ListType"`, UnsupportedSchemaSyntaxCode, schemaSimpleTypeSpecRef(XSDVersion11), Strict11, FailureUnsupported, FeatureSchemaSyntax, []error{ErrUnsupported, errSchemaSimpleTypeRestrictionUnsupported}, []string{`<xs:list`}},
+		{"restricted union", `<xs:attribute name="a" type="t:Restricted"/>`, `<xs:simpleType name="UnionType"><xs:union memberTypes="xs:precisionDecimal xs:negativeInteger"/></xs:simpleType><xs:simpleType name="Restricted"><xs:restriction base="t:UnionType"/></xs:simpleType>`, `base="t:UnionType"`, UnsupportedSchemaSyntaxCode, schemaSimpleTypeSpecRef(XSDVersion11), Strict11, FailureUnsupported, FeatureSchemaSyntax, []error{ErrUnsupported, errSchemaSimpleTypeRestrictionUnsupported}, []string{`<xs:union`}},
+		{"global list ref", `<xs:attribute ref="t:global"/>`, `<xs:simpleType name="ListType"><xs:list itemType="xs:precisionDecimal"/></xs:simpleType><xs:attribute name="global" type="t:ListType"/>`, `type="t:ListType"`, UnsupportedSchemaSyntaxCode, schemaAttributeTypeSpecRef(XSDVersion11), Strict11, FailureUnsupported, FeatureSchemaSyntax, []error{ErrUnsupported, errSchemaAttributeTypeUnsupported}, nil},
+		{"global union ref", `<xs:attribute ref="t:global" use="prohibited"/>`, `<xs:simpleType name="UnionType"><xs:union memberTypes="xs:precisionDecimal xs:negativeInteger"/></xs:simpleType><xs:attribute name="global" type="t:UnionType"/>`, `type="t:UnionType"`, UnsupportedSchemaSyntaxCode, schemaAttributeTypeSpecRef(XSDVersion11), Strict11, FailureUnsupported, FeatureSchemaSyntax, []error{ErrUnsupported, errSchemaAttributeTypeUnsupported}, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := sequenceAttributeExtensionSchema("1.1", ` minOccurs="0" maxOccurs="0"`, `<xs:element name="v" type="xs:integer"/>`, test.use, ``)
+			root = strings.Replace(root, `</xs:schema>`, test.declaration+`</xs:schema>`, 1)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, test.policy)
+			if err == nil {
+				t.Fatal("semantic error passed")
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != test.class || diagnostic.Feature() != test.feature || diagnostic.Code() != test.code || diagnostic.SpecRef() != test.spec || diagnostic.Loc() != complexContentTestLoc(t, root, test.marker) {
+				t.Fatalf("diagnostic: %v, got %s/%s/%s/%s at %s related=%v, want %s/%s/%s/%s at %s", err, diagnostic.Class(), diagnostic.Feature(), diagnostic.Code(), diagnostic.SpecRef(), diagnostic.Loc(), diagnostic.Related(), test.class, test.feature, test.code, test.spec, complexContentTestLoc(t, root, test.marker))
+			}
+			for _, cause := range test.causes {
+				if !errors.Is(err, cause) {
+					t.Fatalf("diagnostic lost cause %v: %v", cause, err)
+				}
+			}
+			var wantRelated []Loc
+			for _, marker := range test.related {
+				wantRelated = append(wantRelated, complexContentTestLoc(t, root, marker))
+			}
+			if !reflect.DeepEqual(diagnostic.Related(), wantRelated) {
+				t.Fatalf("related = %v, want %v", diagnostic.Related(), wantRelated)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Verify both unaffected owner shapes and public variety facts.
+func TestOtherAttributeOwnersRetainLocalVarieties(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">
+  <xs:complexType name="Empty"><xs:attribute name="list"><xs:simpleType><xs:list itemType="xs:precisionDecimal"/></xs:simpleType></xs:attribute></xs:complexType>
+  <xs:complexType name="Direct"><xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence><xs:attribute name="union"><xs:simpleType><xs:union memberTypes="xs:precisionDecimal xs:negativeInteger"/></xs:simpleType></xs:attribute></xs:complexType>
+</xs:schema>`
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+		if err != nil {
+			t.Fatalf("%s other owner variety: %v", policy, err)
+		}
+		for _, component := range schema.Components() {
+			definition, ok := component.ComplexTypeDefinition()
+			if !ok || len(definition.AttributeUses()) != 1 {
+				t.Fatalf("%s component uses: %v", policy, component)
+			}
+			use, ok := definition.AttributeUses()[0].(LocalAttributeUse)
+			if !ok {
+				t.Fatalf("%s use: %T", policy, definition.AttributeUses()[0])
+			}
+			reference, ok := use.TypeReference()
+			if !ok || !reference.IsAnonymous() {
+				t.Fatalf("%s local variety reference: %v", policy, reference)
+			}
+		}
+	}
+}
+
+func TestSequenceExtensionDeferredInlineUseAndDuplicateGate(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+		version := XSDVersion11
+		if policy == Strict10 {
+			version = XSDVersion10
+		}
+		root := sequenceAttributeExtensionSchema("1.0", "", `<xs:element name="v" type="xs:integer"/>`, `<xs:attribute name="first" type="xs:boolean"/><xs:attribute name="second"><xs:simpleType><xs:restriction base="t:SecondMissing"/></xs:simpleType></xs:attribute>`, ``)
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+		if err == nil {
+			t.Fatalf("%s accepted unresolved inline use", policy)
+		}
+		assertZeroSchema(t, schema)
+		diagnostic := requireDiagnostic(t, err)
+		if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaSimpleTypeUnresolvedCode || diagnostic.Loc() != complexContentTestLoc(t, root, `base="t:SecondMissing"`) || diagnostic.SpecRef() != schemaSimpleTypeSpecRef(version) || len(diagnostic.Related()) != 0 || !errors.Is(err, errSchemaSimpleTypeBaseUnresolved) {
+			t.Fatalf("%s inline diagnostic: %v related=%v", policy, err, diagnostic.Related())
+		}
+
+		duplicate := sequenceAttributeExtensionSchema("1.0", ` minOccurs="0" maxOccurs="0"`, ``, `<xs:attribute name="first" type="xs:boolean"/><xs:attribute name="first"><xs:simpleType><xs:restriction base="t:SecondMissing"/></xs:simpleType></xs:attribute>`, ``)
+		schema, err = discoverTestSchemaWithPolicy(t, duplicate, nil, policy)
+		if err == nil {
+			t.Fatalf("%s accepted duplicate use", policy)
+		}
+		assertZeroSchema(t, schema)
+		diagnostic = requireDiagnostic(t, err)
+		if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaAttributeUseDuplicateCode || diagnostic.Loc() != complexContentTestLoc(t, duplicate, `<xs:attribute name="first"><xs:simpleType>`) || !reflect.DeepEqual(diagnostic.Related(), []Loc{complexContentTestLoc(t, duplicate, `<xs:attribute name="first" type="xs:boolean"`)}) || diagnostic.SpecRef() != schemaAttributeUseSpecRef(version) || !errors.Is(err, errSchemaAttributeUseDuplicate) {
+			t.Fatalf("%s duplicate diagnostic: %v related=%v", policy, err, diagnostic.Related())
+		}
+	}
+}

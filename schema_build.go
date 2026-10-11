@@ -3870,7 +3870,8 @@ func resolveSchemaAttributeSimpleTypes(resolver *schemaSimpleTypeResolver, recor
 				return err
 			}
 		}
-		if _, grouped := record.complexTypeBody().(*schemaComplexTypeGroupedExtensionBodyInput); grouped {
+		switch record.complexTypeBody().(type) {
+		case *schemaComplexTypeGroupedExtensionBodyInput, *schemaComplexTypeExtensionBodyInput:
 			continue
 		}
 		for _, attributeUse := range schemaComplexTypeAttributeUseInputs(record.complexTypeBody()) {
@@ -6842,6 +6843,9 @@ func resolveSchemaAttributeUseType(
 	if err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
+	if err := rejectSchemaSequenceExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
+		return schemaAttributeUseTypeResult{}, err
+	}
 	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
@@ -6866,6 +6870,29 @@ func resolveSchemaAttributeUseType(
 		result.hasTypeID = true
 	}
 	return result, nil
+}
+
+func rejectSchemaSequenceExtensionLocalVariety(
+	reference schemaSimpleTypeReferenceComponent,
+	owner schemaComponentRecord,
+	resolver *schemaSimpleTypeResolver,
+	typeLoc Loc,
+	version XSDVersion,
+) error {
+	if owner.complexType == nil || reference.variety == SimpleTypeVarietyAtomicRestriction {
+		return nil
+	}
+	extension, ok := owner.complexType.body.(*schemaComplexTypeExtensionBodyInput)
+	if !ok || len(extension.attributeUses) == 0 {
+		return nil
+	}
+	diagnostic := unsupportedSchemaAttributeUse(typeLoc, "direct-sequence extension local attribute list and union types are not implemented", version)
+	for _, loc := range resolver.simpleTypeReferenceRelatedLocations(reference) {
+		if loc != typeLoc {
+			diagnostic.related = append(diagnostic.related, loc)
+		}
+	}
+	return diagnostic
 }
 
 func resolveSchemaAttributeUseTypeReference(
