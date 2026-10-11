@@ -1019,6 +1019,12 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	if kind == ComponentKindElementDeclaration && attribute.name.local == "substitutionGroup" {
 		return "", validateSchemaElementSubstitutionGroupAttribute(element, attribute, version)
 	}
+	if kind == ComponentKindElementDeclaration &&
+		(attribute.name.local == "abstract" || attribute.name.local == "nillable") &&
+		len(syntaxAttributesByLocal(element, "type")) == 0 &&
+		inlineSimpleTypeChild(element) == nil && inlineComplexTypeChild(element) == nil {
+		return "", validateUntypedGlobalElementBooleanAttribute(attribute, version)
+	}
 	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
 	}
@@ -1083,6 +1089,27 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	default:
 		return "", newSchemaBridgeInvariant(attribute.loc, "global declaration attribute has an unknown status")
 	}
+}
+
+func validateUntypedGlobalElementBooleanAttribute(attribute syntaxAttribute, version XSDVersion) error {
+	value, err := schemaBooleanValue(attribute)
+	if err != nil {
+		return newDiagnostic(
+			FailureInvalid,
+			invalidSchemaCompositionCode,
+			attribute.loc,
+			"global element "+attribute.name.local+" has an invalid boolean value",
+			err,
+		)
+	}
+	if !value {
+		return nil
+	}
+	return newSchemaSyntaxUnsupportedForVersion(
+		attribute.loc,
+		fmt.Sprintf("global element attribute %q is not implemented", attribute.name.local),
+		version,
+	)
 }
 
 func implementedGlobalElementBooleanAttribute(element *syntaxElement, kind ComponentKind, local string) bool {

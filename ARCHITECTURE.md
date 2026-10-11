@@ -100,7 +100,7 @@ chameleon adoption, and `0/0` omission. Compatibility/Strict11 direct strict
 `xs:any` retains normalized `notQName` tokens, bindings, `Loc`, and sorted names.
 Inconsistent exclusions fail before omission; consumers/broader forms reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
-Global inline `mixed=false/0`, element `abstract=false/0`/`nillable=false/0` collapse to omission; true/1 reject, malformed values invalid with cause/`Loc`.
+Inline `mixed=false/0` and global element `abstract=false/0`/`nillable=false/0`, including untyped, equal omission; true/1 reject, malformed values retain cause/`Loc`.
 Compatibility/Strict11 omit valid `defaultAttributesApply`; Strict10 and schema `defaultAttributes` reject. No presence state or widened shapes/consumers.
 Inline IDs stay outside walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.

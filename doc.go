@@ -291,6 +291,9 @@
 // as omission under every policy. True/1 stays located unsupported, and malformed
 // Boolean values stay located invalid with their lexical cause; neither returns
 // a Schema.
+// Otherwise-supported global elements without a declared type accept those
+// same false spellings as omission. They retain no element-declaration view;
+// true/1 remain located unsupported, and existing shape limits apply.
 // On supported global inline complex types, unqualified defaultAttributesApply
 // true/false/1/0 is inert under Compatibility/Strict11 after XML whitespace
 // collapse. Strict10 reports a located edition mismatch; malformed Boolean
