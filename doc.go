@@ -345,10 +345,13 @@
 // bounded scalar simpleContent extension separately
 // admits Boolean/string/integer/decimal bases plus policy-gated precisionDecimal,
 // retaining base, type, and ordered-use locations with a nil particle. Local
-// value/default/fixed semantics, true inheritable, ref inheritable, and
-// attributeGroup expansion remain unsupported. Named local declarations in
-// supported direct complex types and grouped extensions admit inheritable=false/0
-// as omission in Compatibility/Strict11.
+// value/default/fixed semantics and attributeGroup expansion remain unsupported.
+// Compatibility/Strict11 admit inheritable=false/0 as omission on named local
+// declarations in direct named empty/choice/sequence/group complex types and
+// named grouped extensions. Strict10 rejects it; true/1 and explicit inheritable
+// on ref uses reject.
+// Direct all, anonymous inline, simpleContent, direct-sequence extension, and
+// attributeGroup owners remain excluded from this admission.
 // Validation supports local precisionDecimal atomic and bounded
 // variety uses on direct empty-content roots and direct sequences of global
 // element references to inline or named complex targets or named local complex

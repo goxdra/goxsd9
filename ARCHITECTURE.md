@@ -33,9 +33,8 @@ type Resolver interface {
 }
 ```
 
-Sources carry opaque identity, reader-closer, child context; resolvers may keep private base-location state.
-FIFO preserves context; parser leaves identities/locations opaque,
-opens no paths/network resources, resolves sequentially.
+Sources carry opaque identity, reader-closer, context; resolvers own base locations.
+FIFO preserves context; parser opens no resources and resolves sequentially.
 `Loc` uses one-based lines and Unicode-code-point columns.
 
 ## Diagnostics
@@ -58,12 +57,11 @@ SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
-`nonNegativeInteger`; built-in/named `positiveInteger` and
-`nonPositiveInteger` admit direct named-complex choice/sequence locals with
-bounds. Direct named-complex `all` admits built-ins; derivatives, extensions,
-and local attributes exclude.
+`nonNegativeInteger`. Direct named-complex choice/sequence also admits bounded
+built-in/named `positiveInteger`/`nonPositiveInteger`; direct `all` admits
+built-ins but excludes derivatives/extensions/local attributes.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
-need bounded list/union. Other derivatives/extensions are query-only;
+require bounded list/union. Other derivatives/extensions are query-only;
 named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
 Syntax/occurrence/policy precede mapping; child/use refs precede `0/0`/prohibited omission.
 Named-choice refs: opaque, resolved before omission; nested/all unsupported,
@@ -72,15 +70,15 @@ owning consumers: located unsupported diagnostics, nil Go output.
 Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
 built-in `positiveInteger`/`nonPositiveInteger` locals,
-and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0
-caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
+and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
-AttributeUse retains order, names, type/use/form `Loc`s, IDs. Grouped:
-group → lexical uses → base; direct-sequence: children → lexical uses → base.
-`0/0`/prohibited uses omit. Chameleon adopts; XSD 1.1 `targetNamespace`
-must match. Named empty/choice/sequence and grouped/direct-sequence extensions
-admit built-in/facet-free `xs:ID` locals. Strict10 allows one effective ID;
-inline/ref/value forms and validation/generation reject.
+AttributeUse retains ordered names, type/use/form `Loc`s, IDs; grouped: group → uses → base; direct-sequence: children → uses → base.
+`0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
+Compatibility/Strict11 treat `inheritable=false/0` as omission on named locals
+in named direct empty/choice/sequence/group or named grouped-extension owners.
+Strict10, true/1, explicit inheritable on refs, and other owners reject.
+Facet-free `xs:ID` in direct/grouped/sequence extensions
+stay query-only (Strict10: one); inline/ref/value forms and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
 Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; `string` admits,
@@ -102,8 +100,8 @@ chameleon adoption, and `0/0` omission. Compatibility/Strict11 direct strict
 `xs:any` retains normalized `notQName` tokens, bindings, `Loc`, and sorted names.
 Inconsistent exclusions fail before omission; consumers/broader forms reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
-Global inline `mixed=false/0` and element `abstract=false/0`/`nillable=false/0` collapse to omission; true/1 is unsupported, malformed invalid with cause/`Loc`.
-Compatibility/Strict11 omit valid `defaultAttributesApply` values; Strict10 rejects them. Schema `defaultAttributes` stays unsupported. Diagnostics stay located; no presence state or widened shapes/consumers.
+Global inline `mixed=false/0`, element `abstract=false/0`/`nillable=false/0` collapse to omission; true/1 reject, malformed values invalid with cause/`Loc`.
+Compatibility/Strict11 omit valid `defaultAttributesApply`; Strict10 and schema `defaultAttributes` reject. No presence state or widened shapes/consumers.
 Inline IDs stay outside walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
