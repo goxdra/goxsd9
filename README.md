@@ -14,16 +14,16 @@ immutable and deterministic. Identity constraints retain ordered XPath,
 namespaces, and targets; consumers reject. Atomic NCName enumerations,
 including inline attributes, are query-only; enumerated list/union members reject.
 
-`ValidateInstance(schema, sourceID, reader)` checks an instance, including
+`ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
 precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
-built-in fields use `StrictInteger`, named fields use generated types;
-attributes remain query-only. Named empty/choice/sequence types query built-in/facet-free
-`xs:ID` locals. Named grouped/direct-sequence extensions query them (Strict10:
-one effective ID), retaining ordered refs/uses over named empty bases. After checks, `0/0` omits
-particles; prohibited uses vanish. Validation/generation reject extensions even then.
+built-in fields use `StrictInteger`; named fields use generated types.
+Selected local precisionDecimal attributes validate; `GenerateGo` rejects attribute uses.
+Named empty/choice/sequence and grouped/direct-sequence extensions query
+built-in/facet-free `xs:ID` locals (Strict10: one effective ID), retaining ordered
+refs/uses over named empty bases; after checks, `0/0` particles and prohibited uses omit. Validation/generation reject extensions.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
