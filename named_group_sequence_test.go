@@ -330,7 +330,13 @@ func TestNamedGroupDirectSequenceRejectsInvisibleAndAmbiguousTargets(t *testing.
 			occurrences: occurrences,
 		}},
 	}
-	_, err = resolveSchemaModelGroupSequenceParticle(sequenceInput, owner, []schemaComponentRecord{owner, first, second}, map[QName][]int{name: {1, 2}}, map[SourceID][]SourceID{"root.xsd": {"root.xsd", "one.xsd", "two.xsd"}}, XSDVersion11)
+	resolver := schemaModelGroupResolver{
+		records:        []schemaComponentRecord{owner, first, second},
+		byName:         map[QName][]int{name: {1, 2}},
+		visibleSources: map[SourceID][]SourceID{"root.xsd": {"root.xsd", "one.xsd", "two.xsd"}},
+		version:        XSDVersion11,
+	}
+	_, err = resolver.resolveSequence(sequenceInput, owner)
 	if err == nil {
 		t.Fatal("ambiguous zero-range sequence reference returned a particle")
 	}
@@ -354,7 +360,6 @@ func TestNamedGroupDirectSequenceRejectsUnsupportedShapes(t *testing.T) {
 	}{
 		{name: "local element", model: `<xs:sequence><xs:element name="local" type="xs:integer"/></xs:sequence>`, marker: `<xs:element name="local"`},
 		{name: "nested choice", model: `<xs:sequence><xs:choice/></xs:sequence>`, marker: `<xs:choice`},
-		{name: "group reference", model: `<xs:sequence><xs:group ref="g:Other"/></xs:sequence>`, marker: `ref="g:Other"`},
 		{name: "wildcard", model: `<xs:sequence><xs:any/></xs:sequence>`, marker: `<xs:any`},
 		{name: "all model", model: `<xs:all/>`, marker: `<xs:all`},
 	} {
@@ -423,7 +428,13 @@ func TestNamedGroupSequenceResolutionPreservesExactOuterRange(t *testing.T) {
 			occurrences: member,
 		}},
 	}
-	particle, err := resolveSchemaModelGroupSequenceParticle(input, owner, []schemaComponentRecord{owner, target}, map[QName][]int{name: {1}}, map[SourceID][]SourceID{"root.xsd": {"root.xsd"}}, XSDVersion11)
+	resolver := schemaModelGroupResolver{
+		records:        []schemaComponentRecord{owner, target},
+		byName:         map[QName][]int{name: {1}},
+		visibleSources: map[SourceID][]SourceID{"root.xsd": {"root.xsd"}},
+		version:        XSDVersion11,
+	}
+	particle, err := resolver.resolveSequence(input, owner)
 	if err != nil {
 		t.Fatalf("resolve exact outer sequence range: %v", err)
 	}

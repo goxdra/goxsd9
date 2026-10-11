@@ -5426,10 +5426,7 @@ func validateNamedModelGroupChild(child *syntaxElement, version XSDVersion, mode
 	case "element":
 		return validateNamedModelGroupElementChild(child, version, model, candidate)
 	case "group":
-		if model == "choice" {
-			return stageSchemaCandidateError(candidate, schemaInvalidWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version)))
-		}
-		return validateNamedModelGroupUnsupportedChild(child, version, model, candidate)
+		return stageSchemaCandidateError(candidate, schemaInvalidWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version)))
 	case "choice", "sequence", "any":
 		return validateNamedModelGroupUnsupportedChild(child, version, model, candidate)
 	case "all":

@@ -283,7 +283,6 @@ func TestNamedGroupChoiceReferenceExclusionsStayLocated(t *testing.T) {
 	}{
 		{"nested choice", `<xs:group name="Outer"><xs:choice><xs:choice><xs:group ref="g:Target"/></xs:choice></xs:choice></xs:group>`, `ref="g:Target"`},
 		{"nested sequence", `<xs:group name="Outer"><xs:choice><xs:sequence><xs:group ref="g:Target"/></xs:sequence></xs:choice></xs:group>`, `ref="g:Target"`},
-		{"named sequence reference", `<xs:group name="Outer"><xs:sequence><xs:group ref="g:Target"/></xs:sequence></xs:group>`, `ref="g:Target"`},
 		{"direct complex choice reference", `<xs:complexType name="Container"><xs:choice><xs:group ref="g:Target"/></xs:choice></xs:complexType>`, `ref="g:Target"`},
 		{"inline complex choice reference", `<xs:element name="root"><xs:complexType><xs:choice><xs:group ref="g:Target"/></xs:choice></xs:complexType></xs:element>`, `ref="g:Target"`},
 		{"attribute group composition", `<xs:attributeGroup name="Attrs"><xs:attributeGroup ref="g:Other"/></xs:attributeGroup>`, `<xs:attributeGroup ref=`},

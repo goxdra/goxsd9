@@ -392,12 +392,12 @@
 // anonymous targets, substitution, nested, recursive, and broader forms are consumer
 // exclusions; query references retain their resolved facts. Direct model-group
 // references retain ordered facts and TargetID. Named global model-group choices
-// also admit direct, acyclic references to supported named choices or sequences
+// and sequences admit direct, acyclic references to supported named choices or
 // alongside element references. Their members remain opaque. Nested anonymous
 // compositors, local and broader model-group references remain unsupported.
 // Direct/indirect named-group cycles fail schema admission with invalid XSD3062
-// at the closing ref and related path; no Schema is published. Named global
-// model-group sequences expose element references only.
+// at the closing ref and related path; no Schema is published. Reference targets
+// are resolved and traversed before an effective 0/0 term is omitted.
 // Top-level direct model-group references on named complex types and bounded
 // attribute-free extensions over named empty-content bases or named
 // complexContent/restriction over built-in xs:anyType with representable

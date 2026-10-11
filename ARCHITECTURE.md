@@ -64,7 +64,7 @@ Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 require bounded list/union. Other derivatives/extensions are query-only;
 named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
 Syntax/occurrence/policy precede mapping; child/use refs precede `0/0`/prohibited omission.
-Named-choice refs: opaque, resolved before omission; nested/all unsupported,
+Named choice/sequence refs: opaque, resolved; nested/all excluded,
 cycles invalid XSD3062 at closing `ref`. QName/RefLoc/TargetID/order query-only;
 owning consumers: located unsupported diagnostics, nil Go output.
 Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
