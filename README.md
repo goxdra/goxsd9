@@ -22,7 +22,8 @@ never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:lon
 built-in fields use `StrictInteger`, named fields use generated types; their
 attributes remain query-only. Named empty/choice/sequence/grouped owners
 expose built-in/facet-free `xs:ID` locals (Strict10: one ID); consumers reject.
-Grouped extensions retain refs/attributes over named empty bases; valid `0/0`
+Grouped and direct-sequence extensions retain refs/ordered local
+attributes over named empty bases; valid `0/0`
 omits particles and prohibited uses may leave no effective uses.
 See the [package contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), and [decision 0007](docs/decisions/0007-particle-occurrence.md).
 

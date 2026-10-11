@@ -84,13 +84,13 @@
 // supported named xs:token/xs:NMTOKEN particles for named global and global
 // inline complex types, and atomic xs:string particles for named global
 // complex types, global element inline complex types, and supported bounded
-// attribute-free extensions. Inline complexes retain anonymous IDs and query facts
+// extensions. Inline complexes retain anonymous IDs and query facts
 // outside the global walk; supported precisionDecimal attribute roots and
 // ordered sequence targets validate, while generation rejects them. The model also admits
 // built-in/named/inline xs:negativeInteger and built-in or supported
 // named-effective xs:long/xs:int/xs:short/xs:byte/xs:unsignedLong/
 // xs:nonNegativeInteger particles in
-// supported attribute-free extension choices and sequences under every policy.
+// supported extension choices and sequences under every policy.
 // Direct-sequence negativeInteger validates beside bounded list/union; long-family and
 // nonNegativeInteger remain query-only. Generation rejects all these particles.
 // Direct and supported extension
@@ -108,7 +108,7 @@
 // exposes local inline anonymous atomic
 // Boolean, integer, decimal, and
 // negativeInteger restrictions
-// in direct choices/sequences and bounded attribute-free extensions under Compatibility,
+// in direct choices/sequences and bounded extensions under Compatibility,
 // Strict10, and Strict11. Their immutable
 // TypeReference/AnonymousType views retain SimpleTypeID ownership through
 // AnonymousID/NodeID, base QName context, effective facets, source locations, and
@@ -147,7 +147,7 @@
 // return located diagnostics and no Schema.
 // ValidateInstance rejects modeled all
 // particles; GenerateGo returns nil output with an unsupported diagnostic.
-// In supported direct choices, direct sequences, and bounded attribute-free
+// In supported direct choices, direct sequences, and bounded
 // extensions, local declared, named, inline, and anonymous restrictions in the
 // integer/negativeInteger branch are admitted at the mapped non-0/0 boundary
 // when their effective atomic kind is integer or negativeInteger through named,
@@ -169,7 +169,7 @@
 // a resolved 0/0 local term omits after applicable gates.
 // Inline/anonymous long/int/short/byte/unsignedLong/nonNegativeInteger are mapped schema exclusions at their
 // type/simpleType Loc; supported direct choices, direct sequences, and bounded
-// attribute-free extensions admit built-in and named-effective
+// extensions admit built-in and named-effective
 // long/int/short/byte/unsignedLong/nonNegativeInteger as query-only forms.
 // The written base QName/base Loc, use-site/type/facet Locs,
 // named ID versus built-in zero identity, ownership, and resolved facts remain
@@ -197,7 +197,7 @@
 // restrictions fail at the local type location with no schema. NCName instance
 // validation and Go generation remain unsupported.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
-// named local particles in direct choices, sequences, and bounded attribute-free
+// named local particles in direct choices, sequences, and bounded
 // extensions are modeled and queryable. Direct named-complex xs:all also models
 // built-in/named effective token/NMTOKEN locals; inline token/NMTOKEN locals remain excluded there,
 // and both consumers reject xs:all. Only non-extension default-occurrence
@@ -306,13 +306,15 @@
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
 // anonymous atomic uses retain AnonymousID/NodeID. One named complexContent
 // extension composes a direct opaque named-group reference, ordered local uses,
-// and the supported named empty base; broader attribute-bearing extensions
-// remain unsupported. Direct model-group references and grouped extensions
+// and the supported named empty base. Direct-sequence extensions compose their
+// supported ordered members and local uses over the same base; broader
+// attribute-bearing extensions remain unsupported. Direct model-group references and grouped extensions
 // require supported named complex owners. Global inline direct-group and
 // anonymous grouped-extension owners remain unsupported, including applicable
 // 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
-// Named complex owners with empty, direct choice, direct sequence, or grouped
+// Named complex owners with empty, direct choice, direct sequence, grouped, or
+// direct-sequence extension
 // extension bodies also admit explicit built-in or facet-free named effective
 // xs:ID local uses for queries.
 // Strict10 rejects a second effective ID. Global ID refs, inline ID, ID

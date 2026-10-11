@@ -1500,6 +1500,11 @@ func (definition ComplexTypeDefinition) AttributeUses() []AttributeUse {
 			return nil
 		}
 		return append([]AttributeUse(nil), body.attributeUses...)
+	case *schemaComplexTypeExtensionBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return append([]AttributeUse(nil), body.attributeUses...)
 	case *schemaComplexTypeGroupedExtensionBodyComponent:
 		if body == nil {
 			return nil
@@ -2914,6 +2919,7 @@ type schemaComplexTypeExtensionBodyInput struct {
 	extensionLoc      Loc
 	base              schemaComplexTypeReferenceInput
 	particle          schemaComplexTypeParticleInput
+	attributeUses     []schemaAttributeUseInput
 }
 
 func (*schemaComplexTypeExtensionBodyInput) schemaComplexTypeBodyInput() {}
@@ -3185,6 +3191,7 @@ type schemaComplexTypeExtensionBodyComponent struct {
 	extensionLoc      Loc
 	base              schemaComplexTypeReferenceComponent
 	particle          Particle
+	attributeUses     []AttributeUse
 	anyAttribute      *schemaAnyAttributeComponent
 }
 
@@ -3852,6 +3859,7 @@ func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) 
 			extensionLoc:      body.extensionLoc,
 			base:              body.base,
 			particle:          body.particle,
+			attributeUses:     append([]AttributeUse(nil), body.attributeUses...),
 			anyAttribute:      completeSchemaAnyAttribute(body.anyAttribute),
 		}, nil
 	case *schemaComplexTypeGroupedExtensionBodyResult:
@@ -3973,6 +3981,7 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			extensionLoc:      body.extensionLoc,
 			base:              body.base,
 			particle:          cloneSchemaComplexTypeParticleInput(body.particle),
+			attributeUses:     cloneSchemaAttributeUseInputs(body.attributeUses),
 		}
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		if body == nil {
@@ -4397,6 +4406,11 @@ func schemaComplexTypeAttributeUseInputs(body schemaComplexTypeBodyInput) []sche
 		}
 		return typed.attributeUses
 	case *schemaComplexTypeSimpleContentBodyInput:
+		if typed == nil {
+			return nil
+		}
+		return typed.attributeUses
+	case *schemaComplexTypeExtensionBodyInput:
 		if typed == nil {
 			return nil
 		}

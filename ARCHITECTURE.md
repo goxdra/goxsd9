@@ -51,11 +51,11 @@ ordered identity constraints, XPath, namespace scopes, `Loc`s, and keyref target
 IDs/duplicates precede refer resolution; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`. Publication is atomic.
 
-`DeclaredType` is primitive. Bounded attribute-free complexContent extensions over
-named empty bases and restrictions over `xs:anyType` retain refs, base IDs/`Loc`s,
-and inherited `##other`/`lax` wildcards. Scalar simpleContent retains base/type/use
-`Loc`s and nil particle; restrictions reject. Bases are Boolean/string/integer/decimal
-or policy-gated `precisionDecimal`.
+Bounded complexContent extensions over empty named bases and restrictions over
+`xs:anyType` retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
+Direct-sequence extensions retain local uses; choice extensions are attribute-free.
+Scalar simpleContent retains base/type/use
+`Loc`s and nil particle; restrictions reject. Bases are Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
 `nonNegativeInteger`; built-in/named `positiveInteger` and
