@@ -312,8 +312,9 @@
 // uses require a named complex owner and compose supported ordered members
 // over the same base. Anonymous inline owners return an unsupported diagnostic
 // at the extension Loc, even for a 0/0 sequence. Broader attribute-bearing
-// extensions remain unsupported. Direct model-group references and grouped extensions
-// require supported named complex owners. Global inline direct-group and
+// extensions remain unsupported. Top-level direct model-group references on
+// complex types, including grouped extensions, require supported named complex
+// owners. Global inline direct-group and
 // anonymous grouped-extension owners remain unsupported, including applicable
 // 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
