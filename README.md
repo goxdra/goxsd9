@@ -1,6 +1,6 @@
 # goxsd9
 
-goxsd9 parses XML Schema into immutable components for queries, instance validation,
+goxsd9 parses XML Schema into immutable components for queries, validation,
 and Go generation. Unsupported features return located diagnostics without partial output.
 
 ## Library
@@ -19,15 +19,15 @@ built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
 precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
-built-in fields use `StrictInteger`, named fields use generated types; their
+built-in fields use `StrictInteger`, named fields use generated types;
 attributes remain query-only. Named empty/choice/sequence types query built-in/facet-free
 `xs:ID` locals. Named grouped/direct-sequence extensions query them (Strict10:
-one effective ID), retaining ordered refs/uses over named empty bases. `0/0` omits
-particles; prohibited uses may leave none. `ValidateInstance` and `GenerateGo` reject extensions even then.
+one effective ID), retaining ordered refs/uses over named empty bases. After checks, `0/0` omits
+particles; prohibited uses vanish. Validation/generation reject extensions even then.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
-extension choices are attribute-free. Inline `0/0` omits; nonzero rejects.
+extension choices are attribute-free. Valid inline `0/0` omits after semantic checks; nonzero rejects.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
