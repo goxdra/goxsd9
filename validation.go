@@ -239,18 +239,16 @@ type instanceChoiceProgram struct {
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with
 // element/particle locations and may include the anonymous type location in
-// related facts. Extension checks without an effective AttributeUse or present
-// group-reference particle run before target inspection at the extension boundary; they
-// retain declaration/definition owners and complex-content/extension/base/
-// particle (and anyAttribute, when present) related locations without an
-// anonymous type location. The choice path uses the extension boundary as
-// primary; the streaming sequence path keeps the instance root as primary.
-// Direct and grouped model-group-reference bodies with AttributeUse facts hit the
-// AttributeUse consumer gate first: the first use's Loc is primary, with the
-// declaration/definition and AttributeUse locations related. When no earlier
-// AttributeUse gate applies, present direct and extension model-group-reference
-// particles use the group RefLoc as primary and retain the group particle and
-// any supplied extension context in related facts.
+// related facts. A present extension sequence rejects at the instance root
+// before its use or target checks. It retains declaration/definition owners
+// and complex-content/extension/base/particle (and anyAttribute, when present)
+// related locations without an anonymous type location. In the nonstreaming
+// choice/omitted-sequence path, effective AttributeUse facts reject at the
+// first use Loc. Without effective uses, non-group extensions reject at the
+// extension Loc and present direct or extension group references at group
+// RefLoc. Use diagnostics relate declaration/definition and AttributeUse
+// locations; group diagnostics relate the group particle and supplied
+// extension context.
 // Mixed Boolean/numeric choices or sequences, mixed token/non-token or
 // NMTOKEN/non-NMTOKEN choices or sequences remain unsupported.
 // Comments and processing instructions are ignored by the decoder.
