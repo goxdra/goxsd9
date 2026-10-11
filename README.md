@@ -20,10 +20,10 @@ precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
 built-in fields use `StrictInteger`, named fields use generated types; their
-attributes remain query-only. Named empty/choice/sequence types and grouped/
-direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10:
-one effective ID). They retain ordered refs/uses over named empty bases; valid `0/0` omits
-particles, prohibited uses may leave none. `ValidateInstance` and `GenerateGo` reject even then.
+attributes remain query-only. Named empty/choice/sequence types query built-in/facet-free
+`xs:ID` locals. Named grouped/direct-sequence extensions query them (Strict10:
+one effective ID), retaining ordered refs/uses over named empty bases. `0/0` omits
+particles; prohibited uses may leave none. `ValidateInstance` and `GenerateGo` reject extensions even then.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;

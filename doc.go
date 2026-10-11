@@ -307,9 +307,11 @@
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
 // anonymous atomic uses retain AnonymousID/NodeID. One named complexContent
 // extension composes a direct opaque named-group reference, ordered local uses,
-// and the supported named empty base. Direct-sequence extensions compose their
-// supported ordered members and local uses over the same base; broader
-// attribute-bearing extensions remain unsupported. Direct model-group references and grouped extensions
+// and the supported named empty base. Direct-sequence extensions with local
+// uses require a named complex owner and compose supported ordered members
+// over the same base. Anonymous inline owners return an unsupported diagnostic
+// at the extension Loc, even for a 0/0 sequence. Broader attribute-bearing
+// extensions remain unsupported. Direct model-group references and grouped extensions
 // require supported named complex owners. Global inline direct-group and
 // anonymous grouped-extension owners remain unsupported, including applicable
 // 0/0 occurrences. Local and referenced
