@@ -137,10 +137,10 @@ Forward, included, imported, chameleon, repeated, and cyclic discovery graphs
 use existing opaque source identity, visibility, and sequential resolver rules.
 An inaccessible or ambiguous target does not become visible because a map
 happens to expose it. Discovery identity cycles remain interned; complex-base
-and simple-type cycles fail at their existing located diagnostics. Named-choice
-group dependencies are checked for cycles before publication, even when grouped
-extensions keep targets opaque. Target members are not expanded; attributeGroup
-recursion remains outside this boundary.
+and simple-type cycles fail at their existing located diagnostics. Named choice
+and sequence group dependencies fail XSD3062 on cycles before publication, even
+when grouped extensions keep targets opaque. Target members are not expanded;
+attributeGroup recursion remains outside this boundary.
 
 ## Classification and axes
 

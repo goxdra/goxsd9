@@ -2365,7 +2365,7 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 		if !ok || child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaNamedModelGroupChoiceTermInput(child, facts, version)
+		alternative, err := schemaNamedModelGroupTermInput(child, facts, version, "choice")
 		if err != nil {
 			return nil, err
 		}
@@ -2374,7 +2374,7 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 	return &schemaModelGroupInput{particle: choice}, nil
 }
 
-func schemaNamedModelGroupChoiceTermInput(child *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (schemaParticleTermInput, error) {
+func schemaNamedModelGroupTermInput(child *syntaxElement, facts schemaDocumentFacts, version XSDVersion, model string) (schemaParticleTermInput, error) {
 	if child.name.local == "group" {
 		occurrences, err := schemaParticleOccurrenceRange(child, version)
 		if err != nil {
@@ -2385,7 +2385,7 @@ func schemaNamedModelGroupChoiceTermInput(child *syntaxElement, facts schemaDocu
 	if child.name.local != "element" {
 		return nil, newSchemaSyntaxUnsupportedForVersion(
 			child.loc,
-			fmt.Sprintf("named model-group choice child <%s> is not implemented", child.name.local),
+			fmt.Sprintf("named model-group %s child <%s> is not implemented", model, child.name.local),
 			version,
 		)
 	}
@@ -2394,7 +2394,7 @@ func schemaNamedModelGroupChoiceTermInput(child *syntaxElement, facts schemaDocu
 		return nil, err
 	}
 	if element.reference == nil {
-		return nil, newSchemaSyntaxUnsupportedForVersion(child.loc, "named model-group choices require global element references", version)
+		return nil, newSchemaSyntaxUnsupportedForVersion(child.loc, "named model-group "+model+" requires global element references", version)
 	}
 	return element, nil
 }
@@ -2414,23 +2414,9 @@ func schemaModelGroupSequenceInputFromElementWithFacts(element *syntaxElement, f
 		if !ok || child.name.local == "annotation" {
 			continue
 		}
-		if child.name.local != "element" {
-			return nil, newSchemaSyntaxUnsupportedForVersion(
-				child.loc,
-				fmt.Sprintf("named model-group sequence child <%s> is not implemented", child.name.local),
-				version,
-			)
-		}
-		particle, particleErr := schemaElementParticleInputFromElementWithFacts(child, facts, version, false, false)
+		particle, particleErr := schemaNamedModelGroupTermInput(child, facts, version, "sequence")
 		if particleErr != nil {
 			return nil, particleErr
-		}
-		if particle.reference == nil {
-			return nil, newSchemaSyntaxUnsupportedForVersion(
-				child.loc,
-				"named model-group sequences require global element references",
-				version,
-			)
 		}
 		sequence.particles = append(sequence.particles, particle)
 	}
@@ -8119,10 +8105,7 @@ func (resolver *schemaModelGroupResolver) visit(index int, incoming Loc) error {
 		if input == nil {
 			return newSchemaBridgeInvariant(record.loc, "model group sequence particle input is nil")
 		}
-		if termsErr := schemaModelGroupParticleTermsAreElements(input.particles, input.loc); termsErr != nil {
-			return termsErr
-		}
-		particle, err = resolveSchemaModelGroupSequenceParticle(input, record, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+		particle, err = resolver.resolveSequence(input, record)
 	default:
 		return newSchemaBridgeInvariant(record.loc, "model group has an unknown particle input")
 	}
@@ -8213,7 +8196,7 @@ func (resolver *schemaModelGroupResolver) resolveChoiceElement(input schemaEleme
 
 func (resolver *schemaModelGroupResolver) resolveChoiceGroup(input *schemaModelGroupReferenceParticleInput, owner schemaComponentRecord) (Particle, error) {
 	if input == nil || input.reference == nil {
-		return nil, newSchemaBridgeInvariant(owner.loc, "model group choice has a nil group reference input")
+		return nil, newSchemaBridgeInvariant(owner.loc, "model group has a nil group reference input")
 	}
 	targetIndex, err := schemaModelGroupReferenceTarget(input, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
 	if err != nil {
@@ -8225,65 +8208,17 @@ func (resolver *schemaModelGroupResolver) resolveChoiceGroup(input *schemaModelG
 	return newSchemaModelGroupReferenceParticle(input, resolver.records[targetIndex]), nil
 }
 
-func schemaModelGroupParticleTermsAreElements(terms []schemaParticleTermInput, loc Loc) error {
-	for _, term := range terms {
-		switch typed := term.(type) {
-		case schemaElementParticleInput:
-		case *schemaElementParticleInput:
-			if typed == nil {
-				return newSchemaBridgeInvariant(loc, "model group has a nil element particle input")
-			}
-		default:
-			return newSchemaBridgeInvariant(loc, "model group has a non-element particle input")
-		}
-	}
-	return nil
-}
-
-func resolveSchemaModelGroupSequenceParticle(
-	input *schemaSequenceParticleInput,
-	owner schemaComponentRecord,
-	records []schemaComponentRecord,
-	byName map[QName][]int,
-	visibleSources map[SourceID][]SourceID,
-	version XSDVersion,
-) (Particle, error) {
+func (resolver *schemaModelGroupResolver) resolveSequence(input *schemaSequenceParticleInput, owner schemaComponentRecord) (Particle, error) {
 	particles := make([]Particle, 0, len(input.particles))
 	seenReferences := make(map[QName]Loc)
 	for _, termInput := range input.particles {
-		elementInput, ok := schemaElementParticleInputValue(termInput)
-		if !ok || elementInput.reference == nil {
-			return nil, newSchemaBridgeInvariant(input.loc, "model group sequence has a non-reference element particle input")
-		}
-		reference := elementInput.reference
-		particle, err := resolveSchemaElementReferenceParticle(
-			elementInput,
-			owner,
-			records,
-			byName,
-			visibleSources,
-			version,
-		)
+		particle, err := resolver.resolveSequenceTerm(termInput, owner, seenReferences, input.loc)
 		if err != nil {
 			return nil, err
 		}
-		firstLoc, seen := seenReferences[reference.name]
-		if seen {
-			return nil, newSchemaElementReferenceDuplicateDiagnosticForModel(
-				reference,
-				firstLoc,
-				version,
-				"sequence",
-			)
+		if particle != nil {
+			particles = append(particles, particle)
 		}
-		seenReferences[reference.name] = reference.loc
-		if !elementInput.occurrences.mapsToParticle() {
-			continue
-		}
-		if particle == nil {
-			return nil, newSchemaBridgeInvariant(input.loc, "model group sequence reference resolved to no particle")
-		}
-		particles = append(particles, particle)
 	}
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
@@ -8294,6 +8229,36 @@ func resolveSchemaModelGroupSequenceParticle(
 		particles:   particles,
 	}
 	return SequenceParticle{facts: sequence}, nil
+}
+
+func (resolver *schemaModelGroupResolver) resolveSequenceTerm(term schemaParticleTermInput, owner schemaComponentRecord, seen map[QName]Loc, loc Loc) (Particle, error) {
+	if group, ok := term.(*schemaModelGroupReferenceParticleInput); ok {
+		return resolver.resolveChoiceGroup(group, owner)
+	}
+	element, ok := schemaElementParticleInputValue(term)
+	if !ok || element.reference == nil {
+		return nil, newSchemaBridgeInvariant(loc, "model group sequence has an unsupported term input")
+	}
+	return resolver.resolveSequenceElement(element, owner, seen)
+}
+
+func (resolver *schemaModelGroupResolver) resolveSequenceElement(input schemaElementParticleInput, owner schemaComponentRecord, seen map[QName]Loc) (Particle, error) {
+	particle, err := resolveSchemaElementReferenceParticle(input, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+	if err != nil {
+		return nil, err
+	}
+	reference := input.reference
+	if firstLoc, duplicate := seen[reference.name]; duplicate {
+		return nil, newSchemaElementReferenceDuplicateDiagnosticForModel(reference, firstLoc, resolver.version, "sequence")
+	}
+	seen[reference.name] = reference.loc
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	if particle == nil {
+		return nil, newSchemaBridgeInvariant(input.loc, "model group sequence reference resolved to no particle")
+	}
+	return particle, nil
 }
 
 func resolveSchemaComplexTypeParticle(
