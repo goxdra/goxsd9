@@ -2719,7 +2719,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			attributesSeen = true
 			childErr := validateAttributeGroupReference(child)
 			if child.name.local == "attribute" {
-				childErr = validateLocalAttribute(child, version)
+				childErr = validateLocalAttribute(child, version, directNamedComplexAttributeOwner(parent))
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
@@ -2797,7 +2797,7 @@ func validateComplexTypeContentChild(parent, element *syntaxElement, version XSD
 			return newSchemaCompositionDiagnostic(child.loc, element.name.local+" permits exactly one derivation child")
 		}
 		derivationSeen = true
-		if err := validateComplexDerivation(child, version, element.name.local == "complexContent", element.name.local == "simpleContent" && child.name.local == "restriction"); err != nil && !candidate.considerError(err) {
+		if err := validateComplexDerivation(child, version, element.name.local == "complexContent", element.name.local == "simpleContent" && child.name.local == "restriction", len(syntaxAttributesByLocal(parent, "name")) == 1); err != nil && !candidate.considerError(err) {
 			return err
 		}
 	}
@@ -2972,7 +2972,7 @@ func validateComplexTypeContentAttributes(element *syntaxElement, candidate *sch
 }
 
 //nolint:gocognit,funlen // Keep derivation ordering and recursive preflight explicit.
-func validateComplexDerivation(element *syntaxElement, version XSDVersion, complexContent, simpleRestriction bool) error {
+func validateComplexDerivation(element *syntaxElement, version XSDVersion, complexContent, simpleRestriction, namedOwner bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	extensionSpecRef := ""
 	if complexContent && element.name.local == "extension" {
@@ -3150,7 +3150,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return compositionDiagnostic(child.loc, element.name.local+" attributes must precede anyAttribute and assert")
 			}
 			attributesSeen = true
-			childErr := validateLocalAttribute(child, version)
+			childErr := validateLocalAttribute(child, version, namedOwner && groupExtension)
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
 			}
@@ -3376,8 +3376,24 @@ func validateOpenContentAttribute(attribute syntaxAttribute, owner string, defau
 	return nil
 }
 
+func directNamedComplexAttributeOwner(parent *syntaxElement) bool {
+	if len(syntaxAttributesByLocal(parent, "name")) != 1 {
+		return false
+	}
+	model := schemaComplexTypeModel(parent)
+	if model == nil {
+		return true
+	}
+	switch model.name.local {
+	case "choice", "group", "sequence":
+		return true
+	default:
+		return false
+	}
+}
+
 //nolint:gocognit,funlen // Keep local attribute grammar and version checks together.
-func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
+func validateLocalAttribute(element *syntaxElement, version XSDVersion, admitFalseInheritable bool) error {
 	if err := validateUniqueSchemaAttributes(element, "name", "ref", "type", "use", "form", "default", "fixed", "targetNamespace", "inheritable", "id"); err != nil {
 		return err
 	}
@@ -3440,8 +3456,11 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 				))
 			}
 		case "inheritable":
-			if err := validateSchemaBoolean(attribute); err != nil {
-				return err
+			value, err := ParseStrictBooleanFor(version, attribute.value, attribute.loc)
+			if err != nil {
+				diagnostic := newDiagnostic(FailureInvalid, invalidSchemaCompositionCode, attribute.loc, "attribute \"inheritable\" has an invalid boolean value", err)
+				diagnostic.specRef = strictBooleanSpecRef(version)
+				return diagnostic
 			}
 			if version == XSDVersion10 {
 				candidate.considerError(newXSD11FeatureMismatch(
@@ -3451,7 +3470,7 @@ func validateLocalAttribute(element *syntaxElement, version XSDVersion) error {
 					"local attribute inheritable is an XSD 1.1-only construct",
 				))
 			}
-			if version != XSDVersion10 {
+			if version != XSDVersion10 && (value.value || !admitFalseInheritable || refSeen || !nameSeen) {
 				candidate.considerAtVersion(attribute.loc, "local attribute inheritable is not implemented", version)
 			}
 		case "id":
@@ -5507,7 +5526,7 @@ func validateAttributeGroupGlobalChildren(parent *syntaxElement, children []*syn
 			if anyAttributeSeen {
 				return newSchemaCompositionDiagnostic(child.loc, "attributeGroup attributes must precede anyAttribute")
 			}
-			childErr := validateLocalAttribute(child, version)
+			childErr := validateLocalAttribute(child, version, false)
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
 			}
