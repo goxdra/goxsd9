@@ -138,7 +138,8 @@
 // forms use the admission-then-absence rule under every policy.
 // A direct xs:all on a named complex type retains one immutable ordered
 // AllParticle member view of local integer/decimal/Boolean declarations,
-// built-in string/positiveInteger/nonPositiveInteger, built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/int/short/byte/unsignedLong
+// built-in string and built-in/named effective token/NMTOKEN/negativeInteger/
+// positiveInteger/nonPositiveInteger/nonNegativeInteger/long/int/short/byte/unsignedLong
 // declarations, and element references. Member order is lexical
 // for queries; matching remains unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits
 // exact general member bounds. Resolved 0/0 terms omit after their gates;
@@ -520,8 +521,8 @@
 // Admitted local built-in/named long/int/short/byte/unsignedLong/
 // nonNegativeInteger particles and direct named-complex choice/sequence
 // built-in positiveInteger/nonPositiveInteger and named effective
-// positiveInteger/nonPositiveInteger locals, plus explicit built-in locals of
-// those types in direct named-complex all particles, remain query-only;
+// positiveInteger/nonPositiveInteger locals, including direct named-complex
+// all members, remain query-only;
 // ValidateInstance and GenerateGo reject surviving terms. Global unsignedLong
 // refs remain query-only; nonzero inline
 // unsignedLong locals fail schema admission. NegativeInteger also validates as

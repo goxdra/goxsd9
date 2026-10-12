@@ -33,7 +33,7 @@ named-complex direct sequences query built-in/named effective `xs:normalizedStri
 default integer/decimal sequence refs; other targets/occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
-built-in string/positiveInteger/nonPositiveInteger, built-in/named nonNegativeInteger, refs with exact bounds; consumers reject.
+built-in string, built-in/named positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
 Compatibility/Strict11 expose QName `notQName` on direct strict `xs:any`; consumers reject wildcards.
 
 ## CLI

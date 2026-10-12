@@ -57,9 +57,9 @@ SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
-`nonNegativeInteger`. Direct named-complex choice/sequence also admits bounded
-built-in/named `positiveInteger`/`nonPositiveInteger`; direct `all` admits
-built-ins but excludes derivatives/extensions/local attributes.
+`nonNegativeInteger`. Named direct choice/sequence/all admit effective
+`positiveInteger`/`nonPositiveInteger` restrictions; `all` excludes anonymous
+derivatives, extensions, and local attributes.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 require bounded list/union. Other derivatives/extensions are query-only;
 named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
@@ -67,9 +67,9 @@ Syntax/occurrence/policy precede mapping; child/use refs precede `0/0`/prohibite
 Named choice/sequence refs: opaque, resolved; nested/all excluded,
 cycles invalid XSD3062 at closing `ref`. QName/RefLoc/TargetID/order query-only;
 owning consumers: located unsupported diagnostics, nil Go output.
-Direct named-complex `all` retains ordered integer/decimal/Boolean, built-in `string`,
+Named direct `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
-built-in `positiveInteger`/`nonPositiveInteger` locals,
+built-in/named effective `positiveInteger`/`nonPositiveInteger` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
 AttributeUse retains ordered names, type/use/form `Loc`s, IDs; grouped: group → uses → base; direct-sequence: children → uses → base.
