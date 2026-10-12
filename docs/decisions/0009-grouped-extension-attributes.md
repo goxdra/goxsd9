@@ -67,11 +67,13 @@ The supported input is:
   owners admit non-ID atomic uses and exclude local list/union varieties;
   named owners retain their separately supported varieties and ID rules.
 
-For named local declarations in this grouped form, Compatibility/Strict11
-treat explicit `inheritable=false/0` as omission. Explicit `true/1` and
-`inheritable` on a `ref` use (including false) remain unsupported;
-Strict10 rejects the XSD 1.1 attribute. The [package contract](../../doc.go) states other owner
-and consumer limits.
+For this grouped form, only named grouped complex owners treat explicit
+`inheritable=false/0` on named local declarations as omission under
+Compatibility/Strict11. Anonymous grouped owners reject explicit
+`inheritable` on local declarations. Explicit `true/1` and `inheritable` on a
+`ref` use (including false) remain unsupported; Strict10 rejects the XSD 1.1
+attribute. Malformed Boolean values remain invalid. The [package contract](../../doc.go)
+states other owner and consumer limits.
 
 Construction resolves the opaque group particle, ordered local uses, then the
 named base. No consumer model is introduced by the composition.
