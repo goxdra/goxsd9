@@ -151,6 +151,9 @@ func collectCodegenDirectParticles(
 ) ([]codegenDirectParticleCollectedOwner, error) {
 	owners := make([]codegenDirectParticleCollectedOwner, 0)
 	for _, component := range components {
+		if err := rejectCodegenInlineExtension(component, version); err != nil {
+			return nil, err
+		}
 		if component.Kind() != ComponentKindComplexTypeDefinition {
 			continue
 		}
@@ -284,6 +287,34 @@ func collectCodegenDirectParticles(
 		)
 	}
 	return owners, nil
+}
+
+func rejectCodegenInlineExtension(component Component, version XSDVersion) error {
+	if component.Kind() != ComponentKindElementDeclaration {
+		return nil
+	}
+	declaration, ok := component.ElementDeclaration()
+	if !ok {
+		return nil
+	}
+	inline, ok := declaration.InlineComplexType()
+	if !ok {
+		return nil
+	}
+	body := inline.extensionBody()
+	if body == nil {
+		return nil
+	}
+	related := appendCodegenRelated(nil, inline.Loc())
+	related = appendCodegenRelated(related, body.extensionLoc)
+	related = appendCodegenRelated(related, body.base.loc)
+	return newCodegenElementUnsupported(
+		component.Loc(),
+		fmt.Sprintf("global element %q has an inline complex-content extension outside Go generation", component.Name()),
+		related,
+		fmt.Errorf("%w: inline complex-content extension", errCodegenUnsupported),
+		version,
+	)
 }
 
 func codegenComplexContentExtensionRelated(body *schemaComplexTypeExtensionBodyComponent) []Loc {

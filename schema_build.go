@@ -213,7 +213,6 @@ var (
 	errSchemaComplexTypeBaseCycle                = errors.New("complex type bases form a cycle")
 	errSchemaComplexTypeBaseNonEmpty             = errors.New("complex type base has nonempty content")
 	errSchemaGroupedExtensionAnonymousOwner      = errors.New("grouped extension on an anonymous complex type is not implemented")
-	errSchemaSequenceExtensionAnonymousOwner     = errors.New("attribute-bearing sequence extension on an anonymous complex type is not implemented")
 	errLanguagePolicyMismatch                    = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -1586,16 +1585,6 @@ func schemaElementTypeInputForInlineComplex(
 			[]Loc{inline.loc},
 			version,
 			errSchemaGroupedExtensionAnonymousOwner,
-			schemaComplexContentExtensionSpecRef(version),
-		)
-	}
-	if extension, ok := complexType.body.(*schemaComplexTypeExtensionBodyInput); ok && len(extension.attributeUses) > 0 {
-		return nil, newSchemaComplexTypeUnsupportedWithSpec(
-			extension.extensionLoc,
-			"sequence extensions with local attributes on anonymous complex types are not implemented",
-			[]Loc{inline.loc},
-			version,
-			errSchemaSequenceExtensionAnonymousOwner,
 			schemaComplexContentExtensionSpecRef(version),
 		)
 	}
@@ -6882,10 +6871,10 @@ func rejectSchemaSequenceExtensionLocalVariety(
 	typeLoc Loc,
 	version XSDVersion,
 ) error {
-	if owner.complexType == nil || reference.variety == SimpleTypeVarietyAtomicRestriction {
+	if reference.variety == SimpleTypeVarietyAtomicRestriction {
 		return nil
 	}
-	extension, ok := owner.complexType.body.(*schemaComplexTypeExtensionBodyInput)
+	extension, ok := owner.complexTypeBody().(*schemaComplexTypeExtensionBodyInput)
 	if !ok || len(extension.attributeUses) == 0 {
 		return nil
 	}

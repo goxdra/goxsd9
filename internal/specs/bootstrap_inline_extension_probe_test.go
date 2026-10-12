@@ -116,7 +116,7 @@ func inlineProbeParse(t *testing.T, id, source string, policy goxsd9.LanguagePol
 	return parseBootstrapProbe(t, Entry{ID: id}, []byte(source), policy)
 }
 
-func inlineProbeAssertUnsupported(t *testing.T, id, source string, policy goxsd9.LanguagePolicy, marker, specRef string, related []goxsd9.Loc) {
+func inlineProbeAssertUnsupported(t *testing.T, id, source string, policy goxsd9.LanguagePolicy, marker, specRef string) {
 	t.Helper()
 	schema, err := inlineProbeParse(t, id, source, policy)
 	if err == nil || len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
@@ -131,13 +131,8 @@ func inlineProbeAssertUnsupported(t *testing.T, id, source string, policy goxsd9
 		t.Fatalf("diagnostic = %v, want XSD3003 unsupported schema syntax at %s, spec %s", err, wantLoc, specRef)
 	}
 	got := diagnostic.Related()
-	if len(got) != len(related) {
-		t.Fatalf("related = %v, want %v", got, related)
-	}
-	for index, loc := range related {
-		if got[index] != loc {
-			t.Fatalf("related = %v, want %v", got, related)
-		}
+	if len(got) != 0 {
+		t.Fatalf("related = %v, want none", got)
 	}
 }
 
@@ -151,11 +146,11 @@ func TestPinnedInlineExtensionTermGate(t *testing.T) {
 				group = inlineProbeGroup(inlineProbeXSDNamespace)
 			}
 			root := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, term, end, group)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-projected", root, edition.policy, edition.marker, edition.specRef, nil)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-compat", root, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend", nil)
+			inlineProbeAssertUnsupported(t, edition.artifact+"-projected", root, edition.policy, edition.marker, edition.specRef)
+			inlineProbeAssertUnsupported(t, edition.artifact+"-compat", root, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
 			zeroTerm := strings.Replace(term, `maxOccurs="unbounded"`, `maxOccurs="0"`, 1)
 			zero := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, zeroTerm, end, group)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-zero", zero, edition.policy, edition.marker, edition.specRef, nil)
+			inlineProbeAssertUnsupported(t, edition.artifact+"-zero", zero, edition.policy, edition.marker, edition.specRef)
 			invalidTerm := strings.Replace(term, `minOccurs="0"`, `minOccurs="-1"`, 1)
 			invalid := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, invalidTerm, end, group)
 			invalidID := edition.artifact + "-invalid"
@@ -221,7 +216,7 @@ func TestPinnedInlineExtensionControlAndTermIsolation(t *testing.T) {
 			}
 			aliasTerm, targets, marker := inlineProbeAliasTermAndTargets(edition, term)
 			projected := inlineProbeSchema(edition, inlineProbeNamespace, start, aliasTerm, end, targets)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-term", projected, edition.policy, marker, edition.specRef, nil)
+			inlineProbeAssertUnsupported(t, edition.artifact+"-term", projected, edition.policy, marker, edition.specRef)
 		})
 	}
 }
@@ -235,20 +230,22 @@ func TestPinnedInlineExtensionBoundaryExits(t *testing.T) {
 			namedStart := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="p:openAttrs"><xs:sequence>`
 			namedEnd := `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`
 			named := inlineProbeSchema(edition, inlineProbeNamespace, namedStart, aliasTerm, namedEnd, targets)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-named", named, edition.policy, marker, edition.specRef, nil)
+			inlineProbeAssertUnsupported(t, edition.artifact+"-named", named, edition.policy, marker, edition.specRef)
 
 			start, end := inlineProbeAnonymousOwner("p:openAttrs")
 			withAttribute := inlineProbeSchema(edition, inlineProbeNamespace, start, inlineProbeElement, `</xs:sequence><xs:attribute name="flag" type="xs:boolean"/>`+strings.TrimPrefix(end, `</xs:sequence>`), "")
 			id := edition.artifact + "-attribute"
-			attributeSpec := "xsd10-structures#element-complexContent..extension"
-			if edition.version == "1.1" {
-				attributeSpec = "xsd11-structures#element-complexContent..extension"
+			attributeSchema, attributeErr := inlineProbeParse(t, id, withAttribute, edition.policy)
+			if attributeErr != nil {
+				t.Fatalf("anonymous attribute owner: %v", attributeErr)
 			}
-			inlineProbeAssertUnsupported(t, id, withAttribute, edition.policy, `<xs:extension`, attributeSpec, []goxsd9.Loc{inlineProbeLoc(t, id, withAttribute, `<xs:complexType>`)})
-			_, attributeErr := inlineProbeParse(t, id, withAttribute, edition.policy)
-			attributeDiagnostic, ok := firstBootstrapProbeDiagnostic(attributeErr)
-			if !ok || errors.Unwrap(attributeDiagnostic) == nil || errors.Unwrap(attributeDiagnostic).Error() != "attribute-bearing sequence extension on an anonymous complex type is not implemented" {
-				t.Fatalf("anonymous attribute owner cause = %v", attributeErr)
+			owner, ok := attributeSchema.Components()[1].Element()
+			if !ok {
+				t.Fatal("anonymous attribute owner element is absent")
+			}
+			inline, ok := owner.InlineComplexType()
+			if !ok || len(inline.AttributeUses()) != 1 || inline.AttributeUses()[0].Name().Local() != "flag" || inline.Derivation() != goxsd9.ComplexTypeDerivationExtension {
+				t.Fatalf("anonymous attribute owner facts = %v/%t", inline, ok)
 			}
 
 			xsStart, xsEnd := inlineProbeAnonymousOwner("xs:openAttrs")

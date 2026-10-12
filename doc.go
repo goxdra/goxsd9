@@ -317,9 +317,12 @@
 // anonymous atomic uses retain AnonymousID/NodeID. One named complexContent
 // extension composes a direct opaque named-group reference, ordered local uses,
 // and the supported named empty base. Direct-sequence extensions with local
-// uses require a named complex owner and compose supported ordered members
-// over the same base. Anonymous inline owners return an unsupported diagnostic
-// at the extension Loc, even for a 0/0 sequence. Broader attribute-bearing
+// uses admit named and global inline complex owners and compose supported
+// ordered members over the same base. Inline owners retain anonymous identity,
+// non-ID atomic local and referenced uses, and inherited wildcard facts.
+// Validation and generation reject inline complex-content extensions even when
+// zero occurrences and prohibited uses leave no effective particle or uses.
+// Broader attribute-bearing
 // extensions remain unsupported. Top-level direct model-group references on
 // complex types, including grouped extensions, require supported named complex
 // owners. Global inline direct-group and
@@ -446,20 +449,24 @@
 // with a nil optional particle, no occurrence, and no synthetic content.
 // Ordinary direct-choice/direct-sequence target checks use element/particle
 // locations and may include the anonymous type location in related facts.
-// Generation checks effective AttributeUse facts first: the first use Loc is
-// primary, with definition and use locations related. Without effective uses
-// or a present group reference, extension Loc is primary with related
-// complex-content/base/particle facts (and anyAttribute when present).
-// Validation rejects a present extension sequence at the instance root before
-// checking uses, retaining declaration/definition and extension context.
-// Its nonstreaming choice/omitted-sequence path checks effective uses first,
-// then a present group RefLoc, then the extension Loc. Direct and grouped
-// model-group-reference bodies follow the same use-before-group order: use
-// diagnostics relate declaration/definition and AttributeUse locations;
+// For named complex owners, generation checks effective AttributeUse facts
+// first: the first use Loc is primary, with definition and use locations
+// related. Without effective uses or a present group reference, extension Loc
+// is primary with related complex-content/base/particle facts (and
+// anyAttribute when present). An inline global extension rejects earlier at
+// its element Loc, relating the anonymous type, extension, and base Locs.
+// For named owners, validation rejects a present extension sequence at the
+// instance root before uses, retaining declaration/definition and extension
+// context. Its nonstreaming choice/omitted-sequence path checks effective uses
+// first, then a present group RefLoc, then the extension Loc. Direct and
+// grouped model-group-reference bodies follow the same use-before-group order:
+// use diagnostics relate declaration/definition and AttributeUse locations;
 // group diagnostics relate the group particle and extension context for
-// validation, or group/component/reference/target for generation. These
-// extension and group gates do not add an anonymous type location. They return
-// located FailureUnsupported/ErrUnsupported diagnostics; GenerateGo returns no output.
+// validation, or group/component/reference/target for generation. These named
+// owner gates add no anonymous type Loc. Inline global extensions always
+// reject at the instance root before these plans, even after 0/0 or prohibited
+// omission, relating the anonymous type and extension context. All return
+// located FailureUnsupported/ErrUnsupported; GenerateGo returns no output.
 //
 // Global built-in and named xs:nonNegativeInteger roots validate under
 // Compatibility, Strict10, and Strict11 through the exact integer scalar plan.

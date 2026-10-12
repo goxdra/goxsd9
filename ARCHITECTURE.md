@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-goxsd9 builds immutable query models; validation/generation are leaves.
+Immutable query models feed validation and generation.
 
 ## Deterministic phase pipeline
 
@@ -18,8 +18,8 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases never backpatch. Identities intern before discovery; repeats/cycles close. Stable
-topological order resolves dependencies; slices order walks/output.
+Identities intern before deterministic resolution; slices order walks/output.
+Phases never backpatch.
 
 ## Input and resolution
 
@@ -33,9 +33,9 @@ type Resolver interface {
 }
 ```
 
-Sources carry opaque identity, reader-closer, context; resolvers own base locations.
-FIFO preserves context; parser opens no resources and resolves sequentially.
-`Loc` uses one-based lines and Unicode-code-point columns.
+Sources carry opaque identity, stream, context; resolvers own base locations.
+Discovery is FIFO and sequential.
+`Loc`: one-based lines, Unicode code-point columns.
 
 ## Diagnostics
 
@@ -45,14 +45,14 @@ features have stable report IDs.
 
 ## Schema model
 
-Components are immutable; walks ordered, particles scoped. Global elements retain
-ordered identity constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
-IDs/duplicates precede refer resolution; unresolved/invisible/ambiguous targets yield
-`FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`. Publication is atomic.
+Components are immutable; walks ordered. Elements retain identity
+constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
+IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
+`FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
 Bounded extensions over named empty bases and `xs:anyType` restrictions
 retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
-Direct-sequence uses require named complex owners; anonymous inline owners reject. Choices remain attribute-free.
+Direct-sequence uses admit named and global inline complex owners; inline owners retain anonymous identity and exclude ID, inheritable, and local list/union uses. Choices remain attribute-free.
 SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
@@ -129,7 +129,8 @@ unbounded occurrences. Default direct-choice refs to unconstrained global
 Boolean/integer/decimal validate; constrained targets relate `Loc`.
 SimpleContent accepts built-in string with selected precisionDecimal attributes
 or built-in/named effective precisionDecimal; named effective string excludes.
-Inline roots use supported sequences (including bounded list/union), attributes/simpleContent.
+Inline roots validate selected sequences (including bounded list/union), attributes,
+simpleContent; inline complex-content extensions reject even after 0/0/prohibited omission.
 Mixed-content validation is unsupported; `GenerateGo` rejects inline complex roots.
 Nonzero `xs:any` is query-only. Identity-constrained roots reject at instance-use `Loc`,
 relating first constraint. QName globals/refs reject validation/generation with

@@ -86,6 +86,9 @@ func (observer *instanceValidationObserver) startElement(name syntaxName, loc Lo
 	if err != nil {
 		return true, err
 	}
+	if extensionErr := inlineInstanceComplexContentExtensionError(observer.schema, declaration, loc); extensionErr != nil {
+		return true, extensionErr
+	}
 	if _, selected := instanceAttributeRootPlanFor(observer.schema, declaration); selected {
 		return true, nil
 	}
@@ -112,6 +115,34 @@ func (observer *instanceValidationObserver) startElement(name syntaxName, loc Lo
 	observer.streaming = true
 	observer.validator = &instanceSequenceValidator{program: program}
 	return false, observer.validator.startElement(name, loc, attrs)
+}
+
+func inlineInstanceComplexContentExtensionError(schema Schema, declaration ElementDeclaration, loc Loc) error {
+	inline, ok := declaration.InlineComplexType()
+	if !ok {
+		return nil
+	}
+	body := inline.extensionBody()
+	if body == nil {
+		return nil
+	}
+	related := []Loc{declaration.Loc(), inline.Loc()}
+	related = appendInstanceRelated(related, body.complexContentLoc)
+	related = appendInstanceRelated(related, body.extensionLoc)
+	related = appendInstanceRelated(related, body.base.loc)
+	if body.particle != nil {
+		related = appendInstanceRelated(related, body.particle.Loc())
+	}
+	if body.anyAttribute != nil {
+		related = appendInstanceRelated(related, body.anyAttribute.loc)
+	}
+	return newInstanceValidationUnsupported(
+		loc,
+		"inline complex type uses complex-content extension outside instance validation",
+		related,
+		instanceSchemaValidationVersion(schema),
+		errInstanceComplexContentExtension,
+	)
 }
 
 func (observer *instanceValidationObserver) endElement(name syntaxName, loc Loc) error {

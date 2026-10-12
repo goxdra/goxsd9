@@ -245,7 +245,6 @@ func TestSequenceExtensionAttributeFailureExits(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Assert each excluded extension shape across language policies.
 func TestSequenceExtensionAttributeExcludedShapes(t *testing.T) {
 	attribute := `<xs:attribute name="flag" type="xs:boolean"/>`
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
@@ -274,16 +273,6 @@ func TestSequenceExtensionAttributeExcludedShapes(t *testing.T) {
 				}
 			})
 		}
-	}
-	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root"><xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:sequence/><xs:attribute name="flag" type="xs:boolean"/></xs:extension></xs:complexContent></xs:complexType></xs:element><xs:complexType name="Base"/></xs:schema>`
-	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-	if err == nil {
-		t.Fatal("inline owner passed")
-	}
-	assertZeroSchema(t, schema)
-	d := requireDiagnostic(t, err)
-	if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != complexContentTestLoc(t, root, `<xs:extension`) || d.SpecRef() != schemaComplexContentExtensionSpecRef(XSDVersion11) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSequenceExtensionAnonymousOwner) || !slices.Contains(d.Related(), complexContentTestLoc(t, root, `<xs:complexType>`)) {
-		t.Fatalf("inline diagnostic: %v related=%v", err, d.Related())
 	}
 }
 
