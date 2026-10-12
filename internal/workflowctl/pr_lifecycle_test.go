@@ -341,12 +341,14 @@ func runOpenLifecycleCommand(t *testing.T, body string) (createPullRequestReques
 			case "git fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 				return "", nil
 			case "git rev-parse HEAD", "git rev-parse origin/agent/issue-13":
-				return "head", nil
+				return strings.Repeat("a", 40), nil
 			case "git log -100 --format=%B":
 				return claimMessage(13, "run-test", time.Now().UTC().Add(time.Hour)), nil
 			case "git push origin HEAD:refs/heads/agent/issue-13":
 				mutations = append(mutations, command)
 				return "", nil
+			case "gh api repos/goxdra/goxsd9/pulls?state=open&head=goxdra:agent/issue-13&per_page=100":
+				return "[]", nil
 			case "gh api --method POST repos/goxdra/goxsd9/pulls --input -":
 				mutations = append(mutations, command)
 				if err := json.Unmarshal(data, &posted); err != nil {

@@ -1,15 +1,15 @@
 # Scheduled operations
 
-Paseo schedules jobs from clean coordination checkout in America/New_York.
+Paseo schedules from coordination checkout in America/New_York.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
 | Develop | 00:00, then every 3 hours | GPT-6 Sol/medium | `Run $develop for this repository.` |
 | Backlog | 10:30 daily | GPT-6 Sol/medium | `Run $backlog for this repository.` |
 | Retro | 13:30 Sunday | GPT-6 Astra/xhigh | `Run $retro for this repository.` |
-Jobs require clean canonical `main`/`origin/main`, recursive pins (`doctor`);
+Require clean `main`/`origin/main`, recursive pins (`doctor`);
 stale jobs use `base-sync`. Claim Ready, draft PR, squash-merge evaluated
-head. Managed-document/source-trigger heads need exact audit, fresh read-only
-Curator after remediation. Renew at boundaries/before ordinary pushes.
+head. Managed-document/source-trigger heads need exact audit, fresh read-only Curator
+after remediation. Renew at boundaries/before ordinary pushes.
 Recovered `--integrate`: checked `pr open` first under live marker lease; renew
 after fixed-remote publication. Preserve no-PR worktrees; archive
 expired PR-free claims; escalate expired PRs.
@@ -34,11 +34,11 @@ Dirty handoff: `# Dirty no-PR claim handoff: issue #N`, blank, then `Run:`,
 `--expected-head`; end `No source commit or PR was published.` and LF.
 `claim resume-state` seals index, tracked, nonignored untracked bytes; recheck before mutation. Initial recovery requires OPEN+needs-human+Backlog; unpublished claims retain it until integration. Verified retries may be Picked without needs-human; no-source reconciles after renewal.
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
-run-local refs are inventory-only. `base-sync` fast-forwards `main`/pins; never
+run-local refs inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.
-Set `PR_NUMBER="$(gh pr view --json number --jq '.number')"` and
-`BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`; use
-exact REST SHA for signals/audit/evidence, never `origin/main` or merge-base.
+Retain checked `pr open`'s URL or verify the open fixed-branch PR. Use
+`.agents/skills/develop/SKILL.md` for metadata commands. Freeze exact REST
+base for signals/audit/evidence; avoid `origin/main` and merge-base.
 `no-relevant-target`/`not-measured` are valid; policy fuzz measures health, not conformance.
 Before evidence/challenge/finish, match REST base/head, recompute signals,
 compare canonical JSON, preserve non-owned PR bytes, use exact `pending`/
