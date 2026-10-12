@@ -52,7 +52,7 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 
 Bounded extensions over named empty bases and `xs:anyType` restrictions
 retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
-Direct-sequence uses admit named and global inline complex owners; inline owners retain anonymous identity and exclude ID, inheritable, and local list/union uses. Choices remain attribute-free.
+Grouped and sequence extension uses admit named and inline owners; inline owners retain identity and exclude ID, inheritable, and list/union uses. Choices remain attribute-free.
 SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline

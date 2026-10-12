@@ -376,10 +376,6 @@ func TestInlineNillableFalseKeepsBroaderInlineShapesExcluded(t *testing.T) {
 			spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
 		},
 		{
-			name: "grouped extension anonymous owner", element: `<xs:element name="root" nillable="false"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/><xs:attribute name="flag" type="xs:boolean"/></xs:extension></xs:complexContent></xs:complexType></xs:element>`,
-			trailing: `<xs:group name="Fields"><xs:sequence/></xs:group><xs:complexType name="Base"/>`, marker: `<xs:extension`, related: `<xs:complexType>`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: schemaComplexContentExtensionSpecRef, cause: errSchemaGroupedExtensionAnonymousOwner,
-		},
-		{
 			name: "named plus inline", element: `<xs:element name="root" type="t:Base" nillable="false"><xs:complexType/></xs:element>`,
 			trailing: `<xs:complexType name="Base"/>`, marker: `<xs:complexType/>`, class: FailureInvalid, code: invalidSchemaCompositionCode,
 		},

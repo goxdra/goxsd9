@@ -28,7 +28,8 @@ func anonymousGroupedExtensionSchema(version, group, attributes string) string {
 </xs:schema>`
 }
 
-func TestGroupedExtensionRejectsAnonymousGlobalOwner(t *testing.T) {
+//nolint:gocognit // Verify the complete anonymous public view across both target shapes and policies.
+func TestGroupedExtensionAnonymousGlobalOwnerFacts(t *testing.T) {
 	profiles := []struct {
 		name    string
 		policy  LanguagePolicy
@@ -38,45 +39,77 @@ func TestGroupedExtensionRejectsAnonymousGlobalOwner(t *testing.T) {
 		{"strict10", Strict10, "1.1"},
 		{"strict11", Strict11, "1.0"},
 	}
-	uses := []struct {
-		name       string
-		attribute  string
-		occurrence string
+	groups := []struct {
+		name, target string
 	}{
-		{"local declaration", `<xs:attribute name="flag" type="xs:boolean"/>`, ""},
-		{"global reference", `<xs:attribute ref="t:global"/>`, ""},
-		{"inline local type", `<xs:attribute name="flag"><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:attribute>`, ""},
-		{"zero group", `<xs:attribute name="flag" type="xs:boolean"/>`, ` minOccurs="0" maxOccurs="0"`},
+		{"sequence", "sequence"}, {"choice", "choice"},
 	}
 	for _, profile := range profiles {
-		for _, use := range uses {
-			t.Run(profile.name+"/"+use.name, func(t *testing.T) {
-				root := anonymousGroupedExtensionSchema(profile.version, use.occurrence, use.attribute)
-				assertAnonymousGroupedExtensionUnsupported(t, root, profile.policy)
+		for _, group := range groups {
+			t.Run(profile.name+"/"+group.name, func(t *testing.T) {
+				uses := `<xs:attribute name="flag" type="xs:boolean" use="required" form="qualified"/><xs:attribute ref="t:global"/><xs:attribute name="inline"><xs:simpleType><xs:restriction base="xs:boolean"/></xs:simpleType></xs:attribute>`
+				root := anonymousGroupedExtensionSchema(profile.version, ` minOccurs="2" maxOccurs="18446744073709551616"`, uses)
+				root = strings.Replace(root, `<xs:group name="Fields"><xs:sequence/></xs:group>`, `<xs:group name="Fields"><xs:`+group.target+`/></xs:group>`, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				components := schema.Components()
+				if len(components) != 4 || components[0].Name().Local() != "root" || components[1].Name().Local() != "Fields" || components[2].Name().Local() != "global" || components[3].Name().Local() != "Base" {
+					t.Fatalf("walk = %v", components)
+				}
+				declaration, ok := components[0].Element()
+				if !ok {
+					t.Fatal("root declaration absent")
+				}
+				inline, ok := declaration.InlineComplexType()
+				if !ok || !inline.ID().IsZero() || inline.Name() != (QName{}) || inline.Derivation() != ComplexTypeDerivationExtension || inline.DerivationLoc() != complexContentTestLoc(t, root, `<xs:extension`) {
+					t.Fatalf("anonymous extension = %v", inline)
+				}
+				if node, nodeOK := inline.NodeID(); !nodeOK || node.IsZero() {
+					t.Fatal("anonymous node ID absent")
+				}
+				base, ok := inline.BaseReference()
+				baseID, hasID := base.ComponentID()
+				if !ok || !hasID || baseID != components[3].ID() || base.Loc() != complexContentTestLoc(t, root, `base="t:Base"`) {
+					t.Fatalf("base = %v", base)
+				}
+				particle, ok := inline.Particle().(ModelGroupReferenceParticle)
+				if !ok || particle.Ref() != mustTestQName(t, "urn:root", "Fields") || particle.TargetID() != components[1].ID() || particle.Occurrences().String() != "2/18446744073709551616" || particle.RefLoc() != complexContentTestLoc(t, root, `ref="t:Fields"`) {
+					t.Fatalf("group = %v", inline.Particle())
+				}
+				attributes := inline.AttributeUses()
+				if len(attributes) != 3 || attributes[0].Name().Local() != "flag" || attributes[1].Name().Local() != "global" || attributes[2].Name().Local() != "inline" {
+					t.Fatalf("uses = %v", attributes)
+				}
+				local, ok := attributes[0].(LocalAttributeUse)
+				if !ok || local.Use() != AttributeUseRequired || local.Name() != mustTestQName(t, "urn:root", "flag") || local.NameLoc() != complexContentTestLoc(t, root, `name="flag"`) || local.TypeLoc() != complexContentTestLoc(t, root, `type="xs:boolean"`) || local.UseLoc() != complexContentTestLoc(t, root, `use="required"`) || local.FormLoc() != complexContentTestLoc(t, root, `form="qualified"`) {
+					t.Fatalf("local = %v", local)
+				}
+				ref, ok := attributes[1].(AttributeReferenceUse)
+				if !ok || ref.TargetID() != components[2].ID() || ref.RefLoc() != complexContentTestLoc(t, root, `ref="t:global"`) {
+					t.Fatalf("ref = %v", ref)
+				}
+				anonymous, ok := attributes[2].(LocalAttributeUse)
+				if !ok {
+					t.Fatalf("inline = %v", attributes[2])
+				}
+				if !anonymous.FormLoc().IsZero() {
+					t.Fatalf("default form has explicit Loc: %s", anonymous.FormLoc())
+				}
+				typeRef, ok := anonymous.TypeReference()
+				if !ok {
+					t.Fatal("inline use type reference absent")
+				}
+				if id, ok := typeRef.AnonymousID(); !ok || id.IsZero() || typeRef.Loc() != complexContentTestLoc(t, root, `<xs:simpleType>`) {
+					t.Fatal("inline use anonymous type ID absent")
+				}
+				attributes[0] = nil
+				if inline.AttributeUses()[0] == nil {
+					t.Fatal("returned use slice mutated schema")
+				}
 			})
 		}
-	}
-}
-
-func assertAnonymousGroupedExtensionUnsupported(t *testing.T, root string, policy LanguagePolicy) {
-	t.Helper()
-	schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-	if err == nil {
-		t.Fatal("anonymous grouped extension was accepted")
-	}
-	assertZeroSchema(t, schema)
-	diagnostic := requireDiagnostic(t, err)
-	wantPrimary := complexContentTestLoc(t, root, `<xs:extension`)
-	wantRelated := []Loc{complexContentTestLoc(t, root, `<xs:complexType>`)}
-	wantVersion := XSDVersion11
-	if policy == Strict10 {
-		wantVersion = XSDVersion10
-	}
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Loc() != wantPrimary || diagnostic.SpecRef() != schemaComplexContentExtensionSpecRef(wantVersion) {
-		t.Fatalf("diagnostic = %v, want unsupported syntax at %s under %s", err, wantPrimary, wantVersion)
-	}
-	if !reflect.DeepEqual(diagnostic.Related(), wantRelated) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaGroupedExtensionAnonymousOwner) {
-		t.Fatalf("diagnostic related/cause = %v/%v, want %v and grouped-extension unsupported", diagnostic.Related(), err, wantRelated)
 	}
 }
 
@@ -132,6 +165,10 @@ func TestGroupedExtensionFactsAcrossPolicies(t *testing.T) {
 			local, ok := uses[0].(LocalAttributeUse)
 			if !ok || local.NameLoc() != complexContentTestLoc(t, root, `name="flag"`) || local.TypeLoc() != complexContentTestLoc(t, root, `type="xs:boolean"`) || local.UseLoc() != complexContentTestLoc(t, root, `use="required"`) {
 				t.Fatalf("local use locations = %#v", uses[0])
+			}
+			unqualified, ok := uses[1].(LocalAttributeUse)
+			if !ok || unqualified.FormLoc() != complexContentTestLoc(t, root, `form="unqualified"`) || !local.FormLoc().IsZero() {
+				t.Fatalf("form locations = %v/%v", uses[0], uses[1])
 			}
 			ref, ok := uses[2].(AttributeReferenceUse)
 			if !ok || ref.TargetID() != components[3].ID() || ref.RefLoc() != complexContentTestLoc(t, root, `ref="t:global"`) {

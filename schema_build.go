@@ -212,7 +212,6 @@ var (
 	errSchemaComplexTypeBaseRequired             = errors.New("complex type base is required")
 	errSchemaComplexTypeBaseCycle                = errors.New("complex type bases form a cycle")
 	errSchemaComplexTypeBaseNonEmpty             = errors.New("complex type base has nonempty content")
-	errSchemaGroupedExtensionAnonymousOwner      = errors.New("grouped extension on an anonymous complex type is not implemented")
 	errLanguagePolicyMismatch                    = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -1575,19 +1574,6 @@ func schemaElementTypeInputForInlineComplex(
 	if err != nil {
 		return nil, err
 	}
-	if grouped, ok := complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput); ok {
-		if grouped == nil {
-			return nil, newSchemaBridgeInvariant(inline.loc, "anonymous grouped extension input is nil")
-		}
-		return nil, newSchemaComplexTypeUnsupportedWithSpec(
-			grouped.extensionLoc,
-			"grouped extensions on anonymous complex types are not implemented",
-			[]Loc{inline.loc},
-			version,
-			errSchemaGroupedExtensionAnonymousOwner,
-			schemaComplexContentExtensionSpecRef(version),
-		)
-	}
 	return &schemaElementInput{
 		typeLoc:           inline.loc,
 		inlineComplexType: complexType,
@@ -2175,6 +2161,10 @@ func schemaAttributeUseInputFromElement(element *syntaxElement, facts schemaDocu
 	}
 	input.name = name
 	input.nameLoc = nameLoc
+	formAttributes := syntaxAttributesByLocal(element, "form")
+	if len(formAttributes) == 1 {
+		input.formLoc = formAttributes[0].loc
+	}
 	return schemaAttributeUseTypeInput(element, input, version)
 }
 
@@ -6380,10 +6370,7 @@ func resolveSchemaGroupedExtensionReferences(
 ) ([]schemaModelGroupResult, error) {
 	results := make([]schemaModelGroupResult, len(records))
 	for index, record := range records {
-		if record.complexType == nil {
-			continue
-		}
-		body, ok := record.complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput)
+		body, ok := record.complexTypeBody().(*schemaComplexTypeGroupedExtensionBodyInput)
 		if !ok {
 			continue
 		}
@@ -6807,6 +6794,7 @@ func resolveSchemaAttributeUse(
 		loc:              input.loc,
 		name:             input.name,
 		nameLoc:          input.nameLoc,
+		formLoc:          input.formLoc,
 		declaredType:     typeResult.declaredType,
 		typeLoc:          input.typeLoc,
 		typeID:           typeResult.typeID,
@@ -6835,7 +6823,7 @@ func resolveSchemaAttributeUseType(
 	if err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if err := rejectSchemaSequenceExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
+	if err := rejectSchemaExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
 	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
@@ -6864,7 +6852,7 @@ func resolveSchemaAttributeUseType(
 	return result, nil
 }
 
-func rejectSchemaSequenceExtensionLocalVariety(
+func rejectSchemaExtensionLocalVariety(
 	reference schemaSimpleTypeReferenceComponent,
 	owner schemaComponentRecord,
 	resolver *schemaSimpleTypeResolver,
@@ -6874,11 +6862,19 @@ func rejectSchemaSequenceExtensionLocalVariety(
 	if reference.variety == SimpleTypeVarietyAtomicRestriction {
 		return nil
 	}
-	extension, ok := owner.complexTypeBody().(*schemaComplexTypeExtensionBodyInput)
-	if !ok || len(extension.attributeUses) == 0 {
+	var hasExtensionUses bool
+	description := "direct-sequence extension local attribute list and union types are not implemented"
+	switch extension := owner.complexTypeBody().(type) {
+	case *schemaComplexTypeExtensionBodyInput:
+		hasExtensionUses = extension != nil && len(extension.attributeUses) > 0
+	case *schemaComplexTypeGroupedExtensionBodyInput:
+		hasExtensionUses = extension != nil && len(extension.attributeUses) > 0 && owner.element != nil
+		description = "anonymous grouped extension local attribute list and union types are not implemented"
+	}
+	if !hasExtensionUses {
 		return nil
 	}
-	diagnostic := unsupportedSchemaAttributeUse(typeLoc, "direct-sequence extension local attribute list and union types are not implemented", version)
+	diagnostic := unsupportedSchemaAttributeUse(typeLoc, description, version)
 	for _, loc := range resolver.simpleTypeReferenceRelatedLocations(reference) {
 		if loc != typeLoc {
 			diagnostic.related = append(diagnostic.related, loc)
