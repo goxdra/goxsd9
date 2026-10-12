@@ -239,16 +239,15 @@ type instanceChoiceProgram struct {
 // remain schema-queryable only: ordinary direct choice/sequence target checks
 // return a located FailureUnsupported/ErrUnsupported diagnostic with
 // element/particle locations and may include the anonymous type location in
-// related facts. A present extension sequence rejects at the instance root
-// before its use or target checks. It retains declaration/definition owners
+// related facts. A named owner's present extension sequence rejects at the
+// instance root before use or target checks, relating declaration/definition
 // and complex-content/extension/base/particle (and anyAttribute, when present)
-// related locations without an anonymous type location. In the nonstreaming
-// choice/omitted-sequence path, effective AttributeUse facts reject at the
-// first use Loc. Without effective uses, non-group extensions reject at the
-// extension Loc and present direct or extension group references at group
-// RefLoc. Use diagnostics relate declaration/definition and AttributeUse
-// locations; group diagnostics relate the group particle and supplied
-// extension context.
+// locations. Its nonstreaming choice/omitted-sequence path checks effective
+// uses first, then non-group extension or group RefLoc. Use diagnostics relate
+// declaration/definition and use locations; group diagnostics relate the group
+// particle and extension context. A global inline extension rejects earlier
+// at the instance root, relating its anonymous type and extension context even
+// after 0/0 or prohibited omission.
 // Mixed Boolean/numeric choices or sequences, mixed token/non-token or
 // NMTOKEN/non-NMTOKEN choices or sequences remain unsupported.
 // Comments and processing instructions are ignored by the decoder.

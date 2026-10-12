@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-goxsd9 builds immutable query models; validation/generation are leaves.
+Immutable query models feed validation and generation.
 
 ## Deterministic phase pipeline
 
@@ -18,8 +18,8 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases never backpatch. Identities intern; stable topological order resolves
-dependencies; slices order walks and output.
+Identities intern before deterministic resolution; slices order walks/output.
+Phases never backpatch.
 
 ## Input and resolution
 
@@ -33,9 +33,9 @@ type Resolver interface {
 }
 ```
 
-Sources carry opaque identity, stream, and context. Resolvers own base locations;
-discovery is FIFO and sequential.
-`Loc` uses one-based lines and Unicode-code-point columns.
+Sources carry opaque identity, stream, context; resolvers own base locations.
+Discovery is FIFO and sequential.
+`Loc`: one-based lines, Unicode code-point columns.
 
 ## Diagnostics
 
@@ -48,7 +48,7 @@ features have stable report IDs.
 Components are immutable; walks ordered. Elements retain identity
 constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
-`FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`. Publication is atomic.
+`FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
 Bounded extensions over named empty bases and `xs:anyType` restrictions
 retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
@@ -129,7 +129,8 @@ unbounded occurrences. Default direct-choice refs to unconstrained global
 Boolean/integer/decimal validate; constrained targets relate `Loc`.
 SimpleContent accepts built-in string with selected precisionDecimal attributes
 or built-in/named effective precisionDecimal; named effective string excludes.
-Inline roots use supported sequences (including bounded list/union), attributes/simpleContent.
+Inline roots validate selected sequences (including bounded list/union), attributes,
+simpleContent; inline complex-content extensions reject even after 0/0/prohibited omission.
 Mixed-content validation is unsupported; `GenerateGo` rejects inline complex roots.
 Nonzero `xs:any` is query-only. Identity-constrained roots reject at instance-use `Loc`,
 relating first constraint. QName globals/refs reject validation/generation with
