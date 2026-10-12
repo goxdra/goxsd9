@@ -7845,28 +7845,28 @@ func resolveSchemaComplexTypeExtensionReference(
 	if input.name.IsZero() {
 		return 0, schemaComplexTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "complex type extension base reference is empty")
 	}
-	if input.name.Namespace() == xsdNamespaceURI {
-		if input.name.Local() == "anyType" {
-			return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeUnsupportedWithSpec(
-				input.loc,
-				fmt.Sprintf("complex type extension base %q is not a named complex type", input.name),
-				nil,
-				version,
-				errSchemaComplexTypeBaseUnsupported,
-				schemaComplexTypeExtensionSpecRef(version),
-			)
-		}
-		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+	if input.name.Namespace() == xsdNamespaceURI && input.name.Local() == "anyType" {
+		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeUnsupportedWithSpec(
 			input.loc,
-			fmt.Sprintf("complex type extension base %q is not a supported complex type", input.name),
+			fmt.Sprintf("complex type extension base %q is not a named complex type", input.name),
 			nil,
 			version,
-			fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+			errSchemaComplexTypeBaseUnsupported,
+			schemaComplexTypeExtensionSpecRef(version),
 		)
 	}
 
 	candidates := byName[input.name]
 	if len(candidates) == 0 {
+		if input.name.Namespace() == xsdNamespaceURI {
+			return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+				input.loc,
+				fmt.Sprintf("complex type extension base %q is not a supported complex type", input.name),
+				nil,
+				version,
+				fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+			)
+		}
 		return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
 			input.loc,
 			fmt.Sprintf("complex type extension base %q cannot be resolved", input.name),

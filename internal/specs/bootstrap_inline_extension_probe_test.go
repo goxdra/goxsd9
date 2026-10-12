@@ -148,6 +148,11 @@ func TestPinnedInlineExtensionTermGate(t *testing.T) {
 			root := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, term, end, group)
 			inlineProbeAssertUnsupported(t, edition.artifact+"-projected", root, edition.policy, edition.marker, edition.specRef)
 			inlineProbeAssertUnsupported(t, edition.artifact+"-compat", root, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
+			namedStart := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="xs:openAttrs"><xs:sequence>`
+			namedEnd := `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`
+			named := inlineProbeSchema(edition, inlineProbeXSDNamespace, namedStart, term, namedEnd, group)
+			inlineProbeAssertUnsupported(t, edition.artifact+"-named-exact", named, edition.policy, edition.marker, edition.specRef)
+			inlineProbeAssertUnsupported(t, edition.artifact+"-named-exact-compat", named, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
 			zeroTerm := strings.Replace(term, `maxOccurs="unbounded"`, `maxOccurs="0"`, 1)
 			zero := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, zeroTerm, end, group)
 			inlineProbeAssertUnsupported(t, edition.artifact+"-zero", zero, edition.policy, edition.marker, edition.specRef)
@@ -250,22 +255,60 @@ func TestPinnedInlineExtensionBoundaryExits(t *testing.T) {
 
 			xsStart, xsEnd := inlineProbeAnonymousOwner("xs:openAttrs")
 			xsBase := inlineProbeSchema(edition, inlineProbeXSDNamespace, xsStart, inlineProbeElement, xsEnd, "")
-			baseID := edition.artifact + "-xs-base"
-			baseSchema, baseErr := inlineProbeParse(t, baseID, xsBase, edition.policy)
-			if baseErr == nil || len(baseSchema.Documents()) != 0 || len(baseSchema.Components()) != 0 {
-				t.Fatalf("xs:openAttrs base parse = %v, %d documents, %d components; want no schema", baseErr, len(baseSchema.Documents()), len(baseSchema.Components()))
-			}
-			baseDiagnostic, ok := firstBootstrapProbeDiagnostic(baseErr)
-			if !ok || baseDiagnostic.Class() != goxsd9.FailureInvalid || baseDiagnostic.Code() != "XSD3010" || baseDiagnostic.Loc() != inlineProbeLoc(t, baseID, xsBase, `base="xs:openAttrs"`) || len(baseDiagnostic.Related()) != 0 || errors.Unwrap(baseDiagnostic) == nil || !strings.Contains(errors.Unwrap(baseDiagnostic).Error(), "wrong kind") {
-				t.Fatalf("xs:openAttrs base diagnostic/cause = %v", baseErr)
-			}
-			baseSpec := "xsd10-structures#cos-ct-extends"
-			if edition.version == "1.1" {
-				baseSpec = "xsd11-structures#cos-ct-extends"
-			}
-			if baseDiagnostic.SpecRef() != baseSpec {
-				t.Fatalf("base SpecRef = %q, want %q", baseDiagnostic.SpecRef(), baseSpec)
+			for _, policy := range []struct {
+				name  string
+				value goxsd9.LanguagePolicy
+			}{
+				{name: "strict", value: edition.policy},
+				{name: "compatibility", value: goxsd9.Compatibility},
+			} {
+				t.Run(policy.name, func(t *testing.T) {
+					id := edition.artifact + "-xs-base-" + policy.name
+					schema, err := inlineProbeParse(t, id, xsBase, policy.value)
+					if err != nil {
+						t.Fatalf("declared xs:openAttrs base: %v", err)
+					}
+					inlineProbeAssertResolvedOwner(t, schema, id, xsBase)
+				})
 			}
 		})
+	}
+}
+
+//nolint:gocognit // Keep the copied owner, base, wildcard, and occurrence facts together.
+func inlineProbeAssertResolvedOwner(t *testing.T, schema goxsd9.Schema, id, source string) {
+	t.Helper()
+	components := schema.Components()
+	if len(schema.Documents()) != 1 || len(components) != 2 || components[0].Name().Local() != "openAttrs" || components[1].Name().Local() != "schema" {
+		t.Fatalf("documents/components = %d/%v, want openAttrs then schema", len(schema.Documents()), components)
+	}
+	base, ok := components[0].ComplexType()
+	if !ok || base.Loc() != inlineProbeLoc(t, id, source, `<xs:complexType name="openAttrs"`) {
+		t.Fatalf("declared base = %v/%t", base, ok)
+	}
+	element, ok := components[1].Element()
+	if !ok || element.Loc() != inlineProbeLoc(t, id, source, `<xs:element name="schema"`) {
+		t.Fatalf("anonymous owner element = %v/%t", element, ok)
+	}
+	inline, ok := element.InlineComplexType()
+	if !ok || !inline.ID().IsZero() || inline.Name().Local() != "" || inline.Loc() != inlineProbeLoc(t, id, source, `<xs:complexType>`) || inline.Base().Namespace() != inlineProbeXSDNamespace || inline.Base().Local() != "openAttrs" || inline.BaseLoc() != inlineProbeLoc(t, id, source, `base="xs:openAttrs"`) || inline.Derivation() != goxsd9.ComplexTypeDerivationExtension || inline.DerivationLoc() != inlineProbeLoc(t, id, source, `<xs:extension`) {
+		t.Fatalf("anonymous extension facts = %v/%t", inline, ok)
+	}
+	ref, ok := inline.BaseReference()
+	baseID, hasID := ref.ComponentID()
+	if !ok || !ref.IsNamed() || !hasID || baseID != base.ID() || ref.Name() != inline.Base() || ref.Loc() != inline.BaseLoc() {
+		t.Fatalf("resolved base reference = %v/%t", ref, ok)
+	}
+	wildcard, ok := inline.AnyAttribute()
+	if !ok || wildcard.Namespace() != "##other" || wildcard.ProcessContents() != "lax" || wildcard.Loc() != inlineProbeLoc(t, id, source, `<xs:anyAttribute`) {
+		t.Fatalf("inherited wildcard = %v/%t", wildcard, ok)
+	}
+	sequence, ok := inline.Particle().(goxsd9.SequenceParticle)
+	if !ok || sequence.Loc() != inlineProbeLoc(t, id, source, `<xs:sequence>`) || sequence.Occurrences().String() != "1/1" || len(sequence.Particles()) != 1 {
+		t.Fatalf("extension sequence = %v/%t", inline.Particle(), ok)
+	}
+	local, ok := sequence.Particles()[0].(goxsd9.ElementParticle)
+	if !ok || local.Name().Local() != "include" || local.Loc() != inlineProbeLoc(t, id, source, `<xs:element name="include"`) || local.DeclaredType().Namespace() != inlineProbeXSDNamespace || local.DeclaredType().Local() != "integer" || local.Occurrences().String() != "0/unbounded" {
+		t.Fatalf("repeating local term = %v/%t", sequence.Particles()[0], ok)
 	}
 }
