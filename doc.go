@@ -328,6 +328,15 @@
 // Named complex owners with empty, direct choice, direct sequence, grouped
 // extension, or direct-sequence extension bodies admit built-in or facet-free
 // named effective xs:ID local uses for queries.
+// A named global complex type with an empty body also admits an effective-empty
+// block under Compatibility, Strict10, and Strict11. An explicit empty or
+// XML-whitespace-only block overrides even blockDefault="#all"; the empty set
+// retains the authored block Loc, while an inherited set retains blockDefault's
+// Loc, through ProhibitedSubstitutionsLoc. A nonempty effective block remains
+// unsupported at its policy attribute; malformed block values are invalid
+// there. A global element naming the empty type remains unsupported at @type
+// before instance validation. GenerateGo rejects the admitted standalone
+// empty type; unrelated supported roots can still validate.
 // Strict10 rejects a second effective ID. Global ID refs, inline ID, ID
 // default/fixed/facets/lists/unions, other owners, validation, and generation
 // remain unsupported.
