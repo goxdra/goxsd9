@@ -112,8 +112,10 @@ These instructions apply to every file in this repository.
 - Decision records explain durable choices and link superseding decisions.
 - Git and GitHub preserve history. Do not add session transcripts, stale
   progress diaries, or duplicate issue lists.
-- After a draft PR exists, establish `PR_NUMBER` from that existing PR:
-  `PR_NUMBER="$(gh pr view --json number --jq '.number')"`. Define `BASE_SHA`
+- After a draft PR exists, retain its URL from checked `pr open` as `PR_URL`
+  and establish `PR_NUMBER="$(gh pr view "$PR_URL" --repo goxdra/goxsd9 --json number --jq '.number')"`. If recovering without that URL, list open
+  PRs for the fixed `agent/issue-N` branch and identify the one matching the
+  claimed repository and issue before using its explicit number. Define `BASE_SHA`
   from exact REST PR metadata:
   `BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`.
   Freeze it for `develop-signals`, `docs audit`, and the JSON passed to `pr

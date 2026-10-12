@@ -44,8 +44,8 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
 8. Commit/push using `AGENTS.md`; open the initial draft PR from that head with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`, including
    outcome, consultation, verification, conformance, and packet issues.
-9. After PR pushes establish `PR_NUMBER`:
-   `PR_NUMBER="$(gh pr view --json number --jq '.number')"`; set exact REST
+9. Set `PR_URL` from checked open;
+   `PR_NUMBER="$(gh pr view "$PR_URL" --json number --jq '.number')"`; set exact REST
    `BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`.
    Save `develop-signals --base "$BASE_SHA" --format json` and `docs audit
    --base "$BASE_SHA" --format json` before evidence update; report JSON

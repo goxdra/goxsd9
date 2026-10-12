@@ -156,11 +156,59 @@ func (a app) createPullRequest(issue int, title, body string) error {
 	if verifyErr := a.verifyClaim(); verifyErr != nil {
 		return verifyErr
 	}
-	url, err := a.createDraftPullRequest(root, branch, title, body)
+	head, err := a.command(root, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("read published PR head: %w", err)
+	}
+	if !validExactCommitSHA(head) {
+		return stateError("published PR head %q is not an exact commit SHA", head)
+	}
+	url, found, err := a.existingOpenPullRequest(root, branch, issue, head)
+	if err != nil {
+		return err
+	}
+	if found {
+		return writeLine(a.stdout, "%s", url)
+	}
+	url, err = a.createDraftPullRequest(root, branch, title, body)
 	if err != nil {
 		return err
 	}
 	return writeLine(a.stdout, "%s", url)
+}
+
+func (a app) existingOpenPullRequest(root, branch string, issue int, head string) (string, bool, error) {
+	endpoint := "repos/" + repositoryKey + "/pulls?state=open&head=" + owner + ":" + branch + "&per_page=100"
+	output, err := a.command(root, "gh", "api", endpoint)
+	if err != nil {
+		return "", false, fmt.Errorf("find open PR for claim branch %s: %w", branch, err)
+	}
+	if strings.TrimSpace(output) == "" || strings.TrimSpace(output) == "null" {
+		return "", false, stateError("open PR lookup for claim branch %s returned no list", branch)
+	}
+	var prs []pullRequestAPI
+	if err := json.Unmarshal([]byte(output), &prs); err != nil {
+		return "", false, stateError("decode open PRs for claim branch %s: %v", branch, err)
+	}
+	if len(prs) == 0 {
+		return "", false, nil
+	}
+	if len(prs) != 1 {
+		return "", false, stateError("claim branch %s has %d open PRs; resolve ambiguity before opening", branch, len(prs))
+	}
+	pr := prs[0]
+	if pr.Number < 1 || pr.URL == "" || pr.State != "open" || pr.Merged || pr.MergedAt != nil ||
+		pr.Base.Ref != "main" || pr.Base.Repo.FullName != repositoryKey ||
+		pr.Head.Ref != branch || pr.Head.Repo.FullName != repositoryKey || pr.Head.SHA != head {
+		return "", false, stateError("open PR for claim branch %s has conflicting identity, base, or published head", branch)
+	}
+	if err := validateCommitTitle(pr.Title); err != nil {
+		return "", false, stateError("PR #%d has invalid title %q: %v", pr.Number, pr.Title, err)
+	}
+	if !containsNumber(closingIssueNumbers(pr.Body), issue) {
+		return "", false, stateError("PR #%d body does not close issue #%d", pr.Number, issue)
+	}
+	return pr.URL, true, nil
 }
 
 func (a app) createDraftPullRequest(root, branch, title, body string) (string, error) {
