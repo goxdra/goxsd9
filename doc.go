@@ -314,8 +314,8 @@
 // Particle-plus-use bodies, attribute-only bodies, and scalar simpleContent
 // extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
-// anonymous atomic uses retain AnonymousID/NodeID. One named complexContent
-// extension composes a direct opaque named-group reference, ordered local uses,
+// anonymous atomic uses retain AnonymousID/NodeID. Named and global inline
+// complexContent extensions compose a direct opaque named-group reference, ordered local uses,
 // and the supported named empty base. Direct-sequence extensions with local
 // uses admit named and global inline complex owners and compose supported
 // ordered members over the same base. Inline owners retain anonymous identity,
@@ -324,10 +324,8 @@
 // zero occurrences and prohibited uses leave no effective particle or uses.
 // Broader attribute-bearing
 // extensions remain unsupported. Top-level direct model-group references on
-// complex types, including grouped extensions, require supported named complex
-// owners. Global inline direct-group and
-// anonymous grouped-extension owners remain unsupported, including applicable
-// 0/0 occurrences. Local and referenced
+// complex types require supported named complex owners. Global inline direct-group
+// owners remain unsupported, including applicable 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
 // Named complex owners with empty, direct choice, direct sequence, grouped
 // extension, or direct-sequence extension bodies admit built-in or facet-free
@@ -344,10 +342,12 @@
 // Strict10 rejects a second effective ID. Global ID refs, inline ID, ID
 // default/fixed/facets/lists/unions, other owners, validation, and generation
 // remain unsupported.
-// On attribute-bearing owners other than direct-sequence extensions, local
+// On attribute-bearing owners other than direct-sequence and anonymous grouped
+// extensions, local
 // named/inline lists with atomic precisionDecimal items and two-member unions
 // of precisionDecimal then negativeInteger are admitted. Direct-sequence
-// extensions admit only existing atomic local-use types. Other local varieties
+// and anonymous grouped extensions admit only existing atomic local-use types.
+// Other local varieties
 // and explicit xs:int remain unsupported. Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
 // and effective use. Explicit form or attributeFormDefault selects qualified or
@@ -427,8 +427,9 @@
 // one opaque direct group reference and ordered local AttributeUse facts over a
 // supported named empty base. They resolve the group before the uses and base;
 // effective 0/0 omits the group, and prohibited uses may leave no effective uses.
-// Consumers reject at the first effective use Loc, then a present group RefLoc,
-// or the extension Loc when both are absent.
+// Named grouped owners reject at the first effective use Loc, then a present
+// group RefLoc, or the extension Loc when both are absent. Inline owners reject
+// at the instance root or global element as described below.
 // Default-bounded sequences of supported built-in/named integer/decimal or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
 // Boolean/integer/decimal/negativeInteger particles retain query facts;

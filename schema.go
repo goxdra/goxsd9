@@ -1321,6 +1321,15 @@ func (use LocalAttributeUse) NameLoc() Loc {
 	return use.facts.nameLoc
 }
 
+// FormLoc returns the location of an explicit local form attribute, or zero
+// when the schema default supplies the form.
+func (use LocalAttributeUse) FormLoc() Loc {
+	if use.facts == nil {
+		return Loc{}
+	}
+	return use.facts.formLoc
+}
+
 // Use returns the effective local attribute use.
 func (use LocalAttributeUse) Use() AttributeUseKind {
 	if use.facts == nil {
@@ -3082,6 +3091,7 @@ type schemaAttributeUseInput struct {
 	loc          Loc
 	name         QName
 	nameLoc      Loc
+	formLoc      Loc
 	reference    *schemaAttributeReferenceInput
 	declaredType QName
 	typeLoc      Loc
@@ -3099,6 +3109,7 @@ type schemaLocalAttributeUse struct {
 	loc              Loc
 	name             QName
 	nameLoc          Loc
+	formLoc          Loc
 	declaredType     QName
 	typeLoc          Loc
 	typeID           ComponentID

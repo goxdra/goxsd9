@@ -342,10 +342,6 @@ func TestInlineMixedFalseKeepsExcludedShapes(t *testing.T) {
 			marker: `<xs:all>`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
 		},
 		{
-			name: "grouped extension anonymous owner", body: `<xs:element name="root"><xs:complexType mixed="false"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/><xs:attribute name="flag" type="xs:boolean"/></xs:extension></xs:complexContent></xs:complexType></xs:element><xs:group name="Fields"><xs:sequence/></xs:group><xs:complexType name="Base"/>`,
-			marker: `<xs:extension`, related: `<xs:complexType mixed=`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: schemaComplexContentExtensionSpecRef, cause: errSchemaGroupedExtensionAnonymousOwner,
-		},
-		{
 			name: "local inline child sequence", body: `<xs:complexType name="Owner"><xs:sequence><xs:element name="child"><xs:complexType mixed="false"/></xs:element></xs:sequence></xs:complexType>`,
 			marker: `<xs:complexType mixed=`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
 		},
