@@ -21,7 +21,7 @@ func localInheritableUse(spelling string) string {
 	return `<xs:attribute name="flag" type="xs:boolean" use="required"` + spelling + `/>`
 }
 
-//nolint:gocognit // The matrix compares public facts across owners and spellings.
+//nolint:gocognit,funlen // The matrix compares public facts across owners and spellings.
 func TestLocalInheritableFalseMatchesOmissionOnSupportedOwners(t *testing.T) {
 	owners := []struct {
 		name  string
@@ -39,6 +39,9 @@ func TestLocalInheritableFalseMatchesOmissionOnSupportedOwners(t *testing.T) {
 		}},
 		{"grouped extension", func(attribute string) string {
 			return `<xs:complexType name="Record"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields" minOccurs="2" maxOccurs="18446744073709551616"/>` + attribute + `</xs:extension></xs:complexContent></xs:complexType>`
+		}},
+		{"sequence extension", func(attribute string) string {
+			return `<xs:complexType name="Record"><xs:complexContent><xs:extension base="t:Base"><xs:sequence minOccurs="2" maxOccurs="18446744073709551616"><xs:element name="item" type="xs:integer" minOccurs="0" maxOccurs="3"/></xs:sequence>` + attribute + `</xs:extension></xs:complexContent></xs:complexType>`
 		}},
 	}
 	declarations := `<xs:group name="Fields"><xs:sequence/></xs:group><xs:complexType name="Base"/>`
@@ -89,6 +92,20 @@ func TestLocalInheritableFalseMatchesOmissionOnSupportedOwners(t *testing.T) {
 						group, ok := definition.Particle().(ModelGroupReferenceParticle)
 						if !ok || group.Occurrences().Minimum().String() != "2" || group.Occurrences().Maximum().String() != "18446744073709551616" {
 							t.Fatalf("grouped extension bounds = %#v", definition.Particle())
+						}
+					}
+					if owner.name == "sequence extension" {
+						sequence, ok := definition.Particle().(SequenceParticle)
+						if !ok || sequence.Occurrences().String() != "2/18446744073709551616" || sequence.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:sequence minOccurs=`) {
+							t.Fatalf("sequence extension bounds/provenance = %#v", definition.Particle())
+						}
+						terms := sequence.Particles()
+						if len(terms) != 1 || terms[0].Occurrences().String() != "0/3" || terms[0].Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:element name="item"`) {
+							t.Fatalf("sequence terms = %#v", terms)
+						}
+						terms[0] = nil
+						if len(sequence.Particles()) != 1 || sequence.Particles()[0] == nil {
+							t.Fatal("mutating returned sequence terms changed completed facts")
 						}
 					}
 					before := definition.AttributeUses()
@@ -166,6 +183,8 @@ func TestLocalInheritableMalformedAndExcludedShapes(t *testing.T) {
 		{"direct all", localInheritableDirect(`<xs:all/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/>`), ""},
 		{"simpleContent extension", `<xs:complexType name="Record"><xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:extension></xs:simpleContent></xs:complexType>`, ""},
 		{"sequence extension", `<xs:complexType name="Record"><xs:complexContent><xs:extension base="t:Base"><xs:sequence/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:extension></xs:complexContent></xs:complexType>`, `<xs:complexType name="Base"/>`},
+		{"sequence extension anonymous inline", `<xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:sequence/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:extension></xs:complexContent></xs:complexType></xs:element>`, `<xs:complexType name="Base"/>`},
+		{"sequence extension ref", `<xs:complexType name="Record"><xs:complexContent><xs:extension base="t:Base"><xs:sequence/><xs:attribute ref="t:global" inheritable="%s"/></xs:extension></xs:complexContent></xs:complexType>`, `<xs:complexType name="Base"/><xs:attribute name="global" type="xs:boolean"/>`},
 		{"grouped extension", `<xs:complexType name="Record"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:extension></xs:complexContent></xs:complexType>`, `<xs:group name="Fields"><xs:sequence/></xs:group><xs:complexType name="Base"/>`},
 		{"grouped anonymous inline", `<xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:extension></xs:complexContent></xs:complexType></xs:element>`, `<xs:group name="Fields"><xs:sequence/></xs:group><xs:complexType name="Base"/>`},
 		{"attribute group", `<xs:attributeGroup name="Attrs"><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:attributeGroup>`, ""},
@@ -178,7 +197,7 @@ func TestLocalInheritableMalformedAndExcludedShapes(t *testing.T) {
 		}
 		for _, owner := range ownerCases {
 			for _, spelling := range []string{"maybe", "true", "1", "false", "0"} {
-				if (owner.name == "direct named" || owner.name == "grouped extension") && (spelling == "false" || spelling == "0") && policy != Strict10 {
+				if (owner.name == "direct named" || owner.name == "grouped extension" || owner.name == "sequence extension") && (spelling == "false" || spelling == "0") && policy != Strict10 {
 					continue
 				}
 				t.Run(string(policy)+"/"+owner.name+"/"+spelling, func(t *testing.T) {
@@ -212,7 +231,7 @@ func TestLocalInheritableMalformedAndExcludedShapes(t *testing.T) {
 						return
 					}
 					wantSpec := "xsd11-structures#cSchemaDocument"
-					if owner.name == "sequence extension" || owner.name == "grouped extension" || owner.name == "grouped anonymous inline" {
+					if owner.name == "sequence extension" || owner.name == "sequence extension anonymous inline" || owner.name == "sequence extension ref" || owner.name == "grouped extension" || owner.name == "grouped anonymous inline" {
 						wantSpec = schemaComplexTypeExtensionSpecRef(version)
 					}
 					if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.SpecRef() != wantSpec || !errors.Is(err, ErrUnsupported) {

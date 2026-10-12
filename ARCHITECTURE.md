@@ -75,7 +75,7 @@ Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members a
 AttributeUse retains ordered names, type/use/form `Loc`s, IDs; grouped: group → uses → base; direct-sequence: children → uses → base.
 `0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
 Compatibility/Strict11 treat `inheritable=false/0` as omission on named locals
-in named direct empty/choice/sequence/group or named grouped-extension owners.
+in named empty/choice/sequence/group or grouped/sequence extension owners.
 Strict10, true/1, explicit inheritable on refs, and other owners reject.
 Facet-free `xs:ID` in direct/grouped/sequence extensions
 stay query-only (Strict10: one); inline/ref/value forms and consumers reject.
