@@ -8488,7 +8488,7 @@ func resolveSchemaAllParticle(
 			if memberInput.typeInput != nil {
 				loc = memberInput.typeInput.typeLoc
 			}
-			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string/positiveInteger/nonPositiveInteger, and built-in/named token/NMTOKEN/negativeInteger/nonNegativeInteger/long/int/short/byte/unsignedLong scalars", version)
+			diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, "all member type is anonymous or outside supported integer, decimal, boolean, built-in string, and built-in/named token/NMTOKEN/negativeInteger/positiveInteger/nonPositiveInteger/nonNegativeInteger/long/int/short/byte/unsignedLong scalars", version)
 			diagnostic.specRef = schemaAllLimitedSpecRef(version)
 			diagnostic.cause = errSchemaAllMemberScalar
 			return nil, diagnostic
@@ -8530,7 +8530,7 @@ func schemaAllScalarAllowed(reference schemaSimpleTypeReferenceComponent) bool {
 	case schemaSimpleTypeAtomicNegativeInteger:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicPositiveInteger, schemaSimpleTypeAtomicNonPositiveInteger:
-		return reference.kind == SimpleTypeReferenceBuiltin
+		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicNonNegativeInteger:
 		return reference.kind == SimpleTypeReferenceBuiltin || reference.kind == SimpleTypeReferenceNamed
 	case schemaSimpleTypeAtomicLong, schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort, schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong:
@@ -8795,12 +8795,6 @@ func schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner schemaComponentR
 	}
 	if _, direct := owner.complexType.body.(*schemaComplexTypeDirectBodyInput); !direct {
 		return false
-	}
-	if model == "all" {
-		if input.declaredType.Namespace() != xsdNamespaceURI {
-			return false
-		}
-		return input.declaredType.Local() == "positiveInteger" || input.declaredType.Local() == "nonPositiveInteger"
 	}
 	return true
 }

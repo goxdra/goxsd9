@@ -242,7 +242,6 @@ func TestDirectAllSignIntegerExcludedShapesAndReferences(t *testing.T) {
 				name, member, extra, marker, spec string
 				cause                             error
 			}{
-				{"named derivative", `<xs:element name="v" type="r:Derived"/>`, `<xs:simpleType name="Derived"><xs:restriction base="xs:` + scalar + `"/></xs:simpleType>`, `type="r:Derived"`, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
 				{"anonymous derivative", `<xs:element name="v"><xs:simpleType><xs:restriction base="xs:` + scalar + `"/></xs:simpleType></xs:element>`, "", `<xs:simpleType>`, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), ErrUnsupported},
 			} {
 				t.Run(string(profile.policy)+"/"+scalar+"/"+test.name, func(t *testing.T) {

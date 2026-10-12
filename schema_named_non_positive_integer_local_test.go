@@ -150,17 +150,15 @@ func TestSchemaNamedNonPositiveIntegerLocalExclusions(t *testing.T) {
 	}
 }
 
-func TestSchemaNamedNonPositiveIntegerAllMemberExcluded(t *testing.T) {
+func TestSchemaNamedNonPositiveIntegerAllMemberAdmitted(t *testing.T) {
 	for _, profile := range nonPositiveIntegerPolicyProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `"><xs:complexType name="Record"><xs:all><xs:element name="value" type="r:Alias"/></xs:all></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:nonPositiveInteger"/></xs:simpleType></xs:schema>`
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			assertZeroSchema(t, schema)
-			diagnostic := requireDiagnostic(t, err)
-			wantLoc := elementReferenceTestAttributeLoc(t, root, `type="r:Alias"`)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != schemaSyntaxSpecRefForVersion(profile.version) || len(diagnostic.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("all diagnostic = %s related=%v spec=%s", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+			if err != nil {
+				t.Fatal(err)
 			}
+			assertNamedSignAllMember(t, schema, "nonPositiveInteger")
 		})
 	}
 }
