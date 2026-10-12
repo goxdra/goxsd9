@@ -8800,7 +8800,7 @@ func schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner schemaComponentR
 }
 
 func schemaDirectNamedComplexNormalizedString(owner schemaComponentRecord, model string) bool {
-	if model != "sequence" || owner.complexType == nil {
+	if (model != "sequence" && model != "choice") || owner.complexType == nil {
 		return false
 	}
 	_, direct := owner.complexType.body.(*schemaComplexTypeDirectBodyInput)

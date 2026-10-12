@@ -160,8 +160,6 @@ func TestNormalizedStringLocalSequenceShapeExclusions(t *testing.T) {
 		for _, test := range []struct {
 			name, body, mark string
 		}{
-			{"choice built-in", `<xs:complexType name="Owner"><xs:choice><xs:element name="value" type="xs:normalizedString"/></xs:choice></xs:complexType>`, `type="xs:normalizedString"`},
-			{"choice named", `<xs:complexType name="Owner"><xs:choice><xs:element name="value" type="t:T"/></xs:choice></xs:complexType><xs:simpleType name="T"><xs:restriction base="xs:normalizedString"/></xs:simpleType>`, `type="t:T"`},
 			{"all built-in", `<xs:complexType name="Owner"><xs:all><xs:element name="value" type="xs:normalizedString"/></xs:all></xs:complexType>`, `type="xs:normalizedString"`},
 			{"all named", `<xs:complexType name="Owner"><xs:all><xs:element name="value" type="t:T"/></xs:all></xs:complexType><xs:simpleType name="T"><xs:restriction base="xs:normalizedString"/></xs:simpleType>`, `type="t:T"`},
 			{"extension built-in", `<xs:complexType name="Base"/><xs:complexType name="Owner"><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:element name="value" type="xs:normalizedString"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType>`, `type="xs:normalizedString"`},
@@ -399,22 +397,7 @@ func TestNormalizedStringDirectSequenceGraphProvenance(t *testing.T) {
 //nolint:gocognit // Alternate exits at the local term boundary must precede zero omission.
 func TestNormalizedStringDirectSequenceZeroBoundaryDiagnostics(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, test := range []struct {
-			name, child, tail, mark, code, spec string
-			related                             []string
-			class                               FailureClass
-			cause                               error
-		}{
-			{"unresolved", `<xs:element name="value" type="t:Missing" minOccurs="0" maxOccurs="0"/>`, "", `type="t:Missing"`, diagnosticSchemaElementTypeUnresolvedCode, schemaElementTypeSpecRef(profile.version), nil, FailureInvalid, errSchemaElementTypeUnresolved},
-			{"wrong kind", `<xs:element name="value" type="t:T" minOccurs="0" maxOccurs="0"/>`, `<xs:element name="T" type="xs:normalizedString"/>`, `type="t:T"`, diagnosticSchemaElementTypeWrongKindCode, schemaElementTypeSpecRef(profile.version), []string{`<xs:element name="T"`}, FailureInvalid, errSchemaElementTypeWrongKind},
-			{"invalid range", `<xs:element name="value" type="xs:normalizedString" minOccurs="2" maxOccurs="1"/>`, "", `<xs:element name="value"`, invalidSchemaCompositionCode, schemaParticleCorrectSpecRef(profile.version), []string{`minOccurs="2"`, `maxOccurs="1"`}, FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum},
-			{"invalid occurrence lexical", `<xs:element name="value" type="xs:normalizedString" minOccurs="0" maxOccurs="many"/>`, "", `maxOccurs="many"`, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.version), nil, FailureInvalid, nil},
-			{"malformed type QName", `<xs:element name="value" type="t:bad:name" minOccurs="0" maxOccurs="0"/>`, "", `type="t:bad:name"`, invalidSchemaConditionalCode, "", nil, FailureInvalid, nil},
-			{"invalid whitespace", `<xs:element name="value" type="t:T" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="T"><xs:restriction base="xs:normalizedString"><xs:whiteSpace value="preserve"/></xs:restriction></xs:simpleType>`, `value="preserve"`, InvalidStringWhiteSpaceRestrictionCode, stringWhiteSpaceSpecRef(profile.version), nil, FailureInvalid, errInvalidStringWhiteSpaceRestriction},
-			{"unsupported facet", `<xs:element name="value" type="t:T" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="T"><xs:restriction base="xs:normalizedString"><xs:length value="2"/></xs:restriction></xs:simpleType>`, `<xs:length`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal"), nil, FailureUnsupported, ErrUnsupported},
-			{"cyclic type", `<xs:element name="value" type="t:A" minOccurs="0" maxOccurs="0"/>`, `<xs:simpleType name="A"><xs:restriction base="t:B"/></xs:simpleType><xs:simpleType name="B"><xs:restriction base="t:A"/></xs:simpleType><xs:simpleType name="Seed"><xs:restriction base="xs:normalizedString"/></xs:simpleType>`, `base="t:B"`, diagnosticSchemaSimpleTypeCycleCode, schemaSimpleTypeSpecRef(profile.version), []string{`base="t:A"`}, FailureInvalid, errSchemaSimpleTypeBaseCycle},
-			{"name and ref", `<xs:element name="value" ref="t:T" minOccurs="0" maxOccurs="0"/>`, `<xs:element name="T" type="xs:normalizedString"/>`, `ref="t:T"`, invalidSchemaCompositionCode, "", nil, FailureInvalid, nil},
-		} {
+		for _, test := range normalizedStringZeroBoundaryCases(profile) {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := normalizedStringSequenceRoot("\n  <xs:complexType name=\"Owner\"><xs:sequence>" + test.child + "</xs:sequence></xs:complexType>" + test.tail + "\n")
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
@@ -423,7 +406,7 @@ func TestNormalizedStringDirectSequenceZeroBoundaryDiagnostics(t *testing.T) {
 				}
 				assertZeroSchema(t, schema)
 				diagnostic := requireDiagnostic(t, err)
-				wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 2, test.mark)
+				wantLoc := mustSchemaTokenLoc(t, "root.xsd", root, 2, test.marker)
 				var wantRelated []Loc
 				for _, marker := range test.related {
 					wantRelated = append(wantRelated, mustSchemaTokenLoc(t, "root.xsd", root, 2, marker))
