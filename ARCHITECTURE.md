@@ -94,19 +94,17 @@ refs query-only. Inline defaults/fixed fail at value `Loc`;
 invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
-Complexes retain abstract/final provenance, ordered groups/extensions, and
-wildcards. `xs:any` admits positive sets, XSD 1.1 strict/lax/skip `notNamespace`,
-chameleon adoption, and `0/0` omission. Compatibility/Strict11 direct strict
-`xs:any` retains normalized `notQName` tokens, bindings, `Loc`, and sorted names.
-Inconsistent exclusions fail before omission; consumers/broader forms reject.
+Complexes retain abstract/final/block provenance, groups/extensions/wildcards.
+Named empty bodies admit zero `block` without particle/occurrence; empty/whitespace overrides `blockDefault="#all"`, retaining `Loc`. Nonzero unsupported; consumers unchanged.
+`xs:any` admits positive sets, 1.1 strict/lax/skip `notNamespace`, chameleons, `0/0` omission. Compatibility/Strict11 direct strict `xs:any` retains normalized `notQName` tokens, bindings, `Loc`, sorted names. Exclusion conflicts precede omission; consumers/broader forms reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
-Inline-complex `mixed=false/0` and inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` equal omission; true/1 reject, malformed retain cause/`Loc`. Globals with `@type` or inline `simpleType` expose true.
-Compatibility/Strict11 omit valid `defaultAttributesApply`; Strict10 and schema `defaultAttributes` reject.
-Inline IDs stay outside walks; selected precisionDecimal sequences validate.
+Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
+Compatibility/Strict11 omit valid `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.
+Inline IDs omit from walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
-Named-complex direct sequences query built-in/named `normalizedString` locals; consumers reject.
-Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values and consumers reject.
+Named direct sequences query built-in/named `normalizedString`; consumers reject.
+Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
 
 ## Datatypes
 

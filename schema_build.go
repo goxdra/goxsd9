@@ -201,6 +201,7 @@ var (
 	errSchemaSubstitutionTypeUnsupported         = errors.New("substitution-group type derivation is not implemented")
 	errSchemaSubstitutionCycle                   = errors.New("substitution-group affiliations form a cycle")
 	errSchemaBlock                               = errors.New("schema block value is invalid")
+	errSchemaEmptyComplexBlockUnsupported        = errors.New("nonempty block on an empty complex type is not implemented")
 	errSchemaAnyAttributeUnsupported             = errors.New("anyAttribute wildcard is not implemented")
 	errSchemaAnyParticleUnsupported              = errors.New("any wildcard particle is not implemented")
 	errSchemaWildcardQNameNamespace              = errors.New("wildcard notQName contains a QName outside the namespace constraint")
@@ -1780,7 +1781,7 @@ func schemaComplexTypeBooleanAttribute(element *syntaxElement, local string) (bo
 
 //nolint:gocognit,funlen // Keep complex-type body selection and effective fact propagation together.
 func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
-	block, explicitBlock, err := schemaDeclarationBlockPolicy(
+	block, _, err := schemaDeclarationBlockPolicy(
 		element,
 		facts.blockDefault,
 		schemaBlockComplexMask,
@@ -1831,7 +1832,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	}
 	model := schemaComplexTypeModel(element)
 	if model == nil {
-		input, inputErr := schemaComplexTypeInputWithoutModel(element, attributeUses, anyAttribute, explicitBlock, block, version)
+		input, inputErr := schemaComplexTypeInputWithoutModel(element, attributeUses, anyAttribute, block, version)
 		if inputErr != nil {
 			return nil, inputErr
 		}
@@ -1874,7 +1875,6 @@ func schemaComplexTypeInputWithoutModel(
 	element *syntaxElement,
 	attributeUses []schemaAttributeUseInput,
 	anyAttribute *schemaAnyAttributeInput,
-	explicitBlock bool,
 	block schemaBlockPolicy,
 	version XSDVersion,
 ) (*schemaComplexTypeInput, error) {
@@ -1890,7 +1890,7 @@ func schemaComplexTypeInputWithoutModel(
 	if anyAttribute != nil {
 		return nil, newSchemaAnyAttributeUnsupported(anyAttribute.loc, version)
 	}
-	if !explicitBlock && block.set == 0 {
+	if block.set == 0 {
 		return &schemaComplexTypeInput{
 			body:                    &schemaComplexTypeEmptyBodyInput{},
 			prohibitedSubstitutions: block,
@@ -1900,11 +1900,13 @@ func schemaComplexTypeInputWithoutModel(
 	if loc.IsZero() {
 		loc = element.loc
 	}
-	return nil, newSchemaSyntaxUnsupportedForVersion(
+	diagnostic := newSchemaSyntaxUnsupportedForVersion(
 		loc,
 		"block facts for global complex types without a supported particle model are not implemented",
 		version,
 	)
+	diagnostic.cause = errSchemaEmptyComplexBlockUnsupported
+	return nil, diagnostic
 }
 
 func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {

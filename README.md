@@ -5,9 +5,9 @@ and Go generation. Unsupported features return located diagnostics without parti
 
 ## Library
 
-Use `NewResolvedSource`, `ParseSchema`, and a `Resolver` for
-includes/imports. It receives namespace URNs and
-lexical schema locations; the library opens no paths or URLs. `ParseSchema`
+Use `NewResolvedSource`, `ParseSchema`, and `Resolver` for
+includes/imports. Resolvers receive namespace URNs and
+lexical schema locations; the library opens no resources. `ParseSchema`
 defaults to Compatibility for mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects graph-wide policy. Queries and walks are
 immutable and deterministic. Identity constraints retain ordered XPath,
@@ -21,20 +21,19 @@ precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
 built-in fields use `StrictInteger`; named fields use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects attribute uses.
-Named empty/choice/sequence and grouped/direct-sequence extensions query
-built-in/facet-free `xs:ID` locals (Strict10: one effective ID), retaining ordered
-refs/uses over named empty bases; after checks, `0/0` particles and prohibited uses omit. Validation/generation reject extensions.
+Named empty/choice/sequence and grouped/direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10: one); refs/uses stay ordered over empty bases, and `0/0`/prohibited omit after checks; consumers reject extensions.
+Named empty types accept effective-empty `block` across policies; empty/whitespace overrides `blockDefault="#all"` with authored `Loc`; global-element `@type` and `GenerateGo` reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
-extension choices are attribute-free. Valid inline `0/0` omits after semantic checks; nonzero rejects.
+extension choices are attribute-free. Valid inline `0/0` omits after checks; nonzero rejects.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
-`GenerateGo` supports default Boolean/integer/decimal choice refs and ordered
-default integer/decimal sequence refs; other targets or occurrences reject.
+`GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
+default integer/decimal sequence refs; other targets/occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
-built-in string/positiveInteger/nonPositiveInteger, built-in/named nonNegativeInteger, and refs with exact bounds; consumers reject it.
+built-in string/positiveInteger/nonPositiveInteger, built-in/named nonNegativeInteger, refs with exact bounds; consumers reject.
 Compatibility/Strict11 expose QName `notQName` on direct strict `xs:any`; consumers reject wildcards.
 
 ## CLI
@@ -48,13 +47,13 @@ go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
 `parse` summarizes schemas; successful `validate` is silent; `generate` writes
-Go to standard output or `--output`. `--schema-root DIR` sets the local
-resolution boundary and is required for standard input. `--diagnostics json`
+Go to stdout or `--output`. `--schema-root DIR` sets the local
+resolution boundary and is required for stdin. `--diagnostics json`
 selects machine-readable errors; processing failures exit 1, usage errors 2.
 
 ## Development
 
-Run the repository checks from a fresh checkout:
+Run checks from a fresh checkout:
 
 ```sh
 git submodule update --init --recursive
