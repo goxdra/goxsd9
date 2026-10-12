@@ -109,8 +109,9 @@ than retaining a zero particle or a second attribute API.
 
 The construction order is deterministic:
 
-1. Allocate all named component identities and anonymous local simple-type
-   identities in discovery/declaration order.
+1. Allocate named component identities, anonymous global-element inline
+   complex-owner `ComplexTypeID`s, and anonymous local simple-type identities
+   in discovery/declaration order. Anonymous owners stay out of global walks.
 2. Convert and validate the direct group reference and its exact occurrence;
    resolve its visible named model-group target first.
 3. Resolve local attribute uses in lexical order, including
