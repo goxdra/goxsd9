@@ -9,7 +9,7 @@ Paseo schedules from coordination checkout in America/New_York.
 Require clean `main`/`origin/main`, recursive pins (`doctor`);
 stale jobs use `base-sync`. Claim Ready, draft PR, squash-merge evaluated
 head. Managed-document/source-trigger heads need exact audit, fresh read-only Curator
-after remediation. Renew at boundaries/before pushes.
+after remediation. Renew at boundaries/before ordinary pushes.
 Recovered `--integrate`: checked `pr open` first under live marker lease; renew
 after fixed-remote publication. Preserve no-PR worktrees; archive
 expired PR-free claims; escalate expired PRs.
@@ -36,10 +36,9 @@ Dirty handoff: `# Dirty no-PR claim handoff: issue #N`, blank, then `Run:`,
 `workflowctl sync` updates Project status/claim refs, not `main`/submodules;
 run-local refs inventory-only. `base-sync` fast-forwards `main`/pins; never
 resets/rebases/stashes/discards.
-Set `PR_URL` from checked `pr open`; then
-`PR_NUMBER="$(gh pr view "$PR_URL" --json number --jq '.number')"` and
-`BASE_SHA="$(gh api repos/goxdra/goxsd9/pulls/$PR_NUMBER --jq '.base.sha')"`; use
-REST SHA for signals/audit/evidence; avoid `origin/main` and merge-base.
+Retain checked `pr open`'s URL or verify the open fixed-branch PR. Use
+`.agents/skills/develop/SKILL.md` for metadata commands. Freeze exact REST
+base for signals/audit/evidence; avoid `origin/main` and merge-base.
 `no-relevant-target`/`not-measured` are valid; policy fuzz measures health, not conformance.
 Before evidence/challenge/finish, match REST base/head, recompute signals,
 compare canonical JSON, preserve non-owned PR bytes, use exact `pending`/
