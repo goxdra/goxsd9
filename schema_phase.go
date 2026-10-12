@@ -3177,7 +3177,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return compositionDiagnostic(child.loc, element.name.local+" attributes must precede anyAttribute and assert")
 			}
 			attributesSeen = true
-			childErr := validateLocalAttribute(child, version, namedOwner && groupExtension)
+			childErr := validateLocalAttribute(child, version, namedOwner && (groupExtension || sequenceExtension))
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
 			}
