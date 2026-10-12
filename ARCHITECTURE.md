@@ -18,8 +18,8 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Phases never backpatch. Identities intern before discovery; repeats/cycles close. Stable
-topological order resolves dependencies; slices order walks/output.
+Phases never backpatch. Identities intern; stable topological order resolves
+dependencies; slices order walks and output.
 
 ## Input and resolution
 
@@ -33,8 +33,8 @@ type Resolver interface {
 }
 ```
 
-Sources carry opaque identity, reader-closer, context; resolvers own base locations.
-FIFO preserves context; parser opens no resources and resolves sequentially.
+Sources carry opaque identity, stream, and context. Resolvers own base locations;
+discovery is FIFO and sequential.
 `Loc` uses one-based lines and Unicode-code-point columns.
 
 ## Diagnostics
@@ -45,14 +45,14 @@ features have stable report IDs.
 
 ## Schema model
 
-Components are immutable; walks ordered, particles scoped. Global elements retain
-ordered identity constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
-IDs/duplicates precede refer resolution; unresolved/invisible/ambiguous targets yield
+Components are immutable; walks ordered. Elements retain identity
+constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
+IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`. Publication is atomic.
 
 Bounded extensions over named empty bases and `xs:anyType` restrictions
 retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
-Direct-sequence uses require named complex owners; anonymous inline owners reject. Choices remain attribute-free.
+Direct-sequence uses admit named and global inline complex owners; inline owners retain anonymous identity and exclude ID, inheritable, and local list/union uses. Choices remain attribute-free.
 SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline

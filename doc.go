@@ -317,9 +317,12 @@
 // anonymous atomic uses retain AnonymousID/NodeID. One named complexContent
 // extension composes a direct opaque named-group reference, ordered local uses,
 // and the supported named empty base. Direct-sequence extensions with local
-// uses require a named complex owner and compose supported ordered members
-// over the same base. Anonymous inline owners return an unsupported diagnostic
-// at the extension Loc, even for a 0/0 sequence. Broader attribute-bearing
+// uses admit named and global inline complex owners and compose supported
+// ordered members over the same base. Inline owners retain anonymous identity,
+// non-ID atomic local and referenced uses, and inherited wildcard facts.
+// Validation and generation reject inline complex-content extensions even when
+// zero occurrences and prohibited uses leave no effective particle or uses.
+// Broader attribute-bearing
 // extensions remain unsupported. Top-level direct model-group references on
 // complex types, including grouped extensions, require supported named complex
 // owners. Global inline direct-group and

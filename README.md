@@ -1,16 +1,15 @@
 # goxsd9
 
-goxsd9 parses XML Schema into immutable components for queries, validation,
-and Go generation. Unsupported features return located diagnostics without partial output.
+goxsd9 parses XML Schema into immutable components. Unsupported features return
+located diagnostics without partial output.
 
 ## Library
 
-Use `NewResolvedSource`, `ParseSchema`, and `Resolver` for
-includes/imports. Resolvers receive namespace URNs and
-lexical schema locations; the library opens no resources. `ParseSchema`
-defaults to Compatibility for mixed XSD 1.0/1.1 graphs;
-`ParseSchemaWithPolicy` selects graph-wide policy. Queries and walks are
-immutable and deterministic. Identity constraints retain ordered XPath,
+Use `NewResolvedSource`, `ParseSchema`, and `Resolver` for includes/imports.
+Resolvers receive namespace URNs and lexical locations; the library opens no
+resources. `ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
+`ParseSchemaWithPolicy` selects graph policy. Queries and walks are deterministic.
+Identity constraints retain ordered XPath,
 namespaces, and targets; consumers reject. Atomic NCName enumerations,
 including inline attributes, are query-only; enumerated list/union members reject.
 
@@ -22,6 +21,7 @@ never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:lon
 built-in fields use `StrictInteger`; named fields use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects attribute uses.
 Named empty/choice/sequence and grouped/direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10: one); refs/uses stay ordered over empty bases, and `0/0`/prohibited omit after checks; consumers reject extensions.
+Global inline direct-sequence extensions expose ordered non-ID atomic local/ref attributes over named empty bases; consumers reject.
 Named empty types accept effective-empty `block` across policies; empty/whitespace overrides `blockDefault="#all"` with authored `Loc`; global-element `@type` and `GenerateGo` reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
@@ -47,9 +47,8 @@ go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
 `parse` summarizes schemas; successful `validate` is silent; `generate` writes
-Go to stdout or `--output`. `--schema-root DIR` sets the local
-resolution boundary and is required for stdin. `--diagnostics json`
-selects machine-readable errors; processing failures exit 1, usage errors 2.
+Go to stdout or `--output`. `--schema-root DIR` bounds resolution and is
+required for stdin. `--diagnostics json` emits machine-readable errors.
 
 ## Development
 
