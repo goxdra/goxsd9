@@ -91,8 +91,8 @@ Direct-sequence extensions with local uses follow the separate
 Simple-type variety and reference identities remain distinct from list/union
 value semantics; named simple-type `final` controls remain enforced.
 `xs:language`, `xs:NCName`, `xs:anyURI`, and `xs:QName` remain outside local
-attribute admission. Explicit built-in and facet-free named `xs:ID` local uses
-retain query facts only; lexical, value, uniqueness, validation, and generation
+attribute admission. On named grouped owners, built-in and facet-free named
+`xs:ID` local uses retain query facts only; lexical, value, uniqueness, validation, and generation
 semantics remain unsupported. For a local use, `name` is an
 unqualified NCName and `ref` is an expanded QName; they are mutually exclusive
 and do not share the global-declaration name path.

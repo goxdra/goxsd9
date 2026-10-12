@@ -52,7 +52,7 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 
 Bounded extensions over named empty bases and `xs:anyType` restrictions
 retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
-Grouped and sequence extension uses admit named and inline owners; inline owners retain identity and exclude ID, inheritable, and list/union uses. Choices remain attribute-free.
+Grouped and sequence extension uses admit named and global-element inline owners; inline owners retain anonymous identity and exclude ID, inheritable, and list/union uses.
 SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
@@ -77,7 +77,7 @@ AttributeUse retains ordered names, type/use/form `Loc`s, IDs; grouped: group â†
 Compatibility/Strict11 treat `inheritable=false/0` as omission on named locals
 in named empty/choice/sequence/group or grouped/sequence extension owners.
 Strict10, true/1, explicit inheritable on refs, and other owners reject.
-Facet-free `xs:ID` in direct/grouped/sequence extensions
+Named owners' facet-free `xs:ID` in direct/grouped/sequence extensions
 stay query-only (Strict10: one); inline/ref/value forms and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.

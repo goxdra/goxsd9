@@ -427,8 +427,9 @@
 // one opaque direct group reference and ordered local AttributeUse facts over a
 // supported named empty base. They resolve the group before the uses and base;
 // effective 0/0 omits the group, and prohibited uses may leave no effective uses.
-// Consumers reject at the first effective use Loc, then a present group RefLoc,
-// or the extension Loc when both are absent.
+// Named grouped owners reject at the first effective use Loc, then a present
+// group RefLoc, or the extension Loc when both are absent. Inline owners reject
+// at the instance root or global element as described below.
 // Default-bounded sequences of supported built-in/named integer/decimal or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
 // Boolean/integer/decimal/negativeInteger particles retain query facts;
