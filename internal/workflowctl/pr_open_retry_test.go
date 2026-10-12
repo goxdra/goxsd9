@@ -29,6 +29,8 @@ type retryOpenBackend struct {
 	localHead  string
 	remoteHead string
 	existing   []pullRequestAPI
+	listedHead string
+	details    int
 	pushes     int
 	posts      int
 }
@@ -60,7 +62,18 @@ func (b *retryOpenBackend) execute(_ string, input io.Reader, name string, args 
 		}
 		return "", nil
 	case "gh api repos/goxdra/goxsd9/pulls?state=open&head=goxdra:agent/issue-13&per_page=100":
-		encoded, err := json.Marshal(b.existing)
+		listed := append([]pullRequestAPI(nil), b.existing...)
+		if len(listed) != 0 && b.listedHead != "" {
+			listed[0].Head.SHA = b.listedHead
+		}
+		if len(listed) == 0 {
+			listed = []pullRequestAPI{}
+		}
+		encoded, err := json.Marshal(listed)
+		return string(encoded), err
+	case "gh api repos/goxdra/goxsd9/pulls/14":
+		b.details++
+		encoded, err := json.Marshal(b.existing[0])
 		return string(encoded), err
 	case "gh api --method POST repos/goxdra/goxsd9/pulls --input -":
 		return b.createDraft(input)
@@ -107,11 +120,13 @@ func TestPROpenRunLocalRetryPublishesRemediationAndReusesDraft(t *testing.T) {
 	}
 	backend.localHead = remediationHead
 	backend.remoteHead = remediationHead
+	backend.listedHead = firstHead
 	backend.existing[0].Body = testPRReviewStateFrame(t, prReviewStateEvidenceReady) + "\nCloses #13\nPreserve evidence.\n"
 	open()
 	open()
-	if backend.posts != 1 || backend.pushes != 3 {
-		t.Fatalf("retry: posts=%d pushes=%d, want one POST and three checked publications", backend.posts, backend.pushes)
+	if backend.posts != 1 || backend.pushes != 3 || backend.details != 2 {
+		t.Fatalf("retry: posts=%d pushes=%d details=%d, want one POST, three publications, two fresh detail reads",
+			backend.posts, backend.pushes, backend.details)
 	}
 	if backend.existing[0].Body != testPRReviewStateFrame(t, prReviewStateEvidenceReady)+"\nCloses #13\nPreserve evidence.\n" {
 		t.Fatal("retry changed existing PR body")
@@ -122,27 +137,62 @@ func TestPROpenRunLocalRetryPublishesRemediationAndReusesDraft(t *testing.T) {
 }
 
 type existingPRLookupCase struct {
-	name string
-	prs  []pullRequestAPI
-	data string
-	read error
-	want string
+	name       string
+	prs        []pullRequestAPI
+	detail     *pullRequestAPI
+	data       string
+	detailData string
+	read       error
+	detailRead error
+	want       string
+}
+
+func (tt existingPRLookupCase) execute(t *testing.T, name string, args ...string) (string, error) {
+	t.Helper()
+	if name != "gh" {
+		t.Fatalf("unexpected command: %s %v", name, args)
+	}
+	switch strings.Join(args, " ") {
+	case "api repos/goxdra/goxsd9/pulls?state=open&head=goxdra:agent/issue-13&per_page=100":
+		return tt.listResponse()
+	case "api repos/goxdra/goxsd9/pulls/14":
+		return tt.detailResponse()
+	default:
+		t.Fatalf("unexpected command: %s %v", name, args)
+		return "", nil
+	}
+}
+
+func (tt existingPRLookupCase) listResponse() (string, error) {
+	if tt.read != nil {
+		return "", tt.read
+	}
+	if tt.data != "" {
+		return tt.data, nil
+	}
+	encoded, err := json.Marshal(tt.prs)
+	return string(encoded), err
+}
+
+func (tt existingPRLookupCase) detailResponse() (string, error) {
+	if tt.detailRead != nil {
+		return "", tt.detailRead
+	}
+	if tt.detailData != "" {
+		return tt.detailData, nil
+	}
+	pr := tt.prs[0]
+	if tt.detail != nil {
+		pr = *tt.detail
+	}
+	encoded, err := json.Marshal(pr)
+	return string(encoded), err
 }
 
 func assertExistingPRLookupConflict(t *testing.T, tt existingPRLookupCase, head string) {
 	t.Helper()
 	application := app{executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
-		if name != "gh" || strings.Join(args, " ") != "api repos/goxdra/goxsd9/pulls?state=open&head=goxdra:agent/issue-13&per_page=100" {
-			t.Fatalf("unexpected command: %s %v", name, args)
-		}
-		if tt.read != nil {
-			return "", tt.read
-		}
-		if tt.data != "" {
-			return tt.data, nil
-		}
-		encoded, err := json.Marshal(tt.prs)
-		return string(encoded), err
+		return tt.execute(t, name, args...)
 	}}
 	_, found, err := application.existingOpenPullRequest("/repo", claimBranch(13), 13, head)
 	if err == nil || found || !strings.Contains(err.Error(), tt.want) {
@@ -150,6 +200,9 @@ func assertExistingPRLookupConflict(t *testing.T, tt existingPRLookupCase, head 
 	}
 	if tt.read != nil && !errors.Is(err, tt.read) {
 		t.Fatalf("lookup error %v lost cause %v", err, tt.read)
+	}
+	if tt.detailRead != nil && !errors.Is(err, tt.detailRead) {
+		t.Fatalf("lookup error %v lost detail cause %v", err, tt.detailRead)
 	}
 }
 
@@ -172,7 +225,7 @@ func TestExistingOpenPRLookupRejectsConflictsAndPreservesCause(t *testing.T) {
 			pr := valid
 			pr.Head.SHA = strings.Repeat("b", 40)
 			return []pullRequestAPI{pr}
-		}(), want: "conflicting identity"},
+		}(), want: "differs from published head"},
 		{name: "wrong base", prs: func() []pullRequestAPI { pr := valid; pr.Base.Ref = "other"; return []pullRequestAPI{pr} }(), want: "conflicting identity"},
 		{name: "wrong base repository", prs: func() []pullRequestAPI {
 			pr := valid
@@ -181,8 +234,15 @@ func TestExistingOpenPRLookupRejectsConflictsAndPreservesCause(t *testing.T) {
 		}(), want: "conflicting identity"},
 		{name: "closed", prs: func() []pullRequestAPI { pr := valid; pr.State = "closed"; return []pullRequestAPI{pr} }(), want: "conflicting identity"},
 		{name: "merged", prs: func() []pullRequestAPI { pr := valid; pr.Merged = true; return []pullRequestAPI{pr} }(), want: "conflicting identity"},
-		{name: "missing number", prs: func() []pullRequestAPI { pr := valid; pr.Number = 0; return []pullRequestAPI{pr} }(), want: "conflicting identity"},
+		{name: "missing number", prs: func() []pullRequestAPI { pr := valid; pr.Number = 0; return []pullRequestAPI{pr} }(), want: "no valid number"},
 		{name: "missing URL", prs: func() []pullRequestAPI { pr := valid; pr.URL = ""; return []pullRequestAPI{pr} }(), want: "conflicting identity"},
+		{name: "detail number", prs: []pullRequestAPI{valid}, detail: func() *pullRequestAPI {
+			pr := valid
+			pr.Number = 15
+			return &pr
+		}(), want: "conflicting identity"},
+		{name: "detail malformed", prs: []pullRequestAPI{valid}, detailData: "{", want: "decode open PR #14"},
+		{name: "detail transport", prs: []pullRequestAPI{valid}, detailRead: errors.New("detail unavailable"), want: "detail unavailable"},
 		{name: "invalid title", prs: func() []pullRequestAPI { pr := valid; pr.Title = "Bad title"; return []pullRequestAPI{pr} }(), want: "invalid title"},
 		{name: "wrong issue", prs: func() []pullRequestAPI { pr := valid; pr.Body = "Closes #12\n"; return []pullRequestAPI{pr} }(), want: "does not close issue #13"},
 		{name: "null", data: "null", want: "returned no list"},

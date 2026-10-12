@@ -187,8 +187,8 @@ func (a app) existingOpenPullRequest(root, branch string, issue int, head string
 		return "", false, stateError("open PR lookup for claim branch %s returned no list", branch)
 	}
 	var prs []pullRequestAPI
-	if err := json.Unmarshal([]byte(output), &prs); err != nil {
-		return "", false, stateError("decode open PRs for claim branch %s: %v", branch, err)
+	if decodeErr := json.Unmarshal([]byte(output), &prs); decodeErr != nil {
+		return "", false, stateError("decode open PRs for claim branch %s: %v", branch, decodeErr)
 	}
 	if len(prs) == 0 {
 		return "", false, nil
@@ -196,11 +196,24 @@ func (a app) existingOpenPullRequest(root, branch string, issue int, head string
 	if len(prs) != 1 {
 		return "", false, stateError("claim branch %s has %d open PRs; resolve ambiguity before opening", branch, len(prs))
 	}
-	pr := prs[0]
-	if pr.Number < 1 || pr.URL == "" || pr.State != "open" || pr.Merged || pr.MergedAt != nil ||
+	if prs[0].Number < 1 {
+		return "", false, stateError("open PR for claim branch %s has no valid number", branch)
+	}
+	output, err = a.command(root, "gh", "api", "repos/"+repositoryKey+"/pulls/"+strconv.Itoa(prs[0].Number))
+	if err != nil {
+		return "", false, fmt.Errorf("read open PR #%d for claim branch %s: %w", prs[0].Number, branch, err)
+	}
+	var pr pullRequestAPI
+	if decodeErr := json.Unmarshal([]byte(output), &pr); decodeErr != nil {
+		return "", false, stateError("decode open PR #%d: %v", prs[0].Number, decodeErr)
+	}
+	if pr.Number != prs[0].Number || pr.URL == "" || pr.State != "open" || pr.Merged || pr.MergedAt != nil ||
 		pr.Base.Ref != "main" || pr.Base.Repo.FullName != repositoryKey ||
-		pr.Head.Ref != branch || pr.Head.Repo.FullName != repositoryKey || pr.Head.SHA != head {
-		return "", false, stateError("open PR for claim branch %s has conflicting identity, base, or published head", branch)
+		pr.Head.Ref != branch || pr.Head.Repo.FullName != repositoryKey {
+		return "", false, stateError("open PR #%d has conflicting identity or base for claim branch %s", prs[0].Number, branch)
+	}
+	if pr.Head.SHA != head {
+		return "", false, stateError("open PR #%d head %s differs from published head %s", pr.Number, pr.Head.SHA, head)
 	}
 	if err := validateCommitTitle(pr.Title); err != nil {
 		return "", false, stateError("PR #%d has invalid title %q: %v", pr.Number, pr.Title, err)
