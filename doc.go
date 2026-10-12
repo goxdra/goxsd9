@@ -17,7 +17,7 @@
 // xs:normalizedString has distinct built-in identity and replace whiteSpace.
 // Restrictions, list items, and union members may reference it. Direct,
 // named-typed, and inline atomic-restriction global elements are queryable;
-// list/union-typed global elements reject. Direct named-complex sequences
+// list/union-typed global elements reject. Direct named-complex choices and sequences
 // retain built-in and supported named effective xs:normalizedString locals for
 // queries, including inherited string facets and exact occurrences. Other
 // mapped nonzero xs:normalizedString locals reject at schema admission;
