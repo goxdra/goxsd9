@@ -100,9 +100,13 @@ func TestDeclaredXSDNamespaceExtensionBaseExits(t *testing.T) {
 		otherNamespace bool
 	}{
 		{name: "builtin anyType", base: "anyType", class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errSchemaComplexTypeBaseUnsupported},
+		{name: "builtin anyType collision", base: "anyType", suffix: `<xs:complexType name="anyType"/>`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errSchemaComplexTypeBaseUnsupported},
 		{name: "builtin simple", base: "string", class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind},
+		{name: "builtin simple collision", base: "string", suffix: `<xs:complexType name="string"/>`, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind},
 		{name: "version-gated builtin simple", base: "precisionDecimal", class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind},
+		{name: "version-gated builtin collision", base: "precisionDecimal", suffix: `<xs:complexType name="precisionDecimal"/>`, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind},
 		{name: "unimplemented builtin simple", base: "duration", class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind},
+		{name: "unimplemented builtin collision", base: "duration", suffix: `<xs:complexType name="duration"/>`, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind},
 		{name: "absent XSD name", base: "Missing", class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind},
 		{name: "unresolved other namespace", base: "Missing", otherNamespace: true, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseUnresolved},
 		{name: "declared simple", base: "Simple", suffix: `<xs:simpleType name="Simple"><xs:restriction base="xs:string"/></xs:simpleType>`, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind, relatedMarker: []string{`<xs:simpleType name="Simple"`}},
@@ -147,6 +151,47 @@ func TestDeclaredXSDNamespaceExtensionBaseExits(t *testing.T) {
 				}
 				if test.class == FailureUnsupported && !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("unsupported base lost ErrUnsupported: %v", err)
+				}
+			})
+		}
+	}
+}
+
+// The XSD 1.0/1.1 built-in simple names share the type-definition symbol
+// space with declarations. precisionDecimal is additionally recognized by the
+// library's Strict11/Compatibility policy.
+func TestDeclaredXSDNamespaceBuiltinSimpleNamesCannotBeShadowed(t *testing.T) {
+	names := []string{
+		"anySimpleType", "anyAtomicType", "error",
+		"string", "boolean", "decimal", "float", "double", "duration",
+		"dateTime", "time", "date", "gYearMonth", "gYear", "gMonthDay", "gDay", "gMonth",
+		"hexBinary", "base64Binary", "anyURI", "QName", "NOTATION",
+		"normalizedString", "token", "language", "NMTOKEN", "NMTOKENS", "Name", "NCName",
+		"ID", "IDREF", "IDREFS", "ENTITY", "ENTITIES", "integer", "nonPositiveInteger",
+		"negativeInteger", "long", "int", "short", "byte", "nonNegativeInteger",
+		"unsignedLong", "unsignedInt", "unsignedShort", "unsignedByte", "positiveInteger",
+		"yearMonthDuration", "dayTimeDuration", "dateTimeStamp", "precisionDecimal",
+	}
+	for _, profile := range []struct {
+		name    string
+		policy  LanguagePolicy
+		version XSDVersion
+	}{
+		{name: "compatibility", policy: Compatibility, version: XSDVersion11},
+		{name: "strict10", policy: Strict10, version: XSDVersion10},
+		{name: "strict11", policy: Strict11, version: XSDVersion11},
+	} {
+		for _, name := range names {
+			t.Run(profile.name+"/"+name, func(t *testing.T) {
+				root := xsdNamespaceExtensionRoot(string(profile.version), name, `<xs:complexType name="`+name+`"/>`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("built-in simple name was shadowed by a complex declaration")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != complexContentTestLoc(t, root, `base="xs:`+name+`"`) || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) || !errors.Is(err, errSchemaComplexTypeBaseWrongKind) {
+					t.Fatalf("collision diagnostic = %v", err)
 				}
 			})
 		}

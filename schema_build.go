@@ -7855,6 +7855,26 @@ func resolveSchemaComplexTypeExtensionReference(
 			schemaComplexTypeExtensionSpecRef(version),
 		)
 	}
+	if input.name.Namespace() == xsdNamespaceURI {
+		var knownBuiltin bool
+		_, builtinErr := resolveBuiltinSchemaSimpleTypeReferenceWithKnown(schemaSimpleTypeReferenceInput{
+			kind: schemaSimpleTypeQNameReferenceInput,
+			name: input.name,
+			loc:  input.loc,
+		}, XSDVersion11, &knownBuiltin)
+		if builtinErr != nil && !errors.Is(builtinErr, ErrUnsupported) {
+			return 0, schemaComplexTypeReferenceComponent{}, fmt.Errorf("classify complex type extension base %q: %w", input.name, builtinErr)
+		}
+		if knownBuiltin {
+			return 0, schemaComplexTypeReferenceComponent{}, newSchemaComplexTypeExtensionBaseDiagnostic(
+				input.loc,
+				fmt.Sprintf("complex type extension base %q is not a supported complex type", input.name),
+				nil,
+				version,
+				fmt.Errorf("%w: %q", errSchemaComplexTypeBaseWrongKind, input.name),
+			)
+		}
+	}
 
 	candidates := byName[input.name]
 	if len(candidates) == 0 {
@@ -9973,8 +9993,15 @@ func (resolver *schemaSimpleTypeResolver) resolveReference(input schemaSimpleTyp
 	}
 }
 
-//nolint:gocognit,funlen // Keep the built-in datatype mapping explicit and versioned.
 func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	return resolveBuiltinSchemaSimpleTypeReferenceWithKnown(input, version, nil)
+}
+
+//nolint:gocognit,funlen // Keep supported and known unsupported built-in names in one switch.
+func resolveBuiltinSchemaSimpleTypeReferenceWithKnown(input schemaSimpleTypeReferenceInput, version XSDVersion, known *bool) (schemaSimpleTypeReferenceComponent, error) {
+	if known != nil {
+		*known = true
+	}
 	result := schemaSimpleTypeResult{
 		variety:    SimpleTypeVarietyAtomicRestriction,
 		varietyLoc: input.loc,
@@ -10191,7 +10218,21 @@ func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInpu
 	case "QName":
 		result.atomicKind = schemaSimpleTypeAtomicQName
 		result.facets = schemaAtomicFacetVariant{}
+	case "anySimpleType", "anyAtomicType", "error",
+		"float", "double", "duration", "dateTime", "time", "date",
+		"gYearMonth", "gYear", "gMonthDay", "gDay", "gMonth",
+		"hexBinary", "base64Binary", "NOTATION",
+		"NMTOKENS", "Name", "IDREF", "IDREFS", "ENTITY", "ENTITIES",
+		"unsignedInt", "unsignedShort", "unsignedByte",
+		"yearMonthDuration", "dayTimeDuration", "dateTimeStamp":
+		return schemaSimpleTypeReferenceComponent{}, newSchemaSyntaxUnsupported(
+			input.loc,
+			fmt.Sprintf("simple type reference %q is not supported", input.name),
+		)
 	default:
+		if known != nil {
+			*known = false
+		}
 		return schemaSimpleTypeReferenceComponent{}, newSchemaSyntaxUnsupported(
 			input.loc,
 			fmt.Sprintf("simple type reference %q is not supported", input.name),
