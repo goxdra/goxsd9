@@ -160,8 +160,6 @@ func TestNormalizedStringLocalSequenceShapeExclusions(t *testing.T) {
 		for _, test := range []struct {
 			name, body, mark string
 		}{
-			{"all built-in", `<xs:complexType name="Owner"><xs:all><xs:element name="value" type="xs:normalizedString"/></xs:all></xs:complexType>`, `type="xs:normalizedString"`},
-			{"all named", `<xs:complexType name="Owner"><xs:all><xs:element name="value" type="t:T"/></xs:all></xs:complexType><xs:simpleType name="T"><xs:restriction base="xs:normalizedString"/></xs:simpleType>`, `type="t:T"`},
 			{"extension built-in", `<xs:complexType name="Base"/><xs:complexType name="Owner"><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:element name="value" type="xs:normalizedString"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType>`, `type="xs:normalizedString"`},
 			{"extension named", `<xs:complexType name="Base"/><xs:complexType name="Owner"><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:element name="value" type="t:T"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType><xs:simpleType name="T"><xs:restriction base="xs:normalizedString"/></xs:simpleType>`, `type="t:T"`},
 			{"inline owner built-in", `<xs:element name="root"><xs:complexType><xs:sequence><xs:element name="value" type="xs:normalizedString"/></xs:sequence></xs:complexType></xs:element>`, `type="xs:normalizedString"`},
