@@ -6824,7 +6824,7 @@ func resolveSchemaAttributeUseType(
 	if err := rejectSchemaExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -6982,6 +6982,17 @@ func schemaNamedLocalNCNameAttributeTypeSupported(reference schemaSimpleTypeRefe
 		return false
 	}
 	if reference.variety != SimpleTypeVarietyAtomicRestriction || reference.atomicKind != schemaSimpleTypeAtomicNCName {
+		return false
+	}
+	_, ok := reference.facets.(schemaStringFacetVariant)
+	return ok && schemaNamedLocalAtomicAttributeOwnerSupported(owner)
+}
+
+func schemaNamedLocalNormalizedStringAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+	if reference.kind != SimpleTypeReferenceBuiltin && reference.kind != SimpleTypeReferenceNamed {
+		return false
+	}
+	if reference.variety != SimpleTypeVarietyAtomicRestriction || reference.atomicKind != schemaSimpleTypeAtomicNormalizedString {
 		return false
 	}
 	_, ok := reference.facets.(schemaStringFacetVariant)
