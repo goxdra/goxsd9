@@ -22,8 +22,9 @@
 // xs:normalizedString locals for
 // queries, including inherited string facets and exact occurrences. Other
 // mapped nonzero xs:normalizedString locals reject at schema admission;
-// explicit built-in and supported named xs:normalizedString global
-// attributes retain query facts. Applicable 0/0 locals omit after reference,
+// explicit built-in, supported named, and top-level inline atomic
+// xs:normalizedString global attributes retain query facts. Applicable 0/0
+// locals omit after reference,
 // facet, and policy gates. Element-ref particles to
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
 // xs:QName references are distinct context-sensitive atomics in facet-free
