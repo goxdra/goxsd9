@@ -22,8 +22,9 @@
 // xs:normalizedString locals for
 // queries, including inherited string facets and exact occurrences. Other
 // mapped nonzero xs:normalizedString locals reject at schema admission;
-// explicit built-in and supported named xs:normalizedString global
-// attributes retain query facts. Applicable 0/0 locals omit after reference,
+// explicit built-in, supported named, and top-level inline atomic
+// xs:normalizedString global attributes retain query facts. Applicable 0/0
+// locals omit after reference,
 // facet, and policy gates. Element-ref particles to
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
 // xs:QName references are distinct context-sensitive atomics in facet-free
@@ -570,8 +571,9 @@
 // xs:long, xs:int, xs:short, xs:byte, and xs:unsignedLong. Integer-derived
 // types retain copied exact bounds. One inline simpleType may instead declare a
 // restriction, list, or union. Its named and anonymous item/member references
-// retain lexical order; atomic leaves exclude xs:normalizedString, with
-// xs:string admitted only below the top type. Effective enumerated NCName
+// retain lexical order. Top-level atomic xs:normalizedString restrictions admit;
+// list/union xs:normalizedString members reject, while xs:string admits only
+// below the top type. Effective enumerated NCName
 // list items and union members, whether named, anonymous, or inherited,
 // reject with located unsupported diagnostics and no Schema; facet-free
 // NCName members remain queryable. InlineSimpleType() and

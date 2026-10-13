@@ -4354,7 +4354,7 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 func schemaInlineAttributeUnsupportedMember(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver, version XSDVersion, top bool) (Loc, error) {
 	switch reference.variety {
 	case SimpleTypeVarietyAtomicRestriction:
-		if reference.atomicKind == schemaSimpleTypeAtomicNormalizedString {
+		if !top && reference.atomicKind == schemaSimpleTypeAtomicNormalizedString {
 			return reference.loc, nil
 		}
 		if schemaAttributeTypeReferenceSupported(reference) || !top && reference.atomicKind == schemaSimpleTypeAtomicString {

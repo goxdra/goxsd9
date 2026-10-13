@@ -317,7 +317,6 @@ func TestNormalizedStringExcludedComponentShapes(t *testing.T) {
 		for _, test := range []struct {
 			name, body, mark, code, spec string
 		}{
-			{"global attribute inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:normalizedString"/></xs:simpleType></xs:attribute>`, `<xs:simpleType`, UnsupportedSchemaSyntaxCode, schemaAttributeTypeSpecRef(profile.version)},
 			{"local inline", `<xs:complexType name="Box"><xs:sequence><xs:element name="a"><xs:simpleType><xs:restriction base="xs:normalizedString"/></xs:simpleType></xs:element></xs:sequence></xs:complexType>`, `<xs:simpleType`, UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.version)},
 			{"length facet", `<xs:simpleType name="T"><xs:restriction base="xs:normalizedString"><xs:length value="2"/></xs:restriction></xs:simpleType>`, `<xs:length`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal")},
 			{"pattern facet", `<xs:simpleType name="T"><xs:restriction base="xs:normalizedString"><xs:pattern value=".*"/></xs:restriction></xs:simpleType>`, `<xs:pattern`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal")},

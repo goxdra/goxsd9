@@ -83,8 +83,8 @@ Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
 Strict10 and true/1 reject. References reject at use `Loc`.
-Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; `string` admits,
-`normalizedString` rejects. Atomic NCName (built-in/named/global inline) retains
+Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; atomic inline
+`normalizedString` admits. Atomic NCName (built-in/named/global inline) retains
 ordered enumeration/inherited narrowing/fixed collapse. Enumerated NCName
 list items/union members (named/anonymous/inherited/ref) reject; facet-free
 admit. Explicit whiteSpace/pattern/length, local attributes, list/union
