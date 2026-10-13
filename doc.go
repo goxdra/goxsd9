@@ -19,9 +19,9 @@
 // named-typed, and inline atomic-restriction global elements are queryable;
 // list/union-typed global elements reject. Direct named-complex choices,
 // sequences, and all groups retain built-in and supported named effective
-// xs:normalizedString locals for
-// queries, including inherited string facets and exact occurrences. Other
-// mapped nonzero xs:normalizedString locals reject at schema admission;
+// xs:normalizedString local element particles for queries, including inherited
+// string facets and exact occurrences. Other mapped nonzero local element
+// particles of this type reject at schema admission;
 // explicit built-in, supported named, and top-level inline atomic
 // xs:normalizedString global attributes retain query facts. Applicable 0/0
 // locals omit after reference,
