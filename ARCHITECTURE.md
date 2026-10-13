@@ -72,23 +72,22 @@ built-in/named effective `normalizedString`/`token`/`NMTOKEN`/`negativeInteger`/
 built-in/named effective `positiveInteger`/`nonPositiveInteger` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
-AttributeUse retains ordered names, type/use/form `Loc`s, IDs; grouped: group → uses → base; direct-sequence: children → uses → base.
+AttributeUse retains order, IDs, `Loc`s; grouped: group→uses→base; sequence extension: children→uses→base.
 `0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
-Named local owners (empty/choice/sequence/group/grouped/sequence extension)
-omit `inheritable=false/0` in Compatibility/Strict11; Strict10, true/1, refs,
-and other owners reject.
-Named owners' facet-free `xs:ID` in direct/grouped/sequence extensions
-stay query-only (Strict10: one); inline/ref/value forms and consumers reject.
+Named empty/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;
+Strict10, true/1, refs, and other owners reject.
+Named empty, choice/sequence, grouped, and sequence extension owners query
+facet-free `xs:ID` (Strict10: one) and built-in/named atomic `xs:NCName`
+local uses with copied effective enumerations. Inline/ref/value forms and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
 Strict10 and true/1 reject. References reject at use `Loc`.
 Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; atomic inline
-`normalizedString` admits. Atomic NCName (built-in/named/global inline) retains
-ordered enumeration/inherited narrowing/fixed collapse. Enumerated NCName
-list items/union members (named/anonymous/inherited/ref) reject; facet-free
-admit. Explicit whiteSpace/pattern/length, local attributes, list/union
-attribute refs, default/fixed and consumers reject.
+`normalizedString` admits. Atomic NCName preserves enumeration order, inherited
+narrowing, fixed collapse. Enumerated NCName list/union members reject;
+facet-free admit. Explicit whiteSpace/pattern/length, local inline NCName,
+list/union attribute refs, default/fixed, and consumers reject.
 Default/fixed covers built-in/named Boolean/integer/decimal/token/negativeInteger/nonPositiveInteger/positiveInteger/long/int/short/byte/unsignedLong and policy-gated `precisionDecimal`.
 Integer exact; unsignedLong digits-only Strict10, plus/signed-zero
 Compatibility/Strict11. Local refs to global inline lists/unions reject; atomic

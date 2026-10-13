@@ -202,8 +202,12 @@
 // gate under Compatibility/Strict11; other non-string anonymous enumerations
 // return facet-located unsupported diagnostics. Global inline precisionDecimal
 // restrictions remain queryable, while mapped nonzero local anonymous
-// restrictions fail at the local type location with no schema. NCName instance
-// validation and Go generation remain unsupported.
+// restrictions fail at the local type location with no schema. Built-in and
+// supported named effective atomic NCName local declarations on named empty,
+// direct choice/sequence, grouped, and direct-sequence extension owners retain
+// their written type QName, target identity, type location, and copied effective
+// enumeration facts. Inline restrictions, refs, and value constraints remain
+// excluded. NCName instance validation and Go generation remain unsupported.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded
 // extensions are modeled and queryable. Direct named-complex xs:all also models

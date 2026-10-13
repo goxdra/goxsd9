@@ -10,8 +10,9 @@ Resolvers receive namespace URNs and lexical locations; library opens no
 resources. `ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects policy. Queries/walks are deterministic.
 Identity constraints retain ordered XPath/namespaces/targets;
-consumers reject. Atomic NCName enumerations,
-including inline attributes, are query-only; enumerated list/union members reject.
+consumers reject. NCName enumerations, including global inline attributes and
+built-in/named locals on supported named owners, are query-only; enumerated
+list/union members reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -20,7 +21,7 @@ precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
 built-ins use `StrictInteger`; named use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Named empty/choice/sequence complexes and named grouped/direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10: one); global ID refs reject. Uses stay ordered (empty extension bases); `0/0`/prohibited omit after checks; consumers reject.
+Named empty/choice/sequence and grouped/direct-sequence extension owners query built-in/facet-free `xs:ID` locals (Strict10: one); refs reject; uses ordered; `0/0`/prohibited omit after checks; consumers reject.
 Global inline grouped/direct-sequence extensions query ordered non-ID atomic local/ref attributes over empty named bases; consumers reject.
 Named empty complexes/untyped global elements admit empty `block` overriding defaults; untyped elements lack views and reject validation/generation. Compatibility/Strict11 omit `inheritable=false/0` on untyped global attributes without typed views; local refs fail schema construction; `ValidateInstance`/`GenerateGo` still reject global attributes. Global-element `@type` rejects named empty complexes; extension-base references work.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).

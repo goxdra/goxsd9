@@ -175,8 +175,6 @@ func TestNCNameEnumerationLocalAndVarietyExclusions(t *testing.T) {
 			name, body, primary, related, spec string
 			cause                              error
 		}{
-			{"local direct", `<xs:complexType name="Box"><xs:attribute name="a" type="xs:NCName"/></xs:complexType>`, `type="xs:NCName"`, ``, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
-			{"local named", `<xs:complexType name="Box"><xs:attribute name="a" type="t:T"/></xs:complexType><xs:simpleType name="T"><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `type="t:T"`, ``, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
 			{"local inline", `<xs:complexType name="Box"><xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType></xs:attribute></xs:complexType>`, `<xs:simpleType`, ``, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
 			{"local ref direct", `<xs:attribute name="a" type="xs:NCName"/><xs:complexType name="Box"><xs:attribute ref="t:a"/></xs:complexType>`, `ref="t:a"`, `<xs:attribute name="a"`, schemaAttributeUseSpecRef(profile.version), errSchemaAttributeReferenceUnsupported},
 			{"local ref named", `<xs:attribute name="a" type="t:T"/><xs:complexType name="Box"><xs:attribute ref="t:a"/></xs:complexType><xs:simpleType name="T"><xs:restriction base="xs:NCName"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `ref="t:a"`, `<xs:attribute name="a"`, schemaAttributeUseSpecRef(profile.version), errSchemaAttributeReferenceUnsupported},

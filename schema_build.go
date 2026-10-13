@@ -6824,7 +6824,7 @@ func resolveSchemaAttributeUseType(
 	if err := rejectSchemaExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -6974,7 +6974,22 @@ func schemaDirectLocalIDAttributeTypeSupported(reference schemaSimpleTypeReferen
 		return false
 	}
 	_, ok := reference.facets.(schemaAtomicFacetVariant)
-	if !ok || owner.complexType == nil {
+	return ok && schemaNamedLocalAtomicAttributeOwnerSupported(owner)
+}
+
+func schemaNamedLocalNCNameAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+	if reference.kind != SimpleTypeReferenceBuiltin && reference.kind != SimpleTypeReferenceNamed {
+		return false
+	}
+	if reference.variety != SimpleTypeVarietyAtomicRestriction || reference.atomicKind != schemaSimpleTypeAtomicNCName {
+		return false
+	}
+	_, ok := reference.facets.(schemaStringFacetVariant)
+	return ok && schemaNamedLocalAtomicAttributeOwnerSupported(owner)
+}
+
+func schemaNamedLocalAtomicAttributeOwnerSupported(owner schemaComponentRecord) bool {
+	if owner.complexType == nil {
 		return false
 	}
 	switch body := owner.complexType.body.(type) {
