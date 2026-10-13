@@ -571,8 +571,9 @@
 // xs:long, xs:int, xs:short, xs:byte, and xs:unsignedLong. Integer-derived
 // types retain copied exact bounds. One inline simpleType may instead declare a
 // restriction, list, or union. Its named and anonymous item/member references
-// retain lexical order; atomic leaves exclude xs:normalizedString, with
-// xs:string admitted only below the top type. Effective enumerated NCName
+// retain lexical order. Top-level atomic xs:normalizedString restrictions admit;
+// list/union xs:normalizedString members reject, while xs:string admits only
+// below the top type. Effective enumerated NCName
 // list items and union members, whether named, anonymous, or inherited,
 // reject with located unsupported diagnostics and no Schema; facet-free
 // NCName members remain queryable. InlineSimpleType() and

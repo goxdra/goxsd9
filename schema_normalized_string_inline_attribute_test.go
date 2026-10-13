@@ -253,12 +253,14 @@ func TestNormalizedStringInlineGlobalAttributeConsumersStayUnsupported(t *testin
 			if err != nil {
 				t.Fatalf("inline global schema: %v", err)
 			}
-			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<t:root xmlns:t="urn:test" a="text">1</t:root>`)))
+			instance := `<t:root xmlns:t="urn:test" a="text">1</t:root>`
+			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(instance)))
 			if validationErr == nil {
 				t.Fatal("ValidateInstance accepted an attribute on the instance")
 			}
 			validation := requireDiagnostic(t, validationErr)
-			if validation.Class() != FailureUnsupported || validation.Code() != UnsupportedInstanceValidationCode || validation.Loc().Source() != "instance.xml" || !errors.Is(validationErr, errInstanceAttributes) {
+			wantInstanceLoc := mustTestLoc(t, "instance.xml", 1, strings.Index(instance, `a="text"`)+1)
+			if validation.Class() != FailureUnsupported || validation.Code() != UnsupportedInstanceValidationCode || validation.Loc() != wantInstanceLoc || !errors.Is(validationErr, errInstanceAttributes) {
 				t.Fatalf("validation diagnostic = %v", validationErr)
 			}
 			output, generationErr := GenerateGo(schema, "generated")
