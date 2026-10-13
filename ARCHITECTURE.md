@@ -77,8 +77,9 @@ AttributeUse retains order, IDs, `Loc`s; grouped: group→uses→base; sequence 
 Named empty/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;
 Strict10, true/1, refs, and other owners reject.
 Named empty, choice/sequence, grouped, and sequence extension owners query
-facet-free `xs:ID` (Strict10: one) and built-in/named atomic `xs:NCName`
-local uses with copied effective enumerations. Inline/ref/value forms and consumers reject.
+facet-free `xs:ID` (Strict10: one), built-in/named `xs:NCName`, and
+`xs:normalizedString` locals with copied effective facets. Inline/ref/value
+forms and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

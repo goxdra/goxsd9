@@ -593,6 +593,8 @@
 // Declared xs:string, xs:NMTOKEN, xs:nonNegativeInteger, other excluded built-ins,
 // and named list/union attribute types remain unsupported. Supported global
 // xs:normalizedString references retain effective enumeration and whiteSpace.
+// Built-in and named atomic local uses on supported named complex owners expose
+// those facts; inline/ref/value forms and consumers reject.
 // Built-ins and named references inheriting the intrinsic facet expose unlocated
 // replace; named restrictions may expose authored collapse and its source Loc.
 // Built-in references have no synthetic ID.

@@ -94,7 +94,10 @@ Simple-type variety and reference identities remain distinct from list/union
 value semantics; named simple-type `final` controls remain enforced.
 `xs:language`, `xs:anyURI`, and `xs:QName` remain outside local attribute
 admission. Named grouped owners admit built-in and named effective atomic
-`xs:NCName` declarations with copied enumeration facts. Built-in and facet-free named
+`xs:NCName` declarations with copied enumeration facts. Built-in and named
+`xs:normalizedString` declarations retain effective whitespace and enumeration
+facts on the same named owners; inline, reference, value, and consumer forms
+remain unsupported. Built-in and facet-free named
 `xs:ID` local uses retain query facts only; lexical, value, uniqueness, validation, and generation
 semantics remain unsupported. For a local use, `name` is an
 unqualified NCName and `ref` is an expanded QName; they are mutually exclusive
