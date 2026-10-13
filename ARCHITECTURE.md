@@ -52,7 +52,7 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 
 Bounded extensions over named empty bases and `xs:anyType` restrictions
 retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
-Grouped and sequence extension uses admit named and global-element inline owners; inline owners retain anonymous identity and exclude ID, inheritable, and list/union uses.
+Grouped/sequence extension uses admit named/global-element inline owners; inline owners retain anonymous identity and exclude ID, inheritable, list/union uses.
 SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
 Direct/extension choices and sequences admit `integer`, built-in/named/inline
@@ -94,11 +94,11 @@ refs query-only. Inline defaults/fixed fail at value `Loc`;
 invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
-Named empty types and untyped globals admit empty `block` overriding defaults. Named types retain block `Loc`; untyped globals publish no view or block facts. Nonempty block and consumers reject.
-`xs:any` admits positive sets, 1.1 strict/lax/skip `notNamespace`, chameleons, `0/0` omission. Compatibility/Strict11 strict `xs:any` retains sorted `notQName` tokens/bindings/`Loc`; conflicts precede omission; other forms/consumers reject.
+Complexes retain abstract/final/block provenance, groups/extensions/wildcards. Empty named bodies lack particle/occurrence; they and untyped globals admit empty `block` overriding defaults. Named block `Loc` persists; untyped view/block facts absent; nonempty policies/consumers reject.
+`xs:any`: positive sets, 1.1 strict/lax/skip `notNamespace`, chameleons, `0/0`. Compatibility/Strict11 direct strict `notQName` retains source-ordered normalized tokens (duplicates), bindings/`Loc`, sorted unique expanded names; conflicts before omission; other placements/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
-Compatibility/Strict11 omit valid `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.
+Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.
 Inline IDs omit from walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
