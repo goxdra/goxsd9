@@ -17,8 +17,9 @@
 // xs:normalizedString has distinct built-in identity and replace whiteSpace.
 // Restrictions, list items, and union members may reference it. Direct,
 // named-typed, and inline atomic-restriction global elements are queryable;
-// list/union-typed global elements reject. Direct named-complex choices and sequences
-// retain built-in and supported named effective xs:normalizedString locals for
+// list/union-typed global elements reject. Direct named-complex choices,
+// sequences, and all groups retain built-in and supported named effective
+// xs:normalizedString locals for
 // queries, including inherited string facets and exact occurrences. Other
 // mapped nonzero xs:normalizedString locals reject at schema admission;
 // explicit built-in and supported named xs:normalizedString global
@@ -141,7 +142,7 @@
 // forms use the admission-then-absence rule under every policy.
 // A direct xs:all on a named complex type retains one immutable ordered
 // AllParticle member view of local integer/decimal/Boolean declarations,
-// built-in string and built-in/named effective token/NMTOKEN/negativeInteger/
+// built-in string and built-in/named effective normalizedString/token/NMTOKEN/negativeInteger/
 // positiveInteger/nonPositiveInteger/nonNegativeInteger/long/int/short/byte/unsignedLong
 // declarations, and element references. Member order is lexical
 // for queries; matching remains unsupported. XSD 1.0 limits outer and member occurrences; XSD 1.1 permits

@@ -28,12 +28,12 @@ See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrenc
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
 extension choices are attribute-free. Valid inline `0/0` omits after checks; nonzero rejects.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
-named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
+named-complex choices/sequences/all groups query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
 default integer/decimal sequence refs; other targets/occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
-built-in string, built-in/named positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
+built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
 Compatibility/Strict11 query direct strict `xs:any` QName `notQName`; wildcard consumers reject.
 
 ## CLI

@@ -68,7 +68,7 @@ Named choice/sequence refs: opaque, resolved; nested/all excluded,
 cycles invalid XSD3062 at closing `ref`. QName/RefLoc/TargetID/order query-only;
 owning consumers: located unsupported diagnostics, nil Go output.
 Named direct `all` retains ordered integer/decimal/Boolean, built-in `string`,
-built-in/named effective `token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
+built-in/named effective `normalizedString`/`token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
 built-in/named effective `positiveInteger`/`nonPositiveInteger` locals,
 and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
 Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
@@ -104,7 +104,7 @@ Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAt
 Inline IDs omit from walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
-Named direct choices/sequences query built-in/named `normalizedString`; consumers reject.
+Direct choices/sequences/all groups query built-in/named `normalizedString`; consumers reject.
 Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
 
 ## Datatypes
