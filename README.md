@@ -1,6 +1,6 @@
 # goxsd9
 
-goxsd9 parses XML Schema into immutable components. Unsupported features return
+goxsd9 parses XML Schema into immutable components; unsupported features return
 located diagnostics without partial output.
 
 ## Library
@@ -21,8 +21,8 @@ never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:lon
 built-in fields use `StrictInteger`; named fields use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects attribute uses.
 Named empty/choice/sequence and grouped/direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10: one); refs/uses stay ordered over empty bases, and `0/0`/prohibited omit after checks; consumers reject extensions.
-Global inline grouped and direct-sequence extensions expose ordered non-ID atomic local/ref attributes over named empty bases; consumers reject.
-Named empty types accept effective-empty `block` across policies; empty/whitespace overrides `blockDefault="#all"` with authored `Loc`; global-element `@type` and `GenerateGo` reject.
+Global inline grouped/direct-sequence extensions expose ordered non-ID atomic local/ref attributes over named empty bases; consumers reject.
+Named empty complexes/untyped globals admit empty `block` overriding defaults. Untyped globals lack views; consumers reject. Global-element `@type` rejects named empty complexes; extension-base references work.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;

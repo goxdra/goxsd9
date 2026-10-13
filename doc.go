@@ -293,8 +293,10 @@
 // Boolean values stay located invalid with their lexical cause; neither returns
 // a Schema.
 // Otherwise-supported global elements without a declared type accept those
-// same false spellings as omission. They retain no element-declaration view;
-// true/1 remain located unsupported, and existing shape limits apply. With
+// same false spellings as omission. The flags' true/1 spellings remain located
+// unsupported, and existing shape limits apply. These elements retain no
+// declaration view; an explicit empty or XML-whitespace-only block also acts
+// as omission over nonempty blockDefault. Nonempty effective block remains unsupported. With
 // omitted or false flags, ValidateInstance rejects at the instance root and
 // relates the declaration Loc; GenerateGo rejects at the declaration Loc
 // with nil output. Both diagnostics are unsupported.

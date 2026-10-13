@@ -199,7 +199,6 @@ func TestEmptyBlockOtherOwnersAndConsumersStayAtTheirBoundaries(t *testing.T) {
 				cause  error
 			}{
 				{name: "inline complex", body: `<xs:element name="root"><xs:complexType block=""/></xs:element>`, marker: `block=""`, class: FailureInvalid, code: invalidSchemaCompositionCode},
-				{name: "untyped global element", body: `<xs:element name="root" block=""/>`, marker: `block=""`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: ErrUnsupported},
 				{name: "named reference to empty", body: `<xs:element name="root" type="r:Empty"/><xs:complexType name="Empty" block=""/>`, marker: `type="r:Empty"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: ErrUnsupported},
 				{name: "direct attribute wildcard", body: `<xs:complexType name="Empty" block=""><xs:anyAttribute namespace="##other"/></xs:complexType>`, marker: `<xs:anyAttribute`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errSchemaAnyAttributeUnsupported},
 			}
