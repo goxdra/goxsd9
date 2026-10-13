@@ -607,10 +607,10 @@ func syntaxDocumentBlockDefaultPolicy(document *syntaxDocument, version XSDVersi
 	return schemaBlockPolicyFromAttribute(attributes[0], schemaBlockAll, version, schemaBlockDocumentDefault)
 }
 
-func schemaDeclarationBlockPolicy(element *syntaxElement, defaultPolicy schemaBlockPolicy, allowed schemaBlockSet, version XSDVersion, scope schemaBlockPolicyScope) (schemaBlockPolicy, bool, error) {
+func schemaDeclarationBlockPolicy(element *syntaxElement, defaultPolicy schemaBlockPolicy, allowed schemaBlockSet, version XSDVersion, scope schemaBlockPolicyScope) (schemaBlockPolicy, error) {
 	attributes := syntaxAttributesByLocal(element, "block")
 	if len(attributes) > 1 {
-		return schemaBlockPolicy{}, true, schemaBlockValueDiagnostic(
+		return schemaBlockPolicy{}, schemaBlockValueDiagnostic(
 			attributes[1],
 			element.name.local+" attribute \"block\" must be unique",
 			version,
@@ -619,9 +619,9 @@ func schemaDeclarationBlockPolicy(element *syntaxElement, defaultPolicy schemaBl
 	}
 	if len(attributes) == 1 {
 		policy, err := schemaBlockPolicyFromAttribute(attributes[0], allowed, version, scope)
-		return policy, true, err
+		return policy, err
 	}
-	return defaultPolicy.project(allowed), false, nil
+	return defaultPolicy.project(allowed), nil
 }
 
 // discoverSchema completes the internal pipeline used by ParseSchema.
@@ -1500,7 +1500,7 @@ func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, v
 	if err != nil {
 		return nil, err
 	}
-	block, explicitBlock, err := schemaDeclarationBlockPolicy(
+	block, err := schemaDeclarationBlockPolicy(
 		element,
 		facts.blockDefault,
 		schemaBlockElementMask,
@@ -1526,7 +1526,6 @@ func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, v
 			nillableLoc,
 			substitutionGroup,
 			block,
-			explicitBlock,
 		)
 	}
 	if len(attributes) == 1 && inline != nil {
@@ -1602,12 +1601,11 @@ func schemaElementTypeInputWithoutDeclaredType(
 	nillableLoc Loc,
 	substitutionGroup []schemaElementSubstitutionGroupInput,
 	block schemaBlockPolicy,
-	explicitBlock bool,
 ) (*schemaElementInput, error) {
 	if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstract, abstractLoc, nillable, nillableLoc); noTypeErr != nil {
 		return nil, noTypeErr
 	}
-	if explicitBlock || block.set != 0 {
+	if block.set != 0 {
 		loc := block.loc
 		if loc.IsZero() {
 			loc = element.loc
@@ -1756,7 +1754,7 @@ func schemaComplexTypeBooleanAttribute(element *syntaxElement, local string) (bo
 
 //nolint:gocognit,funlen // Keep complex-type body selection and effective fact propagation together.
 func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaComplexTypeInput, error) {
-	block, _, err := schemaDeclarationBlockPolicy(
+	block, err := schemaDeclarationBlockPolicy(
 		element,
 		facts.blockDefault,
 		schemaBlockComplexMask,
@@ -2810,7 +2808,7 @@ func schemaElementParticleInputFromElementWithFacts(element *syntaxElement, fact
 	if len(refAttributes) > 1 {
 		return schemaElementParticleInput{}, newSchemaBridgeInvariant(element.loc, "local element ref attribute is not unique")
 	}
-	block, _, err := schemaDeclarationBlockPolicy(
+	block, err := schemaDeclarationBlockPolicy(
 		element,
 		facts.blockDefault,
 		schemaBlockElementMask,

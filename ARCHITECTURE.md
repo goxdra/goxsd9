@@ -94,9 +94,8 @@ refs query-only. Inline defaults/fixed fail at value `Loc`;
 invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
-Complexes retain abstract/final/block provenance, groups/extensions/wildcards.
-Named empty bodies admit zero `block` without particle/occurrence; empty/whitespace overrides `blockDefault="#all"`, retaining `Loc`. Nonzero unsupported; consumers unchanged.
-`xs:any` admits positive sets, 1.1 strict/lax/skip `notNamespace`, chameleons, `0/0` omission. Compatibility/Strict11 direct strict `xs:any` retains normalized `notQName` tokens, bindings, `Loc`, sorted names. Exclusion conflicts precede omission; consumers/broader forms reject.
+Named empty types and untyped globals admit empty `block` overriding defaults. Named types retain block `Loc`; untyped globals publish no view or block facts. Nonempty block and consumers reject.
+`xs:any` admits positive sets, 1.1 strict/lax/skip `notNamespace`, chameleons, `0/0` omission. Compatibility/Strict11 strict `xs:any` retains sorted `notQName` tokens/bindings/`Loc`; conflicts precede omission; other forms/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
 Compatibility/Strict11 omit valid `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.

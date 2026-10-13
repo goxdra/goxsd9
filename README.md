@@ -22,7 +22,7 @@ built-in fields use `StrictInteger`; named fields use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects attribute uses.
 Named empty/choice/sequence and grouped/direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10: one); refs/uses stay ordered over empty bases, and `0/0`/prohibited omit after checks; consumers reject extensions.
 Global inline grouped and direct-sequence extensions expose ordered non-ID atomic local/ref attributes over named empty bases; consumers reject.
-Named empty types accept effective-empty `block` across policies; empty/whitespace overrides `blockDefault="#all"` with authored `Loc`; global-element `@type` and `GenerateGo` reject.
+Empty named types and untyped globals accept empty `block` overriding defaults. Untyped globals have no view; validation/generation reject. References to empty types reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
