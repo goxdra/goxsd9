@@ -20,7 +20,7 @@ precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
 built-ins use `StrictInteger`; named use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Named empty/choice/sequence/grouped/direct-sequence extensions query ordered built-in/facet-free `xs:ID` locals/refs over empty bases (Strict10: one); `0/0`/prohibited omit after checks; consumers reject.
+Named empty/choice/sequence complexes and named grouped/direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10: one); global ID refs reject. Uses stay ordered (empty extension bases); `0/0`/prohibited omit after checks; consumers reject.
 Global inline grouped/direct-sequence extensions query ordered non-ID atomic local/ref attributes over empty named bases; consumers reject.
 Named empty complexes/untyped global elements admit empty `block` overriding defaults; untyped elements lack views and reject validation/generation. Compatibility/Strict11 omit `inheritable=false/0` on untyped global attributes without typed views; local refs fail schema construction; `ValidateInstance`/`GenerateGo` still reject global attributes. Global-element `@type` rejects named empty complexes; extension-base references work.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
@@ -52,7 +52,7 @@ required for stdin. `--diagnostics json` emits machine-readable errors.
 
 ## Development
 
-Run checks from a fresh checkout:
+Fresh checkout:
 
 ```sh
 git submodule update --init --recursive
@@ -60,9 +60,9 @@ go tool workflowctl doctor
 go tool workflowctl check
 ```
 
-[Plan](PLAN.md), [issues](https://github.com/goxdra/goxsd9/issues), [roadmap](https://github.com/orgs/goxdra/projects/1), and
-[operations](docs/operations.md) cover work; [AGENTS.md](AGENTS.md) gives repository rules.
+Links: [plan](PLAN.md), [issues](https://github.com/goxdra/goxsd9/issues),
+[roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [rules](AGENTS.md).
 
 ## License
 
-Apache-2.0 ([LICENSE](LICENSE)); the W3C submodule retains `00COPYRIGHT`.
+Apache-2.0 ([LICENSE](LICENSE)); W3C submodule retains `00COPYRIGHT`.
