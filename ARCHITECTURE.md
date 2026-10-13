@@ -104,7 +104,7 @@ Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAt
 Inline IDs omit from walks; selected precisionDecimal sequences validate.
 Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
-Direct choices/sequences/all groups query built-in/named `normalizedString`; consumers reject.
+Named direct choices/sequences query built-in/named `normalizedString`; consumers reject.
 Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
 
 ## Datatypes
