@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-Immutable query models feed validation and generation.
+Immutable models feed validation/generation.
 
 ## Deterministic phase pipeline
 
@@ -18,7 +18,7 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Identities intern before deterministic resolution; slices order walks/output.
+Identities intern before resolution; slices order walks/output.
 Phases never backpatch.
 
 ## Input and resolution
@@ -33,8 +33,8 @@ type Resolver interface {
 }
 ```
 
-Sources carry opaque identity, stream, context; resolvers own base locations.
-Discovery is FIFO and sequential.
+Sources retain opaque identity/context; resolvers own locations.
+Discovery is sequential FIFO; resolver calls are sequential.
 `Loc`: one-based lines, Unicode code-point columns.
 
 ## Diagnostics
@@ -74,13 +74,15 @@ and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0 cap
 Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
 AttributeUse retains ordered names, type/use/form `Loc`s, IDs; grouped: group → uses → base; direct-sequence: children → uses → base.
 `0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
-Compatibility/Strict11 treat `inheritable=false/0` as omission on named locals
-in named empty/choice/sequence/group or grouped/sequence extension owners.
-Strict10, true/1, explicit inheritable on refs, and other owners reject.
+Named local owners (empty/choice/sequence/group/grouped/sequence extension)
+omit `inheritable=false/0` in Compatibility/Strict11; Strict10, true/1, refs,
+and other owners reject.
 Named owners' facet-free `xs:ID` in direct/grouped/sequence extensions
 stay query-only (Strict10: one); inline/ref/value forms and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
+Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
+Strict10 and true/1 reject. References reject at use `Loc`.
 Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; `string` admits,
 `normalizedString` rejects. Atomic NCName (built-in/named/global inline) retains
 ordered enumeration/inherited narrowing/fixed collapse. Enumerated NCName
@@ -152,5 +154,5 @@ Nonzero inline `nonNegativeInteger` has no schema; valid `0/0` terms omit.
 
 ## Conformance
 
-URL/digest-pinned W3C artifacts classify pass/conformance/unsupported/resolution/internal
-outcomes; tooling checks XSD 1.0 envelope/DTD order without altering parser/resolver behavior.
+Pinned W3C artifacts classify pass/conformance/unsupported/resolution/internal
+outcomes; tooling checks XSD 1.0 envelope/DTD order without changing parser behavior.
