@@ -22,7 +22,7 @@ built-in fields use `StrictInteger`; named fields use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects attribute uses.
 Named empty/choice/sequence and grouped/direct-sequence extensions query built-in/facet-free `xs:ID` locals (Strict10: one); refs/uses stay ordered over empty bases, and `0/0`/prohibited omit after checks; consumers reject extensions.
 Global inline grouped/direct-sequence extensions expose ordered non-ID atomic local/ref attributes over named empty bases; consumers reject.
-Named empty complexes/untyped globals admit empty `block` overriding defaults. Untyped globals lack views; consumers reject. Global-element `@type` rejects named empty complexes; extension-base references work.
+Named empty complexes/untyped elements admit empty `block`. Compatibility/Strict11 omit `inheritable=false/0` on untyped global attributes; references reject. Global-element `@type` rejects named empty complexes; extension-base references work.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
@@ -46,8 +46,8 @@ go run ./cmd/goxsd9 validate schema.xsd instance.xml
 go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
-`parse` summarizes schemas; successful `validate` is silent; `generate` writes
-Go to stdout or `--output`. `--schema-root DIR` bounds resolution and is
+`parse` summarizes; `validate` succeeds silently; `generate` writes
+to stdout or `--output`. `--schema-root DIR` bounds resolution and is
 required for stdin. `--diagnostics json` emits machine-readable errors.
 
 ## Development

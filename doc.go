@@ -38,6 +38,9 @@
 // A successful ParseSchema returns an immutable Schema; Documents, Components,
 // Lookup, Find, FindKind, and Walk expose deterministic query views, while
 // AttributeDeclaration exposes resolved type and value-constraint facts.
+// Compatibility/Strict11 admit inheritable=false/0 on untyped global attributes
+// as omission. These components have no AttributeDeclaration view, and local
+// references to them remain unsupported at the use location.
 // Supported global elements expose ordered immutable unique, key, and keyref
 // facts with lexical XPath and namespace context. Keyrefs resolve to nested
 // identity IDs before publication. Identity-constrained elements are query-only;

@@ -1061,6 +1061,10 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	case schemaAttributeAllowed:
 		return "", validateAllowedGlobalSchemaAttribute(element, kind, attribute, version)
 	case schemaAttributeUnsupported:
+		if kind == ComponentKindAttributeDeclaration && attribute.name.local == "inheritable" &&
+			len(syntaxAttributesByLocal(element, "type")) == 0 && inlineSimpleTypeChild(element) == nil {
+			return validateUntypedGlobalAttributeInheritable(attribute, version)
+		}
 		if err := validateRecognizedUnsupportedAttribute(element, attribute, version); err != nil {
 			return "", err
 		}
@@ -1089,6 +1093,27 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 	default:
 		return "", newSchemaBridgeInvariant(attribute.loc, "global declaration attribute has an unknown status")
 	}
+}
+
+func validateUntypedGlobalAttributeInheritable(attribute syntaxAttribute, version XSDVersion) (string, error) {
+	value, err := ParseStrictBooleanFor(version, attribute.value, attribute.loc)
+	if err != nil {
+		diagnostic := newDiagnostic(FailureInvalid, invalidSchemaCompositionCode, attribute.loc, "attribute \"inheritable\" has an invalid boolean value", err)
+		diagnostic.specRef = strictBooleanSpecRef(version)
+		return "", diagnostic
+	}
+	if version == XSDVersion10 {
+		return "", newXSD11FeatureMismatch(
+			FeatureSchemaSyntax,
+			UnsupportedSchemaSyntaxCode,
+			attribute.loc,
+			"global attribute inheritable is an XSD 1.1-only construct",
+		)
+	}
+	if !value.value {
+		return "", nil
+	}
+	return "global attribute attribute \"inheritable\" is not implemented", nil
 }
 
 func validateUntypedGlobalElementBooleanAttribute(attribute syntaxAttribute, version XSDVersion) error {
