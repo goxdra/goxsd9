@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-Immutable query models feed validation and generation.
+Immutable models feed validation/generation.
 
 ## Deterministic phase pipeline
 
@@ -18,7 +18,7 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Identities intern before deterministic resolution; slices order walks/output.
+Identities intern before resolution; slices order walks/output.
 Phases never backpatch.
 
 ## Input and resolution
@@ -33,8 +33,8 @@ type Resolver interface {
 }
 ```
 
-Sources retain opaque identity/context; resolvers own base locations.
-Discovery is FIFO.
+Sources retain opaque identity/context; resolvers own locations.
+Discovery is sequential FIFO; resolver calls are sequential.
 `Loc`: one-based lines, Unicode code-point columns.
 
 ## Diagnostics
