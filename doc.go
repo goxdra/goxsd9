@@ -438,8 +438,10 @@
 // sequence. Both keep supported element and group refs with exact bounds.
 // Named sequences and their one nested choice retain explicitly typed built-in
 // or named atomic integer/string/token local elements with copied type facts,
-// QName, source location, and exact bounds. Differing types for one expanded
-// name fail; unresolved attribution is explicitly unsupported. Valid inline
+// QName, source location, and exact bounds. Chameleon unprefixed named type
+// references adopt the effective namespace; standalone documents retain no
+// namespace. Differing types for one expanded name fail; unresolved attribution
+// is explicitly unsupported. Valid inline
 // simple and untyped 0/0 leaves omit after checks. Inline resolver errors,
 // including unsupported members, block omission. Deeper anonymous
 // compositors, nonzero inline/untyped locals, and broader model-group

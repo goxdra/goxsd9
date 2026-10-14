@@ -295,6 +295,173 @@ func TestNamedGroupLocalTypeGraphProvenance(t *testing.T) { //nolint:gocognit,fu
 	}
 }
 
+func namedGroupChameleonChild(version, term, declarations string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" elementFormDefault="qualified" version="` + version + `"><xs:group name="G"><xs:sequence>` + term + `</xs:sequence></xs:group>` + declarations + `</xs:schema>`
+}
+
+func namedGroupChameleonRoot(version, namespace string, repeated bool) string {
+	include := `<xs:include schemaLocation="child.xsd"/>`
+	if repeated {
+		include += `<xs:include schemaLocation="child.xsd"/>`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="` + namespace + `" targetNamespace="` + namespace + `" version="` + version + `">` + include + `<xs:complexType name="Owner"><xs:group ref="r:G"/></xs:complexType></xs:schema>`
+}
+
+func TestNamedGroupLocalChameleonUnprefixedTypeFacts(t *testing.T) { //nolint:gocognit,funlen // Two namespace contexts, three policies, both shapes, and standalone are one QName contract.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, namespace := range []string{"urn:root", "urn:second"} {
+			for _, shape := range []string{"direct", "nested choice"} {
+				t.Run(profile.name+"/"+namespace+"/"+shape, func(t *testing.T) {
+					term := `<xs:element name="x" type="T" minOccurs="2" maxOccurs="18446744073709551616"/>`
+					if shape == "nested choice" {
+						term = `<xs:choice>` + term + `</xs:choice>`
+					}
+					term += `<xs:element name="gone" type="T" minOccurs="0" maxOccurs="0"/>`
+					child := namedGroupChameleonChild(profile.version, term, `<xs:simpleType name="T"><xs:restriction base="xs:integer"><xs:minInclusive value="3"/></xs:restriction></xs:simpleType>`)
+					root := namedGroupChameleonRoot(profile.version, namespace, true)
+					fixtures := map[string]discoveryFixture{"child.xsd": {id: "child.xsd", contents: child}}
+					var first []Component
+					for repeat := 0; repeat < 2; repeat++ {
+						schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if repeat == 0 {
+							first = schema.Components()
+						}
+						if !reflect.DeepEqual(first, schema.Components()) || len(schema.Documents()) != 2 || len(first) != 3 {
+							t.Fatalf("repeated chameleon discovery = documents %d components %v", len(schema.Documents()), schema.Components())
+						}
+						group := namedSequenceGroup(t, schema, namespace, "G")
+						if group.ID().Source() != "child.xsd" {
+							t.Fatalf("group source = %s", group.ID().Source())
+						}
+						sequence := groupLocalSequence(t, group)
+						if len(sequence.Particles()) != 1 {
+							t.Fatalf("group sequence = %v", sequence.Particles())
+						}
+						term := sequence.Particles()[0]
+						if shape == "nested choice" {
+							choice, ok := term.(ChoiceParticle)
+							if !ok || len(choice.Alternatives()) != 1 || choice.Loc() != allParticleTestTokenLoc(t, "child.xsd", child, `<xs:choice>`, 1) {
+								t.Fatalf("nested choice = %T", term)
+							}
+							term = choice.Alternatives()[0]
+						}
+						member := groupLocalElement(t, term, mustTestQName(t, namespace, "x"), "2/18446744073709551616", allParticleTestTokenLoc(t, "child.xsd", child, `<xs:element name="x"`, 1))
+						wantType := mustTestQName(t, namespace, "T")
+						wantID := componentIDForName(t, schema, wantType)
+						typeID, hasTypeID := member.TypeID()
+						reference, hasReference := member.TypeReference()
+						referenceID, hasReferenceID := reference.ComponentID()
+						if !hasTypeID || !hasReference || !hasReferenceID || typeID != wantID || referenceID != wantID || wantID.Source() != "child.xsd" || member.DeclaredType() != wantType || reference.Name() != wantType || !reference.IsNamed() || reference.Loc() != allParticleTestTokenLoc(t, "child.xsd", child, `type="T"`, 1) || reference.VarietyLoc() != allParticleTestTokenLoc(t, "child.xsd", child, `<xs:restriction base="xs:integer"`, 1) {
+							t.Fatalf("chameleon type facts = %s/%s IDs %v/%v/%v Loc %s variety %s", member.DeclaredType(), reference.Name(), typeID, referenceID, wantID, reference.Loc(), reference.VarietyLoc())
+						}
+						bounds, hasBounds := reference.IntegerBounds()
+						minimum, hasMinimum := bounds.MinInclusiveFacet()
+						if !hasBounds || !hasMinimum || minimum.Value().Canonical() != "3" || minimum.Loc() != allParticleTestTokenLoc(t, "child.xsd", child, `value="3"`, 1) {
+							t.Fatalf("chameleon bounds = %v/%v min %s at %s", hasBounds, hasMinimum, minimum.Value().Canonical(), minimum.Loc())
+						}
+						bounds.lower.value.value.SetInt64(0)
+						maximum, finite := member.Occurrences().Maximum().Finite()
+						if !finite {
+							t.Fatal("chameleon occurrence became unbounded")
+						}
+						maximum.value.SetInt64(0)
+						copiedBounds, _ := reference.IntegerBounds()
+						copiedMinimum, _ := copiedBounds.MinInclusiveFacet()
+						if copiedMinimum.Value().Canonical() != "3" || member.Occurrences().String() != "2/18446744073709551616" {
+							t.Fatal("returned type facets or occurrences changed completed group")
+						}
+						owners := schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, namespace, "Owner"))
+						if len(owners) != 1 {
+							t.Fatalf("owner count = %d", len(owners))
+						}
+						owner, ok := owners[0].ComplexTypeDefinition()
+						if !ok {
+							t.Fatal("owner has no complex type view")
+						}
+						groupRef, ok := owner.Particle().(ModelGroupReferenceParticle)
+						if !ok || groupRef.TargetID() != group.ID() || groupRef.RefLoc() != allParticleTestTokenLoc(t, "root.xsd", root, `ref="r:G"`, 1) {
+							t.Fatalf("owner group reference = %#v, target %v", owner.Particle(), group.ID())
+						}
+					}
+					standalone, err := discoverTestSchemaWithPolicy(t, child, nil, profile.policy)
+					if err != nil {
+						t.Fatal(err)
+					}
+					standaloneGroup := namedSequenceGroup(t, standalone, "", "G")
+					standaloneTerm := groupLocalSequence(t, standaloneGroup).Particles()[0]
+					if shape == "nested choice" {
+						choice, ok := standaloneTerm.(ChoiceParticle)
+						if !ok || len(choice.Alternatives()) != 1 {
+							t.Fatalf("standalone nested choice = %T", standaloneTerm)
+						}
+						standaloneTerm = choice.Alternatives()[0]
+					}
+					standaloneLocal := groupLocalElement(t, standaloneTerm, mustTestQName(t, "", "x"), "2/18446744073709551616", allParticleTestTokenLoc(t, "root.xsd", child, `<xs:element name="x"`, 1))
+					standaloneID, hasStandaloneID := standaloneLocal.TypeID()
+					standaloneReference, hasStandaloneReference := standaloneLocal.TypeReference()
+					if standaloneLocal.DeclaredType() != mustTestQName(t, "", "T") || !hasStandaloneID || standaloneID != componentIDForName(t, standalone, mustTestQName(t, "", "T")) || !hasStandaloneReference || standaloneReference.Name() != mustTestQName(t, "", "T") || standaloneReference.Loc() != allParticleTestTokenLoc(t, "root.xsd", child, `type="T"`, 1) {
+						t.Fatalf("standalone type = %s/%v", standaloneLocal.DeclaredType(), standaloneID)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestNamedGroupLocalChameleonZeroTypeExits(t *testing.T) { //nolint:gocognit // Exact diagnostics for the same pre-omission type boundary.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, shape := range []string{"direct", "nested choice"} {
+			for _, test := range []struct {
+				name, typeName, declarations, marker, related, childAttrs, rootExtra string
+				code, spec                                                           string
+				cause                                                                error
+			}{
+				{"missing adopted name", "Missing", "", `type="Missing"`, "", "", "", diagnosticSchemaElementTypeUnresolvedCode, schemaElementTypeSpecRef(profile.factVersion), errSchemaElementTypeUnresolved},
+				{"wrong kind adopted name", "Wrong", `<xs:element name="Wrong" type="xs:integer"/>`, `type="Wrong"`, `<xs:element name="Wrong"`, "", "", diagnosticSchemaElementTypeWrongKindCode, schemaElementTypeSpecRef(profile.factVersion), errSchemaElementTypeWrongKind},
+				{"malformed type QName", "bad:Type:extra", "", `type="bad:Type:extra"`, "", "", "", invalidSchemaConditionalCode, "", nil},
+				{"invalid facet before zero", "T", `<xs:simpleType name="T"><xs:restriction base="xs:integer"><xs:minInclusive value="bad"/></xs:restriction></xs:simpleType>`, `value="bad"`, "", "", "", InvalidBoundCode, boundSpecRef(profile.factVersion, BoundMinInclusive, boundDefinitionRule), errInvalidBoundValue},
+				{"invisible prefixed target", "h:Hidden", "", `type="h:Hidden"`, `<xs:simpleType name="Hidden"`, ` xmlns:h="urn:hidden"`, `<xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/>`, diagnosticSchemaElementTypeUnresolvedCode, schemaElementTypeSpecRef(profile.factVersion), errSchemaElementTypeUnresolved},
+			} {
+				t.Run(profile.name+"/"+shape+"/"+test.name, func(t *testing.T) {
+					term := `<xs:element name="x" type="` + test.typeName + `" minOccurs="0" maxOccurs="0"/>`
+					if shape == "nested choice" {
+						term = `<xs:choice minOccurs="0" maxOccurs="0">` + term + `</xs:choice>`
+					}
+					child := namedGroupChameleonChild(profile.version, term, test.declarations)
+					if test.childAttrs != "" {
+						child = strings.Replace(child, ` elementFormDefault=`, test.childAttrs+` elementFormDefault=`, 1)
+					}
+					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="` + profile.version + `"><xs:include schemaLocation="child.xsd"/>` + test.rootExtra + `</xs:schema>`
+					fixtures := map[string]discoveryFixture{"child.xsd": {id: "child.xsd", contents: child}}
+					var related []Loc
+					if test.name == "invisible prefixed target" {
+						bridge := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge"><xs:import namespace="urn:hidden" schemaLocation="hidden.xsd"/></xs:schema>`
+						hidden := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:hidden"><xs:simpleType name="Hidden"><xs:restriction base="xs:integer"/></xs:simpleType></xs:schema>`
+						fixtures["bridge.xsd"] = discoveryFixture{id: "bridge.xsd", contents: bridge}
+						fixtures["hidden.xsd"] = discoveryFixture{id: "hidden.xsd", contents: hidden}
+						related = []Loc{allParticleTestTokenLoc(t, "hidden.xsd", hidden, test.related, 1)}
+					}
+					if test.name == "wrong kind adopted name" {
+						related = []Loc{allParticleTestTokenLoc(t, "child.xsd", child, test.related, 1)}
+					}
+					schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+					spec := test.spec
+					if test.name == "malformed type QName" && shape == "nested choice" {
+						spec = schemaGroupParticleSpecRef(profile.factVersion)
+					}
+					assertNamedGroupLocalFailure(t, schema, err, test.code, FailureInvalid, allParticleTestTokenLoc(t, "child.xsd", child, test.marker, 1), related, spec, test.cause)
+					if test.name == "missing adopted name" && !strings.Contains(requireDiagnostic(t, err).Message(), "{urn:root}Missing") {
+						t.Fatalf("unresolved type did not adopt namespace: %s", err)
+					}
+				})
+			}
+		}
+	}
+}
+
 func assertNamedGroupLocalFailure(t *testing.T, schema Schema, err error, code string, class FailureClass, loc Loc, related []Loc, spec string, cause error) {
 	t.Helper()
 	assertZeroSchema(t, schema)

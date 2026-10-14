@@ -2416,10 +2416,38 @@ func schemaNamedModelGroupTermInput(child *syntaxElement, facts schemaDocumentFa
 	if err != nil {
 		return nil, err
 	}
+	if allowLocal && element.reference == nil {
+		if err := adoptNamedModelGroupLocalType(child, &element, facts); err != nil {
+			return nil, err
+		}
+	}
 	if element.reference == nil && !allowLocal {
 		return nil, newSchemaSyntaxUnsupportedForVersion(child.loc, "named model-group "+model+" requires global element references", version)
 	}
 	return element, nil
+}
+
+func adoptNamedModelGroupLocalType(element *syntaxElement, input *schemaElementParticleInput, facts schemaDocumentFacts) error {
+	if !facts.chameleon || !facts.targetNamespace.present || input.typeInput == nil || input.typeInput.declaredType.IsZero() || input.typeInput.declaredType.Namespace() != "" {
+		return nil
+	}
+	attributes := syntaxAttributesByLocal(element, "type")
+	if len(attributes) != 1 {
+		return newSchemaBridgeInvariant(element.loc, "named model-group local type has no written QName")
+	}
+	prefix, _, ok := splitConditionalQName(collapseXMLWhitespace(attributes[0].value))
+	if !ok {
+		return newSchemaBridgeInvariant(attributes[0].loc, "named model-group local type QName was not validated")
+	}
+	if prefix != "" {
+		return nil
+	}
+	name, err := NewQName(facts.targetNamespace.value, input.typeInput.declaredType.Local())
+	if err != nil {
+		return newSchemaBridgeInvariant(attributes[0].loc, "construct chameleon named model-group local type QName")
+	}
+	input.typeInput.declaredType = name
+	return nil
 }
 
 func schemaModelGroupSequenceInputFromElementWithFacts(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaModelGroupInput, error) {
