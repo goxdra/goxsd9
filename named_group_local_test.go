@@ -129,7 +129,7 @@ func TestNamedGroupLocalSequenceAndNestedChoiceFacts(t *testing.T) { //nolint:go
 func TestNamedGroupLocalZeroOmissionAndReferenceResolution(t *testing.T) {
 	for _, profile := range nestedGroupChoiceProfiles {
 		t.Run(profile.name, func(t *testing.T) {
-			root := namedGroupLocalRoot(profile.version, "", `<xs:element name="gone" type="xs:integer" minOccurs="0" maxOccurs="0"/><xs:element name="untyped" minOccurs="0" maxOccurs="0"/><xs:element name="inline" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:integer"><xs:minInclusive value="2"/></xs:restriction></xs:simpleType></xs:element><xs:choice minOccurs="0" maxOccurs="0"><xs:element name="alsoGone" type="xs:token"/><xs:element name="nestedUntyped" minOccurs="0" maxOccurs="0"/><xs:element name="nestedInline" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:list itemType="xs:integer"/></xs:simpleType></xs:element></xs:choice><xs:element name="kept" type="xs:string"/>`, "")
+			root := namedGroupLocalRoot(profile.version, "", `<xs:element name="gone" type="xs:integer" minOccurs="0" maxOccurs="0"/><xs:element name="untyped" minOccurs="0" maxOccurs="0"/><xs:element name="inline" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:restriction base="xs:integer"><xs:minInclusive value="2"/></xs:restriction></xs:simpleType></xs:element><xs:element name="union" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:union memberTypes="xs:integer xs:token"/></xs:simpleType></xs:element><xs:choice minOccurs="0" maxOccurs="0"><xs:element name="alsoGone" type="xs:token"/><xs:element name="nestedUntyped" minOccurs="0" maxOccurs="0"/><xs:element name="nestedInline" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:list itemType="xs:integer"/></xs:simpleType></xs:element></xs:choice><xs:element name="kept" type="xs:string"/>`, "")
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			if err != nil {
 				t.Fatal(err)
@@ -345,6 +345,15 @@ func TestNamedGroupLocalTypeAndShapeExits(t *testing.T) { //nolint:gocognit // D
 					assertNamedGroupLocalFailure(t, schema, err, test.code, test.class, namedGroupChoiceLoc(t, root, test.marker), related, test.spec, test.cause)
 				})
 			}
+			t.Run(profile.name+"/"+shape+"/default before inline resolution", func(t *testing.T) {
+				leaf := `<xs:element name="v" default="2" minOccurs="0" maxOccurs="0"><xs:simpleType><xs:union memberTypes="xs:date g:Missing"/></xs:simpleType></xs:element>`
+				if shape == "nested choice" {
+					leaf = `<xs:choice>` + leaf + `</xs:choice>`
+				}
+				root := namedGroupLocalRoot(profile.version, "", leaf, "")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertNamedGroupLocalFailure(t, schema, err, UnsupportedSchemaSyntaxCode, FailureUnsupported, namedGroupChoiceLoc(t, root, `default="2"`), nil, schemaSyntaxSpecRefForVersion(profile.factVersion), nil)
+			})
 		}
 	}
 }
@@ -437,6 +446,44 @@ func TestNamedGroupLocalInlineZeroRetainsFacetFailure(t *testing.T) {
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 				assertNamedGroupLocalFailure(t, schema, err, InvalidBoundCode, FailureInvalid, namedGroupChoiceLoc(t, root, `value="bad"`), nil, boundSpecRef(profile.factVersion, BoundMinInclusive, boundDefinitionRule), errInvalidBoundValue)
 			})
+		}
+	}
+}
+
+func TestNamedGroupLocalInlineZeroRequiresCompleteResolution(t *testing.T) { //nolint:gocognit // Order, shape, and edition share one omission boundary.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, shape := range []string{"direct", "nested choice"} {
+			for _, test := range []struct {
+				name, body, declarations, marker, related string
+				code, spec                                string
+				class                                     FailureClass
+				cause                                     error
+			}{
+				{"unsupported then unresolved", `<xs:union memberTypes="xs:date g:Missing"/>`, "", `memberTypes="xs:date g:Missing"`, "", UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.factVersion), FailureUnsupported, nil},
+				{"unresolved then unsupported", `<xs:union memberTypes="g:Missing xs:date"/>`, "", `memberTypes="g:Missing xs:date"`, "", diagnosticSchemaSimpleTypeUnresolvedCode, schemaSimpleTypeSpecRef(profile.factVersion), FailureInvalid, errSchemaSimpleTypeBaseUnresolved},
+				{"unsupported then wrong kind", `<xs:union memberTypes="xs:date g:Wrong"/>`, `<xs:element name="Wrong" type="xs:integer"/>`, `memberTypes="xs:date g:Wrong"`, "", UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.factVersion), FailureUnsupported, nil},
+				{"wrong kind then unsupported", `<xs:union memberTypes="g:Wrong xs:date"/>`, `<xs:element name="Wrong" type="xs:integer"/>`, `memberTypes="g:Wrong xs:date"`, `<xs:element name="Wrong"`, diagnosticSchemaSimpleTypeWrongKindCode, schemaSimpleTypeSpecRef(profile.factVersion), FailureInvalid, errSchemaSimpleTypeBaseWrongKind},
+				{"unsupported then unknown builtin", `<xs:union memberTypes="xs:date xs:NoSuchType"/>`, "", `memberTypes="xs:date xs:NoSuchType"`, "", UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.factVersion), FailureUnsupported, nil},
+				{"nested union", `<xs:union><xs:simpleType><xs:union memberTypes="xs:date g:Missing"/></xs:simpleType></xs:union>`, "", `memberTypes="xs:date g:Missing"`, "", UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.factVersion), FailureUnsupported, nil},
+				{"list item", `<xs:list itemType="xs:date"/>`, "", `itemType="xs:date"`, "", UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.factVersion), FailureUnsupported, nil},
+				{"list item unresolved", `<xs:list itemType="g:Missing"/>`, "", `itemType="g:Missing"`, "", diagnosticSchemaSimpleTypeUnresolvedCode, schemaSimpleTypeSpecRef(profile.factVersion), FailureInvalid, errSchemaSimpleTypeBaseUnresolved},
+				{"restriction base", `<xs:restriction base="xs:date"/>`, "", `base="xs:date"`, "", UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(profile.factVersion), FailureUnsupported, nil},
+				{"restriction list base", `<xs:restriction base="g:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:integer"/></xs:simpleType>`, `base="g:List"`, `<xs:list itemType="xs:integer"`, UnsupportedSchemaSyntaxCode, schemaSimpleTypeSpecRef(profile.factVersion), FailureUnsupported, errSchemaSimpleTypeRestrictionUnsupported},
+			} {
+				t.Run(profile.name+"/"+shape+"/"+test.name, func(t *testing.T) {
+					leaf := `<xs:element name="v" minOccurs="0" maxOccurs="0"><xs:simpleType>` + test.body + `</xs:simpleType></xs:element>`
+					if shape == "nested choice" {
+						leaf = `<xs:choice minOccurs="0" maxOccurs="0">` + leaf + `</xs:choice>`
+					}
+					root := namedGroupLocalRoot(profile.version, "", leaf, test.declarations)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					var related []Loc
+					if test.related != "" {
+						related = []Loc{namedGroupChoiceLoc(t, root, test.related)}
+					}
+					assertNamedGroupLocalFailure(t, schema, err, test.code, test.class, namedGroupChoiceLoc(t, root, test.marker), related, test.spec, test.cause)
+				})
+			}
 		}
 	}
 }

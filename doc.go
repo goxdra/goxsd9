@@ -440,7 +440,8 @@
 // or named atomic integer/string/token local elements with copied type facts,
 // QName, source location, and exact bounds. Differing types for one expanded
 // name fail; unresolved attribution is explicitly unsupported. Valid inline
-// simple and untyped 0/0 leaves omit after checks. Deeper anonymous
+// simple and untyped 0/0 leaves omit after checks. Inline resolver errors,
+// including unsupported members, block omission. Deeper anonymous
 // compositors, nonzero inline/untyped locals, and broader model-group
 // references remain unsupported.
 // Direct/indirect named-group cycles fail schema admission with invalid XSD3062

@@ -8352,11 +8352,8 @@ func (resolver *schemaModelGroupResolver) resolveLocalElement(input schemaElemen
 			return nil, newSchemaBridgeInvariant(input.typeInput.typeLoc, "model-group inline simple type has no resolver")
 		}
 		_, err := resolver.simpleTypes.resolver.resolveInput(input.typeInput.inlineSimpleType, input.typeInput.typeLoc, true, owner.id.Source(), resolver.version)
-		if err != nil && (!input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err)) {
-			return nil, nil
-		}
 		if err != nil {
-			return nil, err
+			return nil, versionDefaultNamedModelGroupSyntaxUnsupported(err, resolver.version)
 		}
 		if !input.occurrences.mapsToParticle() {
 			return nil, nil
@@ -8396,6 +8393,18 @@ func (resolver *schemaModelGroupResolver) resolveLocalElement(input schemaElemen
 		return nil, nil
 	}
 	return newResolvedSchemaElementParticle(input, resolved), nil
+}
+
+func versionDefaultNamedModelGroupSyntaxUnsupported(err error, version XSDVersion) error {
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported || diagnostic.Feature() != FeatureSchemaSyntax {
+		return err
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok || diagnostic.SpecRef() != feature.SpecRef() {
+		return err
+	}
+	return versionNamedModelGroupUnsupported(err, version)
 }
 
 func namedModelGroupLocalTypeAllowed(resolved schemaElementTypeResult) bool {
