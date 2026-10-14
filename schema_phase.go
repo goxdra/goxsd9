@@ -5461,16 +5461,14 @@ func validateNamedModelGroupSequence(element *syntaxElement, version XSDVersion)
 			continue
 		}
 		if child.name.local == "choice" {
-			if choiceSeen {
-				return schemaInvalidWithSpecRef(
-					newSchemaCompositionDiagnostic(child.loc, "named model-group sequence admits one nested choice"),
-					schemaGroupParticleSpecRef(version),
-				)
-			}
-			choiceSeen = true
 			if err := stageSchemaCandidateError(&candidate, validateNamedModelGroupNestedChoice(child, version)); err != nil {
 				return err
 			}
+			if choiceSeen {
+				candidate.considerAtVersion(child.loc, "multiple nested choices in a named model-group sequence are not implemented", version)
+				continue
+			}
+			choiceSeen = true
 			continue
 		}
 		if err := validateNamedModelGroupChild(child, version, "sequence", &candidate); err != nil {

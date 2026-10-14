@@ -388,19 +388,63 @@ func TestNamedGroupSequenceNestedChoiceExcludedShapes(t *testing.T) { //nolint:g
 	}
 }
 
-func TestNamedGroupSequenceRejectsSecondNestedChoice(t *testing.T) {
+func TestNamedGroupSequenceSecondNestedChoiceUnsupported(t *testing.T) {
 	for _, profile := range nestedGroupChoiceProfiles {
-		t.Run(profile.name, func(t *testing.T) {
-			root := nestedGroupChoiceSchema(profile.version, `<xs:choice><xs:element ref="g:first"/></xs:choice><xs:choice><xs:group ref="g:Target"/></xs:choice>`)
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-			assertZeroSchema(t, schema)
-			diagnostic := requireDiagnostic(t, err)
-			first := namedGroupChoiceLoc(t, root, `<xs:choice>`)
-			second := namedGroupLastLoc(t, root, `<xs:choice>`)
-			if first == second || diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != second || diagnostic.SpecRef() != schemaGroupParticleSpecRef(profile.factVersion) || len(diagnostic.Related()) != 0 {
-				t.Fatalf("second choice diagnostic = %s, want invalid at %s", diagnostic, second)
-			}
-		})
+		for _, test := range []struct {
+			name, first, second string
+		}{
+			{"authored", `<xs:choice><xs:element ref="g:first"/></xs:choice>`, `<xs:choice><xs:group ref="g:Target"/></xs:choice>`},
+			{"first omitted", `<xs:choice minOccurs="0" maxOccurs="0"><xs:element ref="g:first"/></xs:choice>`, `<xs:choice><xs:group ref="g:Target"/></xs:choice>`},
+			{"second omitted", `<xs:choice><xs:element ref="g:first"/></xs:choice>`, `<xs:choice minOccurs="0" maxOccurs="0"><xs:group ref="g:Target"/></xs:choice>`},
+			{"both omitted", `<xs:choice minOccurs="0" maxOccurs="0"><xs:element ref="g:first"/></xs:choice>`, `<xs:choice minOccurs="0" maxOccurs="0"><xs:group ref="g:Target"/></xs:choice>`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := nestedGroupChoiceSchema(profile.version, test.first+test.second)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				first := namedGroupChoiceLoc(t, root, test.first)
+				second := namedGroupChoiceLoc(t, root, test.second)
+				if first == second || diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != second || diagnostic.SpecRef() != schemaSyntaxSpecRefForVersion(profile.factVersion) || len(diagnostic.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("second choice diagnostic = %s, want unsupported at %s", diagnostic, second)
+				}
+			})
+		}
+	}
+}
+
+func TestNamedGroupSequenceSecondNestedChoiceInvalidAlternates(t *testing.T) { //nolint:gocognit // Invalid exits retain their own location, cause, and specification reference.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, test := range []struct {
+			name, second, marker, spec string
+			cause                      error
+			related                    []string
+		}{
+			{"bad occurrence", `<xs:choice minOccurs="bad"><xs:group ref="g:Target"/></xs:choice>`, `minOccurs="bad"`, schemaParticleOccurrenceDatatypeSpecRef(profile.factVersion), nil, nil},
+			{"reversed bounds", `<xs:choice minOccurs="2" maxOccurs="1"><xs:group ref="g:Target"/></xs:choice>`, `<xs:choice minOccurs="2"`, schemaParticleCorrectSpecRef(profile.factVersion), errParticleOccurrenceMinimumExceedsMaximum, []string{`minOccurs="2"`, `maxOccurs="1"`}},
+			{"bad child occurrence under zero", `<xs:choice minOccurs="0" maxOccurs="0"><xs:group ref="g:Target" maxOccurs="bad"/></xs:choice>`, `maxOccurs="bad"`, schemaParticleOccurrenceDatatypeSpecRef(profile.factVersion), nil, nil},
+			{"forbidden all under zero", `<xs:choice minOccurs="0" maxOccurs="0"><xs:all/></xs:choice>`, `<xs:all`, schemaGroupParticleSpecRef(profile.factVersion), nil, nil},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := nestedGroupChoiceSchema(profile.version, `<xs:choice minOccurs="0" maxOccurs="0"><xs:element ref="g:first"/></xs:choice>`+test.second)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != namedGroupChoiceLoc(t, root, test.marker) || diagnostic.SpecRef() != test.spec || errors.Is(err, ErrUnsupported) {
+					t.Fatalf("second choice diagnostic = %s, want invalid at %s", diagnostic, test.marker)
+				}
+				if test.cause != nil && !errors.Is(err, test.cause) {
+					t.Fatalf("second choice cause = %v, want %v", err, test.cause)
+				}
+				var related []Loc
+				for _, marker := range test.related {
+					related = append(related, namedGroupChoiceLoc(t, root, marker))
+				}
+				if !reflect.DeepEqual(diagnostic.Related(), related) {
+					t.Fatalf("second choice related = %v, want %v", diagnostic.Related(), related)
+				}
+			})
+		}
 	}
 }
 
