@@ -62,11 +62,10 @@ Direct/extension choices and sequences admit `integer`, built-in/named/inline
 derivatives, extensions, and local attributes.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 require bounded list/union. Other derivatives/extensions query-only;
-named effective-long retains identity/facets/order; SimpleContent excludes locals.
+named effective-long retains identity/facets/order; SimpleContent excludes local derivatives.
 Syntax/occurrence/policy gate mapping; refs gate omission. Compatibility/Strict11
 map matching collapsed local-element `targetNamespace` to qualified QNames in
-named direct choices/sequences; Strict10 rejects. Owner/consumer limits
-persist ([contract](doc.go)).
+named direct choices/sequences; Strict10 rejects. See [contract](doc.go).
 Named choice/sequence refs resolve opaquely; nested/all reject; cycles XSD3062
 at closing `ref`; QName/RefLoc/TargetID/order query-only; consumers reject with nil Go output.
 Named direct `all` retains ordered integer/decimal/Boolean, built-in `string`,
