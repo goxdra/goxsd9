@@ -64,11 +64,11 @@ Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 require bounded list/union. Other derivatives/extensions query-only;
 named effective-long retains identity/facets/order; SimpleContent excludes local derivatives.
 Syntax/policy/occurrences precede mapping; refs precede omission.
-Compatibility/Strict11 map matching local `targetNamespace` to qualified QNames; Strict10 rejects. See [contract](doc.go).
-Named groups retain nested opposite compositors; refs retain bounds
-and resolve before `0/0`. Named sequences/nested choices retain atomic
+Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
+Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
+Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic
 integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Same-name type conflicts fail XSD3063; ambiguity rejects with related `Loc`s.
+Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
