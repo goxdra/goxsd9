@@ -101,6 +101,12 @@
 // Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
 // bounded describes the supported derivation/base shape, not occurrence limits.
+// In named direct choices/sequences, Compatibility/Strict11 map a collapsed
+// explicit local-element targetNamespace matching the effective containing
+// namespace to the same QName as form="qualified". Strict10 rejects the
+// attribute; absent/different containing namespaces and form/ref conflicts
+// are invalid. Existing owner, type, occurrence, ValidateInstance, and
+// GenerateGo gates still apply; direct-all follows separate member rules.
 // Supported local choice/sequence elements may retain a TypeID for a named
 // scalar simpleContent complex type, with exact occurrences and no particle on
 // the target type.

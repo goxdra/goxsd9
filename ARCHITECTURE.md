@@ -61,17 +61,18 @@ Direct/extension choices and sequences admit `integer`, built-in/named/inline
 `positiveInteger`/`nonPositiveInteger` restrictions; `all` excludes anonymous
 derivatives, extensions, and local attributes.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
-require bounded list/union. Other derivatives/extensions are query-only;
-named effective-long retains identity/facets/order. SimpleContent excludes local derivatives.
-Syntax/occurrence/policy precede mapping; child/use refs precede `0/0`/prohibited omission.
-Named choice/sequence refs: opaque, resolved; nested/all excluded,
-cycles invalid XSD3062 at closing `ref`. QName/RefLoc/TargetID/order query-only;
-owning consumers: located unsupported diagnostics, nil Go output.
+require bounded list/union. Other derivatives/extensions query-only;
+named effective-long retains identity/facets/order; SimpleContent excludes local derivatives.
+Syntax/occurrence/policy gate mapping; refs gate omission. Compatibility/Strict11
+map matching collapsed local-element `targetNamespace` to qualified QNames in
+named direct choices/sequences; Strict10 rejects. See [contract](doc.go).
+Named choice/sequence refs resolve opaquely; nested/all reject; cycles XSD3062
+at closing `ref`; QName/RefLoc/TargetID/order query-only; consumers reject with nil Go output.
 Named direct `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `normalizedString`/`token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
 built-in/named effective `positiveInteger`/`nonPositiveInteger` locals,
-and refs with exact bounds, `0/0` omission, and duplicate locations. XSD 1.0 caps maxima at one; XSD 1.1 permits repeats and outer `0/0`.
-Anonymous simple-type `0/0` terms omit; direct-`all` anonymous complex members and `all` consumers reject.
+and refs with exact bounds/omission/duplicate `Loc`s. XSD 1.0 maxima ≤1; 1.1
+permits repeats/outer `0/0`; anonymous simple-type `0/0` omits; direct-`all` complex anonymous members and consumers reject.
 AttributeUse retains order, IDs, `Loc`s; grouped: group→uses→base; sequence extension: children→uses→base.
 `0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
 Named empty/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;

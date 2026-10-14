@@ -186,7 +186,7 @@ var (
 	errSchemaAttributeValueConstraintUnsupported = errors.New("attribute value constraint is unsupported")
 	errSchemaGlobalDeclarationDuplicate          = errors.New("global declaration is duplicated")
 	errSchemaElementDuplicate                    = errors.New("global element declaration is duplicated")
-	errSchemaElementTargetNamespace              = errors.New("local element targetNamespace is not representable in the supported direct-choice model")
+	errSchemaElementTargetNamespace              = errors.New("local element targetNamespace has no matching containing schema targetNamespace")
 	errSchemaPrecisionDecimalVersion             = errors.New("precisionDecimal is unavailable in the selected XSD version policy")
 	errSchemaNotationPublic                      = errors.New("notation public identifier is invalid")
 	errSchemaNotationSystem                      = errors.New("notation system identifier is invalid")
