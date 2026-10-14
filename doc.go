@@ -22,9 +22,6 @@
 // xs:normalizedString local element particles for queries, including inherited
 // string facets and exact occurrences. Other mapped nonzero local element
 // particles of this type reject at schema admission;
-// Compatibility/Strict11 map a matching explicit local-element targetNamespace
-// in named direct choices/sequences to the same QName as form="qualified";
-// Strict10 reports an edition mismatch.
 // explicit built-in, supported named, and top-level inline atomic
 // xs:normalizedString global attributes retain query facts. Applicable 0/0
 // locals omit after reference,
@@ -104,6 +101,12 @@
 // Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
 // bounded describes the supported derivation/base shape, not occurrence limits.
+// In named direct choices/sequences, Compatibility/Strict11 map a collapsed
+// explicit local-element targetNamespace matching the effective containing
+// namespace to the same QName as form="qualified". Strict10 rejects the
+// attribute; absent/different containing namespaces and form/ref conflicts
+// are invalid. Existing owner, type, occurrence, ValidateInstance, and
+// GenerateGo gates still apply; direct-all follows separate member rules.
 // Supported local choice/sequence elements may retain a TypeID for a named
 // scalar simpleContent complex type, with exact occurrences and no particle on
 // the target type.
