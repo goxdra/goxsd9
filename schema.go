@@ -1845,7 +1845,7 @@ func (occurrences ParticleOccurrenceRange) String() string {
 	return occurrences.value.String()
 }
 
-// Particle is a concrete immutable content-model alternative.
+// Particle is a concrete immutable content-model particle.
 type Particle interface {
 	Loc() Loc
 	MinOccurs() uint64
@@ -2096,7 +2096,7 @@ func (particle ElementReferenceParticle) TargetID() ComponentID {
 	return particle.facts.targetID
 }
 
-// ModelGroupReferenceParticle is a direct model-group reference particle. It
+// ModelGroupReferenceParticle is a model-group reference particle. It
 // retains the expanded QName and source location of ref, plus the identity of
 // the referenced global model-group definition. It does not copy members from
 // that definition.
@@ -2475,7 +2475,7 @@ func (particle SequenceParticle) Elements() []ElementParticle {
 
 // Particles returns direct sequence particles in lexical declaration order.
 // The returned slice is independent of the completed schema and may contain
-// element, reference, and wildcard particles.
+// local elements, element or model-group references, wildcards, and nested choices.
 func (particle SequenceParticle) Particles() []Particle {
 	if particle.facts == nil || len(particle.facts.particles) == 0 {
 		return nil
