@@ -22,6 +22,9 @@
 // xs:normalizedString local element particles for queries, including inherited
 // string facets and exact occurrences. Other mapped nonzero local element
 // particles of this type reject at schema admission;
+// Compatibility/Strict11 map a matching explicit local-element targetNamespace
+// in named direct choices/sequences to the same QName as form="qualified";
+// Strict10 reports an edition mismatch.
 // explicit built-in, supported named, and top-level inline atomic
 // xs:normalizedString global attributes retain query facts. Applicable 0/0
 // locals omit after reference,
