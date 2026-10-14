@@ -66,8 +66,8 @@ named effective-long retains identity/facets/order; SimpleContent excludes local
 Syntax/occurrence/policy gate mapping; refs gate omission. Compatibility/Strict11
 map matching collapsed local-element `targetNamespace` to qualified QNames in
 named direct choices/sequences; Strict10 rejects. See [contract](doc.go).
-Named choice/sequence refs resolve opaquely; nested/all reject; cycles XSD3062
-at closing `ref`; QName/RefLoc/TargetID/order query-only; consumers reject with nil Go output.
+Named sequences retain one nested choice; deeper nesting/all reject. Refs resolve
+opaquely; cycles XSD3062 at closing `ref`; QName/RefLoc/TargetID/order query-only; consumers reject.
 Named direct `all` retains ordered integer/decimal/Boolean, built-in `string`,
 built-in/named effective `normalizedString`/`token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
 built-in/named effective `positiveInteger`/`nonPositiveInteger` locals,

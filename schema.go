@@ -2992,6 +2992,7 @@ func (*schemaAllParticleInput) schemaComplexTypeParticleInput() {}
 
 func (*schemaChoiceParticleInput) schemaComplexTypeParticleInput() {}
 func (*schemaChoiceParticleInput) schemaModelGroupParticleInput()  {}
+func (*schemaChoiceParticleInput) schemaParticleTermInput()        {}
 
 type schemaSequenceParticleInput struct {
 	loc         Loc
@@ -4530,6 +4531,14 @@ func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaPar
 			}
 		case *schemaModelGroupReferenceParticleInput:
 			clones[index] = cloneSchemaModelGroupReferenceParticleInput(term)
+		case *schemaChoiceParticleInput:
+			if term != nil {
+				clones[index] = &schemaChoiceParticleInput{
+					loc:          term.loc,
+					occurrences:  term.occurrences.clone(),
+					alternatives: cloneSchemaParticleTermInputs(term.alternatives),
+				}
+			}
 		default:
 			clones[index] = nil
 		}

@@ -359,7 +359,6 @@ func TestNamedGroupDirectSequenceRejectsUnsupportedShapes(t *testing.T) {
 		marker string
 	}{
 		{name: "local element", model: `<xs:sequence><xs:element name="local" type="xs:integer"/></xs:sequence>`, marker: `<xs:element name="local"`},
-		{name: "nested choice", model: `<xs:sequence><xs:choice/></xs:sequence>`, marker: `<xs:choice`},
 		{name: "wildcard", model: `<xs:sequence><xs:any/></xs:sequence>`, marker: `<xs:any`},
 		{name: "all model", model: `<xs:all/>`, marker: `<xs:all`},
 	} {
