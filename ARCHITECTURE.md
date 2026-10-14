@@ -41,11 +41,11 @@ Discovery is sequential FIFO; resolver calls are sequential.
 
 Invalid/unsupported/resolution/internal diagnostics retain code, primary/related
 `Loc`, spec reference, cause; errors prevent `Schema`. Unsupported
-features have stable report IDs.
+features have stable IDs.
 
 ## Schema model
 
-Components are immutable; walks ordered. Elements retain identity
+Immutable components; ordered walks. Elements retain identity
 constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
@@ -63,16 +63,14 @@ derivatives, extensions, and local attributes.
 Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 require bounded list/union. Other derivatives/extensions query-only;
 named effective-long retains identity/facets/order; SimpleContent excludes local derivatives.
-Syntax/occurrence/policy gate mapping; refs gate omission. Compatibility/Strict11
-map matching collapsed local-element `targetNamespace` to qualified QNames in
-named direct choices/sequences; Strict10 rejects. See [contract](doc.go).
-Named sequences retain one nested choice; deeper nesting/all reject. Refs resolve
-opaquely; cycles XSD3062 at closing `ref`; QName/RefLoc/TargetID/order query-only; consumers reject.
-Named direct `all` retains ordered integer/decimal/Boolean, built-in `string`,
-built-in/named effective `normalizedString`/`token`/`NMTOKEN`/`negativeInteger`/`nonNegativeInteger`/`long`/`int`/`short`/`byte`/`unsignedLong` locals,
-built-in/named effective `positiveInteger`/`nonPositiveInteger` locals,
-and refs with exact bounds/omission/duplicate `Loc`s. XSD 1.0 maxima ≤1; 1.1
-permits repeats/outer `0/0`; anonymous simple-type `0/0` omits; direct-`all` complex anonymous members and consumers reject.
+Syntax/policy/occurrences precede mapping; refs precede omission.
+Compatibility/Strict11 map matching collapsed local `targetNamespace` to qualified
+QNames in named direct choices/sequences; Strict10 rejects. See [contract](doc.go).
+Named model-group sequences retain one nested choice: ordered global element refs and opaque named group refs with exact bounds, resolved before `0/0` omission.
+Deeper nesting/local declarations/wildcards/all reject; cycles XSD3062 locate closing `ref`. Owning complex types reject validation/generation at their group `RefLoc`.
+Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
+`Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
+`0/0` omits; anonymous complex members/consumers reject.
 AttributeUse retains order, IDs, `Loc`s; grouped: group→uses→base; sequence extension: children→uses→base.
 `0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
 Named empty/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;
@@ -82,9 +80,9 @@ facet-free `xs:ID` (Strict10: one), built-in/named `xs:NCName`, and
 `xs:normalizedString` locals with copied effective facets. Inline/ref/value
 forms and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
-NCName/anyURI/ID/long/int/short/byte/unsignedLong, plus policy-gated `precisionDecimal`.
+NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
-Strict10 and true/1 reject. References reject at use `Loc`.
+Strict10/true/1 reject; refs reject at use `Loc`.
 Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; atomic inline
 `normalizedString` admits. Atomic NCName preserves enumeration order, inherited
 narrowing, fixed collapse. Enumerated NCName list/union members reject;
