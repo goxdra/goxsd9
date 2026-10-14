@@ -24,8 +24,8 @@ Named owners query ordered facet-free `xs:ID` uses; inline grouped/sequence exte
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
-extension choices are attribute-free. Valid inline `0/0` omits after checks; nonzero rejects.
-Global-element anonymous extensions query one ref-only nested choice with exact bounds, targets, order, locations, and inherited wildcard; other nested terms, combined attributes, validation, and generation reject.
+extension choices are attribute-free.
+A global element's anonymous `complexContent/extension` over a supported named empty-content base queries one ref-only choice in its direct sequence with exact bounds, ordered targets and `Loc`s, and inherited wildcard when present; other nested terms, combined attributes, validation, and generation reject.
 Named-group sequences/nested choices query typed atomic integer/string/token locals; consumers and overlaps reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
