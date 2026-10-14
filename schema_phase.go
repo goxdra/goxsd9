@@ -1428,10 +1428,10 @@ func validateConditionalQNameForSchema(element *syntaxElement, attribute syntaxA
 }
 
 func validateGlobalSchemaChildren(element *syntaxElement, version XSDVersion) error {
-	return validateGlobalSchemaChildrenWithFacetBridge(element, version, true, false, true)
+	return validateGlobalSchemaChildrenWithFacetBridge(element, version, true, false, true, false)
 }
 
-func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets, bridgeStringEnumeration, allowOpenContentNone bool) error {
+func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets, bridgeStringEnumeration, allowOpenContentNone, globalElementInline bool) error {
 	children, candidate, err := collectGlobalSchemaChildren(element)
 	if err != nil {
 		return err
@@ -1445,7 +1445,7 @@ func validateGlobalSchemaChildrenWithFacetBridge(element *syntaxElement, version
 	case "simpleType":
 		childErr = validateSimpleTypeGlobalChildren(element, children, version, bridgeFacets, bridgeStringEnumeration)
 	case "complexType":
-		childErr = validateComplexTypeGlobalChildren(element, children, version, allowOpenContentNone)
+		childErr = validateComplexTypeGlobalChildren(element, children, version, allowOpenContentNone, globalElementInline)
 	case "group":
 		childErr = validateGroupGlobalChildren(element, children, version)
 	case "attributeGroup":
@@ -1723,7 +1723,7 @@ func validateElementGlobalChildren(parent *syntaxElement, children []*syntaxElem
 			}
 			typeSeen = true
 			phase = elementGlobalAlternativePhase
-			if err := validateInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateGlobalElementInlineSchemaType(child, version); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "alternative":
@@ -2659,7 +2659,7 @@ func isXSD11SimpleTypeFacet(local string) bool {
 }
 
 //nolint:gocognit,funlen // Keep mutually-exclusive complexType grammar branches explicit.
-func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement, version XSDVersion, allowOpenContentNone bool) error {
+func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntaxElement, version XSDVersion, allowOpenContentNone, globalElementInline bool) error {
 	annotationSeen := false
 	contentSeen := false
 	specialSeen := false
@@ -2699,7 +2699,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType content model is mutually exclusive")
 			}
 			specialSeen = true
-			if err := validateComplexTypeContentChild(parent, child, version); err != nil && !candidate.considerError(err) {
+			if err := validateComplexTypeContentChild(parent, child, version, globalElementInline); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "openContent":
@@ -2823,7 +2823,7 @@ func validateComplexTypeMixedAgreement(parent, content *syntaxElement) error {
 }
 
 //nolint:gocognit // Keep the ordered simple/complex content grammar explicit.
-func validateComplexTypeContentChild(parent, element *syntaxElement, version XSDVersion) error {
+func validateComplexTypeContentChild(parent, element *syntaxElement, version XSDVersion, globalElementInline bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateComplexTypeContentAttributes(element, &candidate); err != nil {
 		return err
@@ -2849,7 +2849,7 @@ func validateComplexTypeContentChild(parent, element *syntaxElement, version XSD
 			return newSchemaCompositionDiagnostic(child.loc, element.name.local+" permits exactly one derivation child")
 		}
 		derivationSeen = true
-		if err := validateComplexDerivation(child, version, element.name.local == "complexContent", element.name.local == "simpleContent" && child.name.local == "restriction", len(syntaxAttributesByLocal(parent, "name")) == 1); err != nil && !candidate.considerError(err) {
+		if err := validateComplexDerivation(child, version, element.name.local == "complexContent", element.name.local == "simpleContent" && child.name.local == "restriction", len(syntaxAttributesByLocal(parent, "name")) == 1, globalElementInline); err != nil && !candidate.considerError(err) {
 			return err
 		}
 	}
@@ -3024,7 +3024,7 @@ func validateComplexTypeContentAttributes(element *syntaxElement, candidate *sch
 }
 
 //nolint:gocognit,funlen // Keep derivation ordering and recursive preflight explicit.
-func validateComplexDerivation(element *syntaxElement, version XSDVersion, complexContent, simpleRestriction, namedOwner bool) error {
+func validateComplexDerivation(element *syntaxElement, version XSDVersion, complexContent, simpleRestriction, namedOwner, globalElementInline bool) error {
 	var candidate schemaChildUnsupportedCandidate
 	extensionSpecRef := ""
 	if complexContent && element.name.local == "extension" {
@@ -3100,11 +3100,13 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	var particleUnsupported error
 	groupExtension := false
 	sequenceExtension := false
+	inlineNestedChoice := false
 	groupedAttributes := false
 	if complexContent && element.name.local == "extension" {
 		model := schemaComplexTypeModel(element)
 		groupExtension = model != nil && model.name.local == "group"
 		sequenceExtension = model != nil && model.name.local == "sequence"
+		inlineNestedChoice = globalElementInline && sequenceExtension && schemaInlineExtensionSequenceHasChoice(model)
 		if groupExtension {
 			for _, child := range children {
 				if child.name.local == "attribute" {
@@ -3172,6 +3174,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
 				particleErr = validateSupportedSequenceParticle(child, version)
+				if globalElementInline && !namedOwner {
+					particleErr = validateInlineExtensionSequenceParticle(child, version)
+				}
 			}
 			if particleErr != nil {
 				particleUnsupported = particleErr
@@ -3214,6 +3219,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
+			}
+			if inlineNestedChoice && child.name.local == "attribute" {
+				candidate.considerAtVersion(child.loc, "inline extension nested choice with attributes is not implemented", version)
 			}
 		case "anyAttribute":
 			if anyAttributeSeen || assertSeen {
@@ -3267,6 +3275,19 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		return preferPrecisionDecimalRestrictionMismatch(element, version, derivationErr)
 	}
 	return derivationErr
+}
+
+func schemaInlineExtensionSequenceHasChoice(sequence *syntaxElement) bool {
+	if sequence == nil {
+		return false
+	}
+	for _, node := range sequence.children {
+		child, ok := node.(*syntaxElement)
+		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == "choice" {
+			return true
+		}
+	}
+	return false
 }
 
 func reframeSchemaComplexContentExtensionUnsupported(err error, version XSDVersion, model *syntaxElement, particleErr error) error {
@@ -3986,7 +4007,7 @@ func validateChoiceParticleWithOptions(element *syntaxElement, version XSDVersio
 	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, allowOccurrences); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "choice", version, allowOccurrences, allowNamespacePolicy)
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "choice", version, allowOccurrences, allowNamespacePolicy, false)
 	if err != nil {
 		return err
 	}
@@ -3995,11 +4016,11 @@ func validateChoiceParticleWithOptions(element *syntaxElement, version XSDVersio
 }
 
 func validateModelParticleChildren(element *syntaxElement, model string, version XSDVersion) (schemaChildUnsupportedCandidate, error) {
-	return validateModelParticleChildrenWithOptions(element, model, version, false, false)
+	return validateModelParticleChildrenWithOptions(element, model, version, false, false, false)
 }
 
 //nolint:gocognit,funlen // Keep the supported direct-sequence grammar in the shared traversal.
-func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy bool) (schemaChildUnsupportedCandidate, error) {
+func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy, inlineExtensionChoice bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
@@ -4008,6 +4029,7 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 	ownerOmitted := !occurrences.mapsToParticle()
 	annotationSeen := false
 	contentSeen := false
+	choiceSeen := false
 	for _, node := range element.children {
 		textNode, ok := node.(syntaxText)
 		if ok {
@@ -4041,7 +4063,25 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 				return candidate, err
 			}
 			candidate.merge(localCandidate)
-		case "group", "choice", "sequence":
+			if inlineExtensionChoice && len(syntaxAttributesByLocal(child, "ref")) != 1 {
+				candidate.considerAtVersion(child.loc, "inline extension nested choice sequence requires global element references", version)
+			}
+		case "choice":
+			if inlineExtensionChoice && model == "sequence" {
+				if err := stageSchemaCandidateError(&candidate, validateInlineExtensionNestedChoice(child, version)); err != nil {
+					return candidate, err
+				}
+				if choiceSeen {
+					candidate.considerAtVersion(child.loc, "multiple nested choices in an inline extension sequence are not implemented", version)
+				}
+				choiceSeen = true
+				continue
+			}
+			if err := validateUnsupportedParticle(child, version); err != nil && !candidate.considerError(err) {
+				return candidate, err
+			}
+			candidate.considerAt(child.loc, model+" child <choice> is not implemented")
+		case "group", "sequence":
 			if err := validateUnsupportedParticle(child, version); err != nil {
 				if !candidate.considerError(err) {
 					return candidate, err
@@ -4057,6 +4097,9 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 					if !candidate.considerError(err) {
 						return candidate, err
 					}
+				}
+				if inlineExtensionChoice {
+					candidate.considerAtVersion(child.loc, "inline extension nested choice sequence wildcard is not implemented", version)
 				}
 				continue
 			}
@@ -4362,11 +4405,19 @@ func validateChoiceElementAlternative(element *syntaxElement, version XSDVersion
 }
 
 func validateInlineSchemaType(element *syntaxElement, version XSDVersion) error {
-	return validateInlineSchemaTypeWithFacetBridge(element, version, false)
+	return validateInlineSchemaTypeWithContext(element, version, false, false)
+}
+
+func validateGlobalElementInlineSchemaType(element *syntaxElement, version XSDVersion) error {
+	return validateInlineSchemaTypeWithContext(element, version, false, true)
+}
+
+func validateInlineSchemaTypeWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets bool) error {
+	return validateInlineSchemaTypeWithContext(element, version, bridgeFacets, false)
 }
 
 //nolint:gocognit // Keep inline type attribute support and child preflight together.
-func validateInlineSchemaTypeWithFacetBridge(element *syntaxElement, version XSDVersion, bridgeFacets bool) error {
+func validateInlineSchemaTypeWithContext(element *syntaxElement, version XSDVersion, bridgeFacets, globalElementInline bool) error {
 	kind, ok := schemaDeclarationKind(element.name.local)
 	if !ok || kind != ComponentKindSimpleTypeDefinition && kind != ComponentKindComplexTypeDefinition {
 		return newSchemaBridgeInvariant(element.loc, "inline schema type has an unknown kind")
@@ -4413,7 +4464,7 @@ func validateInlineSchemaTypeWithFacetBridge(element *syntaxElement, version XSD
 		}
 	}
 	bridgeStringEnumeration := element.name.local == "simpleType" && inlineSimpleTypeMayHaveStringRestrictionBase(element)
-	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, bridgeFacets, bridgeStringEnumeration, false); err != nil {
+	if err := validateGlobalSchemaChildrenWithFacetBridge(element, version, bridgeFacets, bridgeStringEnumeration, false, globalElementInline); err != nil {
 		if !candidate.considerError(err) {
 			return err
 		}
@@ -4747,12 +4798,41 @@ func validateSupportedSequenceParticle(element *syntaxElement, version XSDVersio
 	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true)
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true, false)
 	if err != nil {
 		return err
 	}
 	candidate.merge(childrenCandidate)
 	return candidate.err()
+}
+
+func validateInlineExtensionSequenceParticle(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
+		return err
+	}
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true, schemaInlineExtensionSequenceHasChoice(element))
+	if err != nil {
+		return err
+	}
+	candidate.merge(childrenCandidate)
+	return candidate.err()
+}
+
+func validateInlineExtensionNestedChoice(element *syntaxElement, version XSDVersion) error {
+	if err := validateChoiceParticleWithOptions(element, version, true, true); err != nil {
+		return schemaInvalidWithSpecRef(err, schemaComplexParticleExtensionSpecRef(version))
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		if child.name.local != "element" || len(syntaxAttributesByLocal(child, "ref")) != 1 {
+			return newSchemaSyntaxUnsupportedForVersion(child.loc, "inline extension nested choice requires global element references", version)
+		}
+	}
+	return nil
 }
 
 //nolint:gocognit // Keep group particle grammar and support classification together.

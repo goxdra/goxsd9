@@ -20,13 +20,12 @@ precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
 built-ins use `StrictInteger`; named use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Named empty/choice/sequence/grouped/sequence-extension owners query ordered facet-free `xs:ID` locals (Strict10: one); refs/consumers reject; `0/0`/prohibited omit after checks.
-Global inline grouped/direct-sequence extensions query ordered non-ID atomic local/ref attributes over empty named bases; consumers reject.
-Named empty complexes/untyped global elements admit empty `block` overriding defaults; untyped elements lack views and reject validation/generation. Compatibility/Strict11 omit `inheritable=false/0` on untyped global attributes without typed views; local refs fail schema construction; `ValidateInstance`/`GenerateGo` still reject global attributes. Global-element `@type` rejects named empty complexes; extension-base references work.
+Named owners query ordered facet-free `xs:ID` uses; inline grouped/sequence extensions query selected atomic uses. Both consumers reject. Empty `block` overrides defaults for named empty complexes and untyped globals. Compatibility/Strict11 omit false untyped-global `inheritable`; local refs and consumers reject. Empty-complex `@type` rejects; extension-base refs resolve.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
-extension choices are attribute-free. Valid inline `0/0` omits after checks; nonzero rejects.
+extension choices are attribute-free.
+A global element's anonymous `complexContent/extension` over a supported named empty-content base queries one ref-only choice in its direct sequence with exact bounds, ordered targets and `Loc`s, and inherited wildcard when present; other nested terms, combined attributes, validation, and generation reject.
 Named-group sequences/nested choices query typed atomic integer/string/token locals; consumers and overlaps reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.

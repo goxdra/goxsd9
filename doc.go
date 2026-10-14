@@ -436,6 +436,13 @@
 // sequences alongside element references. Their members remain opaque. A named
 // sequence may retain one nested choice. A named choice may retain one nested
 // sequence. Both keep supported element and group refs with exact bounds.
+// A global element's anonymous complexContent extension over a supported named
+// base may retain one nested choice of global element refs in its direct
+// sequence. The choice keeps exact occurrences, ordered resolved targets, and
+// source locations; refs and base cycles are checked before 0/0 omission.
+// Nested sequences, groups, wildcards, local declarations, deeper nesting,
+// other owners, and attributes combined with this nested form reject.
+// Validation and generation reject the admitted extension.
 // Named sequences and their one nested choice retain explicitly typed built-in
 // or named atomic integer/string/token local elements with copied type facts,
 // QName, source location, and exact bounds. Chameleon unprefixed named type

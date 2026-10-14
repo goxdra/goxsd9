@@ -136,7 +136,63 @@ func inlineProbeAssertUnsupported(t *testing.T, id, source string, policy goxsd9
 	}
 }
 
-func TestPinnedInlineExtensionTermGate(t *testing.T) {
+func inlineProbeAssertNestedChoice(t *testing.T, id, source string, policy goxsd9.LanguagePolicy) { //nolint:gocognit // Check the copied owner, base, wildcard, and ordered refs together.
+	t.Helper()
+	schema, err := inlineProbeParse(t, id, source, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	components := schema.Components()
+	if len(components) != 6 {
+		t.Fatalf("components = %d, want base, owner, and four referenced declarations", len(components))
+	}
+	owner, ok := components[1].Element()
+	if !ok {
+		t.Fatal("anonymous global owner is absent")
+	}
+	prefix := "xs"
+	if strings.Contains(source, `base="p:openAttrs"`) {
+		prefix = "p"
+	}
+	inline, ok := owner.InlineComplexType()
+	if !ok || !inline.ID().IsZero() || inline.Derivation() != goxsd9.ComplexTypeDerivationExtension || inline.BaseLoc() != inlineProbeLoc(t, id, source, `base="`+prefix+`:openAttrs"`) {
+		t.Fatalf("anonymous extension = %v/%t", inline, ok)
+	}
+	wildcard, ok := inline.AnyAttribute()
+	if !ok || wildcard.Namespace() != "##other" || wildcard.ProcessContents() != "lax" || wildcard.Loc() != inlineProbeLoc(t, id, source, `<xs:anyAttribute`) {
+		t.Fatalf("inherited wildcard = %v/%t", wildcard, ok)
+	}
+	sequence, ok := inline.Particle().(goxsd9.SequenceParticle)
+	if !ok || sequence.Loc() != inlineProbeLoc(t, id, source, `<xs:sequence>`) || sequence.Occurrences().String() != "1/1" || len(sequence.Particles()) != 1 {
+		t.Fatalf("outer sequence = %v", inline.Particle())
+	}
+	choice, ok := sequence.Particles()[0].(goxsd9.ChoiceParticle)
+	if !ok || choice.Loc() != inlineProbeLoc(t, id, source, `<xs:choice`) || choice.Occurrences().String() != "0/unbounded" {
+		t.Fatalf("nested choice = %v", sequence.Particles()[0])
+	}
+	names := []string{"include", "import", "redefine", "annotation"}
+	alternatives := choice.Alternatives()
+	if len(alternatives) != len(names) {
+		t.Fatalf("alternatives = %d, want %d", len(alternatives), len(names))
+	}
+	for index, name := range names {
+		ref, refOK := alternatives[index].(goxsd9.ElementReferenceParticle)
+		if !refOK || ref.Ref().Local() != name || ref.Occurrences().String() != "1/1" || ref.TargetID() != components[index+2].ID() || ref.RefLoc() != inlineProbeLoc(t, id, source, `ref="`+prefix+`:`+name+`"`) {
+			t.Fatalf("alternative %d = %v, want %s", index, alternatives[index], name)
+		}
+	}
+	alternatives[0] = nil
+	if choice.Alternatives()[0] == nil {
+		t.Fatal("choice alternatives exposed their backing slice")
+	}
+	terms := sequence.Particles()
+	terms[0] = nil
+	if sequence.Particles()[0] == nil {
+		t.Fatal("sequence terms exposed their backing slice")
+	}
+}
+
+func TestPinnedInlineExtensionTermGate(t *testing.T) { //nolint:gocognit // Pair pinned admission with unchanged 1.1 and excluded-owner controls.
 	for _, edition := range inlineProbeEditions {
 		t.Run(edition.name, func(t *testing.T) {
 			term := inlineProbePinnedTerm(t, edition)
@@ -146,8 +202,15 @@ func TestPinnedInlineExtensionTermGate(t *testing.T) {
 				group = inlineProbeGroup(inlineProbeXSDNamespace)
 			}
 			root := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, term, end, group)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-projected", root, edition.policy, edition.marker, edition.specRef)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-compat", root, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
+			if edition.version == "1.0" {
+				root = inlineProbeSchema(edition, inlineProbeXSDNamespace, start, term, end, `<xs:element name="include" type="xs:integer"/><xs:element name="import" type="xs:integer"/><xs:element name="redefine" type="xs:integer"/><xs:element name="annotation" type="xs:integer"/>`)
+				inlineProbeAssertNestedChoice(t, edition.artifact+"-projected", root, edition.policy)
+				inlineProbeAssertNestedChoice(t, edition.artifact+"-compat", root, goxsd9.Compatibility)
+			}
+			if edition.version == "1.1" {
+				inlineProbeAssertUnsupported(t, edition.artifact+"-projected", root, edition.policy, edition.marker, edition.specRef)
+				inlineProbeAssertUnsupported(t, edition.artifact+"-compat", root, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
+			}
 			namedStart := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="xs:openAttrs"><xs:sequence>`
 			namedEnd := `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`
 			named := inlineProbeSchema(edition, inlineProbeXSDNamespace, namedStart, term, namedEnd, group)
@@ -155,7 +218,28 @@ func TestPinnedInlineExtensionTermGate(t *testing.T) {
 			inlineProbeAssertUnsupported(t, edition.artifact+"-named-exact-compat", named, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
 			zeroTerm := strings.Replace(term, `maxOccurs="unbounded"`, `maxOccurs="0"`, 1)
 			zero := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, zeroTerm, end, group)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-zero", zero, edition.policy, edition.marker, edition.specRef)
+			if edition.version == "1.0" {
+				zero = inlineProbeSchema(edition, inlineProbeXSDNamespace, start, zeroTerm, end, `<xs:element name="include" type="xs:integer"/><xs:element name="import" type="xs:integer"/><xs:element name="redefine" type="xs:integer"/><xs:element name="annotation" type="xs:integer"/>`)
+				zeroSchema, zeroErr := inlineProbeParse(t, edition.artifact+"-zero", zero, edition.policy)
+				if zeroErr != nil {
+					t.Fatal(zeroErr)
+				}
+				owner, ok := zeroSchema.Components()[1].Element()
+				if !ok {
+					t.Fatal("zero choice owner absent")
+				}
+				inline, ok := owner.InlineComplexType()
+				if !ok {
+					t.Fatal("zero choice inline type absent")
+				}
+				sequence, ok := inline.Particle().(goxsd9.SequenceParticle)
+				if !ok || len(sequence.Particles()) != 0 {
+					t.Fatalf("zero choice sequence = %v", inline.Particle())
+				}
+			}
+			if edition.version == "1.1" {
+				inlineProbeAssertUnsupported(t, edition.artifact+"-zero", zero, edition.policy, edition.marker, edition.specRef)
+			}
 			invalidTerm := strings.Replace(term, `minOccurs="0"`, `minOccurs="-1"`, 1)
 			invalid := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, invalidTerm, end, group)
 			invalidID := edition.artifact + "-invalid"
@@ -221,7 +305,12 @@ func TestPinnedInlineExtensionControlAndTermIsolation(t *testing.T) {
 			}
 			aliasTerm, targets, marker := inlineProbeAliasTermAndTargets(edition, term)
 			projected := inlineProbeSchema(edition, inlineProbeNamespace, start, aliasTerm, end, targets)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-term", projected, edition.policy, marker, edition.specRef)
+			if edition.version == "1.0" {
+				inlineProbeAssertNestedChoice(t, edition.artifact+"-term", projected, edition.policy)
+			}
+			if edition.version == "1.1" {
+				inlineProbeAssertUnsupported(t, edition.artifact+"-term", projected, edition.policy, marker, edition.specRef)
+			}
 		})
 	}
 }

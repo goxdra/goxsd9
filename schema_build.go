@@ -1568,7 +1568,7 @@ func schemaElementTypeInputForInlineComplex(
 			version,
 		)
 	}
-	if err := validateInlineSchemaType(inline, version); err != nil {
+	if err := validateGlobalElementInlineSchemaType(inline, version); err != nil {
 		return nil, err
 	}
 	complexType, err := schemaComplexTypeInputFromElementWithFacts(inline, facts, version)
@@ -1975,6 +1975,14 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 				if !ok || child.name.local == "annotation" {
 					continue
 				}
+				if child.name.local == "choice" {
+					choice, choiceErr := schemaInlineExtensionNestedChoiceInput(child, facts, version)
+					if choiceErr != nil {
+						return nil, choiceErr
+					}
+					sequence.particles = append(sequence.particles, choice)
+					continue
+				}
 				input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
 				if particleErr != nil {
 					return nil, particleErr
@@ -2010,6 +2018,29 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 		},
 		prohibitedSubstitutions: block,
 	}, nil
+}
+
+func schemaInlineExtensionNestedChoiceInput(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaChoiceParticleInput, error) {
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return nil, err
+	}
+	choice := &schemaChoiceParticleInput{loc: element.loc, occurrences: occurrences}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		alternative, alternativeErr := schemaElementParticleInputFromElementWithFacts(child, facts, version, true, !occurrences.mapsToParticle())
+		if alternativeErr != nil {
+			return nil, alternativeErr
+		}
+		if alternative.reference == nil {
+			return nil, newSchemaBridgeInvariant(child.loc, "admitted inline extension choice has a non-reference alternative")
+		}
+		choice.alternatives = append(choice.alternatives, alternative)
+	}
+	return choice, nil
 }
 
 func schemaGroupedComplexTypeExtensionInput(
@@ -4035,6 +4066,7 @@ func resolveSchemaSimpleTypeInputsInComplexParticle(
 	}
 }
 
+//nolint:gocognit // Traverse admitted nested terms in lexical order before omission.
 func resolveSchemaSimpleTypeInputsInParticleTerms(
 	terms []schemaParticleTermInput,
 	ownerOmitted bool,
@@ -4043,6 +4075,15 @@ func resolveSchemaSimpleTypeInputsInParticleTerms(
 	version XSDVersion,
 ) error {
 	for _, term := range terms {
+		if choice, ok := term.(*schemaChoiceParticleInput); ok {
+			if choice == nil {
+				return newSchemaBridgeInvariant(Loc{}, "simple type resolution has a nil nested choice input")
+			}
+			if err := resolveSchemaSimpleTypeInputsInParticleTerms(choice.alternatives, ownerOmitted || !choice.occurrences.mapsToParticle(), source, resolver, version); err != nil {
+				return err
+			}
+			continue
+		}
 		occurrences, err := schemaParticleTermInputOccurrences(term)
 		if err != nil {
 			return err
@@ -8617,6 +8658,7 @@ func resolveSchemaChoiceParticleWithOptions(
 	return ChoiceParticle{facts: choice}, nil
 }
 
+//nolint:gocognit // Resolve the scoped nested choice before any sequence omission.
 func resolveSchemaSequenceParticle(
 	input *schemaSequenceParticleInput,
 	owner schemaComponentRecord,
@@ -8628,6 +8670,19 @@ func resolveSchemaSequenceParticle(
 ) (Particle, error) {
 	particles := make([]Particle, 0, len(input.particles))
 	for _, termInput := range input.particles {
+		if choice, ok := termInput.(*schemaChoiceParticleInput); ok {
+			if choice == nil {
+				return nil, newSchemaBridgeInvariant(input.loc, "sequence has a nil nested choice input")
+			}
+			particle, err := resolveSchemaChoiceParticleWithOptions(choice, owner, records, byName, visibleSources, simpleTypes, version, true)
+			if err != nil {
+				return nil, err
+			}
+			if particle != nil {
+				particles = append(particles, particle)
+			}
+			continue
+		}
 		particle, err := resolveSchemaParticleTerm(
 			termInput,
 			owner,
@@ -9633,7 +9688,7 @@ func newSchemaElementReferenceDuplicateDiagnosticForModel(reference *schemaEleme
 		class:   FailureInvalid,
 		code:    diagnosticSchemaElementReferenceDuplicateCode,
 		loc:     reference.loc,
-		message: fmt.Sprintf("element reference %q is duplicated in the named model-group %s", reference.name, model),
+		message: fmt.Sprintf("element reference %q is duplicated in the %s", reference.name, model),
 		related: []Loc{firstLoc},
 		specRef: schemaElementReferenceDuplicateSpecRef(version),
 		cause:   fmt.Errorf("%w: %q", errSchemaElementReferenceDuplicate, reference.name),

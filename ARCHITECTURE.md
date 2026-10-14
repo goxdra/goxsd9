@@ -55,19 +55,15 @@ retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
 Grouped/sequence extension uses admit named/global-element inline owners; inline owners retain anonymous identity and exclude ID, inheritable, list/union uses.
 SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
-Direct/extension choices and sequences admit `integer`, built-in/named/inline
-`negativeInteger`, built-in/named `long`/`int`/`short`/`byte`/`unsignedLong`/
-`nonNegativeInteger`. Named direct choice/sequence/all admit effective
-`positiveInteger`/`nonPositiveInteger` restrictions; `all` excludes anonymous
-derivatives, extensions, and local attributes.
-Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
-require bounded list/union. Other derivatives/extensions query-only;
-named effective-long retains identity/facets/order; SimpleContent excludes local derivatives.
+Direct and extension particles model selected integer-family locals; named
+direct models add sign restrictions. Built-in/named integer validates;
+broader derivatives and extensions remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
 Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
-Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic
-integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
+Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
+Anonymous global-element `complexContent/extension` over supported named empty-content bases (including `anyType` restriction with `##other`/`lax` wildcard) admits one ref-only choice in a direct sequence with exact bounds/order/targets/`Loc`s; inherited wildcard persists when present.
+Refs resolve before zero omission. Other owners and nested sequences, groups, wildcards, locals, deeper nesting, and attribute-combined forms stay unsupported.
 Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
@@ -78,10 +74,8 @@ AttributeUse retains order, IDs, `Loc`s; grouped: group→uses→base; sequence 
 `0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
 Named empty/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;
 Strict10, true/1, refs, and other owners reject.
-Named empty, choice/sequence, grouped, and sequence extension owners query
-facet-free `xs:ID` (Strict10: one), built-in/named `xs:NCName`, and
-`xs:normalizedString` locals with copied effective facets. Inline/ref/value
-forms and consumers reject.
+Named empty, choice/sequence, grouped, and sequence extension owners query facet-free `xs:ID` (Strict10: one), built-in/named `xs:NCName`, and `xs:normalizedString` locals with copied effective facets.
+Inline/ref/value forms and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
@@ -118,18 +112,13 @@ precisionDecimal facets, Boolean whitespace; broader facets/temporal values reje
 
 ## Validation and code generation
 
-`ValidateInstance` handles built-in/named Boolean/token/NMTOKEN/integer/
-nonNegativeInteger/decimal/byte/short/int/long/unsignedLong and atomic `xs:string`
-roots. Compatibility/Strict11 also handle precisionDecimal roots, named/inline
-global lists, bounded unions, and ordered typed/ref sequences with anonymous
-targets/inline roots; Strict10 rejects before publication. Lists split XML
-whitespace; unions preserve member order. Selected variety attributes validate
-on empty/sequence roots. Bounded variety sequences accept typed string/integer/
-negativeInteger/precisionDecimal locals, anonymous integer/negativeInteger
-locals, and refs. Outer occurrences default; child ranges exact. Local Boolean/integer/decimal
-sequences/default choices honor ranges; token/NMTOKEN sequences retain large/
-unbounded occurrences. Default direct-choice refs to unconstrained global
-Boolean/integer/decimal validate; constrained targets relate `Loc`.
+`ValidateInstance` handles selected scalar roots, lists/unions, and ordered
+typed/ref sequences. Compatibility/Strict11 admit precisionDecimal; Strict10
+rejects it before publication. Lists split XML whitespace; unions preserve
+member order. Bounded variety sequences accept selected typed/anonymous locals
+and refs. Outer occurrences default; child ranges are exact. Default direct-choice
+refs to unconstrained Boolean/integer/decimal globals validate; constrained
+targets relate `Loc`. Exact supported types are in [the contract](doc.go).
 SimpleContent accepts built-in string with selected precisionDecimal attributes
 or built-in/named effective precisionDecimal; named effective string excludes.
 Inline roots validate selected sequences (including bounded list/union), attributes,
@@ -141,12 +130,9 @@ located diagnostics. Structure precedes facets; first failure retains instance/
 schema `Loc`s. Occurrence and scalar failures differ. `xsi:schemaLocation` never
 resolves. Other byte/short/int/long/unsignedLong validation uses reject.
 
-Generation admits named Boolean/integer/decimal/token/NMTOKEN/effective-atomic
-`xs:string`, inline string/token/NMTOKEN, and global `nonNegativeInteger`/
-`long`/`int`/`byte`. Default Boolean/integer/decimal choices/sequences and
-all-token choices generate; other locals/attributes reject. `normalizedString`
-and global `short`/`unsignedLong`/`negativeInteger`/`nonPositiveInteger`/
-`positiveInteger`/`nonNegativeInteger`/`long`/`int`/`byte` refs reject.
+Generation covers selected named/inline scalars, default Boolean/integer/decimal
+choices and sequences, and all-token choices. Other locals, attributes, and
+reference targets reject; exact supported types are in [the contract](doc.go).
 No-view globals, admitted `abstract=true`/`nillable=true` globals, identity constraints yield `GOXSD9029`, nil output.
 Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
 integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.
