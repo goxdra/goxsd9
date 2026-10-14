@@ -386,10 +386,9 @@ func TestMatchingLocalElementNamespaceBoundaryDiagnostics(t *testing.T) {
 	}
 }
 
-func TestMatchingLocalElementNamespaceDoesNotExpandOwnerShapes(t *testing.T) {
+func TestMatchingLocalElementNamespaceDoesNotExpandInlineChoice(t *testing.T) {
 	for _, test := range []struct{ name, body string }{
 		{"inline choice", `<xs:element name="root"><xs:complexType><xs:choice><xs:element name="value" type="xs:integer" targetNamespace="urn:root"/></xs:choice></xs:complexType></xs:element>`},
-		{"named group", `<xs:group name="Fields"><xs:sequence><xs:element name="value" type="xs:integer" targetNamespace="urn:root"/></xs:sequence></xs:group>`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:root">` + test.body + `</xs:schema>`

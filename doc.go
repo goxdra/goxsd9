@@ -18,10 +18,11 @@
 // Restrictions, list items, and union members may reference it. Direct,
 // named-typed, and inline atomic-restriction global elements are queryable;
 // list/union-typed global elements reject. Direct named-complex choices,
-// sequences, and all groups retain built-in and supported named effective
+// sequences, direct xs:all, and named-group sequences with their one nested choice
+// retain built-in and supported named effective
 // xs:normalizedString local element particles for queries, including inherited
-// string facets and exact occurrences. Other mapped nonzero local element
-// particles of this type reject at schema admission;
+// string facets and exact occurrences. Other mapped nonzero placements reject
+// at schema admission; both consumers reject owning named-group refs at RefLoc.
 // explicit built-in, supported named, and top-level inline atomic
 // xs:normalizedString global attributes retain query facts. Applicable 0/0
 // locals omit after reference,
@@ -216,7 +217,9 @@
 // excluded. NCName instance validation and Go generation remain unsupported.
 // Token/NMTOKEN current-state matrix: explicitly typed built-in or supported
 // named local particles in direct choices, sequences, and bounded
-// extensions are modeled and queryable. Direct named-complex xs:all also models
+// extensions are modeled and queryable. Named-group sequences and their one
+// nested choice query built-in/named effective token/NMTOKEN locals with copied
+// facts; owning group refs reject both consumers at RefLoc. Direct xs:all models
 // built-in/named effective token/NMTOKEN locals; inline token/NMTOKEN locals remain excluded there,
 // and both consumers reject xs:all. Only non-extension default-occurrence
 // homogeneous direct choices made entirely of local token or NMTOKEN
@@ -433,7 +436,15 @@
 // sequences alongside element references. Their members remain opaque. A named
 // sequence may retain one nested choice. A named choice may retain one nested
 // sequence. Both keep supported element and group refs with exact bounds.
-// Deeper anonymous compositors, local declarations, and broader model-group
+// Named sequences and their one nested choice retain explicitly typed built-in
+// or named atomic integer/string/token local elements with copied type facts,
+// QName, source location, and exact bounds. Chameleon unprefixed named type
+// references adopt the effective namespace; standalone documents retain no
+// namespace. Differing types for one expanded name fail; unresolved attribution
+// is explicitly unsupported. Valid inline
+// simple and untyped 0/0 leaves omit after checks. Inline resolver errors,
+// including unsupported members, block omission. Deeper anonymous
+// compositors, nonzero inline/untyped locals, and broader model-group
 // references remain unsupported.
 // Direct/indirect named-group cycles fail schema admission with invalid XSD3062
 // at the closing ref and related path; no Schema is published. Reference targets

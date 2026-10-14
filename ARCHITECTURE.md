@@ -64,12 +64,13 @@ Built-in/named `integer` validate; anonymous `integer`/`negativeInteger`
 require bounded list/union. Other derivatives/extensions query-only;
 named effective-long retains identity/facets/order; SimpleContent excludes local derivatives.
 Syntax/policy/occurrences precede mapping; refs precede omission.
-Compatibility/Strict11 map matching collapsed local `targetNamespace` to qualified
-QNames in named direct choices/sequences; Strict10 rejects. See [contract](doc.go).
-Named model-group choices retain one nested sequence; named sequences retain one
-nested choice. Ordered element/group refs keep exact bounds and resolve
-before `0/0` omission.
-Deeper nesting/local declarations/wildcards/all reject; cycles XSD3062 locate closing `ref`. Owning complex types reject validation/generation at their group `RefLoc`.
+Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
+Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
+Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic
+integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
+Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
+Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
+wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
 `0/0` omits; anonymous complex members/consumers reject.

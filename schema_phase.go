@@ -5452,7 +5452,7 @@ func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) e
 			sequenceSeen = true
 			continue
 		}
-		if err := validateNamedModelGroupChild(child, version, "choice", &candidate); err != nil {
+		if err := validateNamedModelGroupChild(child, version, "choice", false, &candidate); err != nil {
 			return err
 		}
 	}
@@ -5469,7 +5469,7 @@ func validateNamedModelGroupNestedSequence(element *syntaxElement, version XSDVe
 		return err
 	}
 	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
-	if err := validateNamedModelGroupChildren(children, version, "sequence", &candidate); err != nil {
+	if err := validateNamedModelGroupChildren(children, version, "sequence", false, &candidate); err != nil {
 		return schemaInvalidWithSpecRef(err, schemaGroupParticleSpecRef(version))
 	}
 	return candidate.err()
@@ -5510,7 +5510,7 @@ func validateNamedModelGroupSequence(element *syntaxElement, version XSDVersion)
 			choiceSeen = true
 			continue
 		}
-		if err := validateNamedModelGroupChild(child, version, "sequence", &candidate); err != nil {
+		if err := validateNamedModelGroupChild(child, version, "sequence", true, &candidate); err != nil {
 			return err
 		}
 	}
@@ -5527,13 +5527,13 @@ func validateNamedModelGroupNestedChoice(element *syntaxElement, version XSDVers
 		return err
 	}
 	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
-	if err := validateNamedModelGroupChildren(children, version, "choice", &candidate); err != nil {
+	if err := validateNamedModelGroupChildren(children, version, "choice", true, &candidate); err != nil {
 		return schemaInvalidWithSpecRef(err, schemaGroupParticleSpecRef(version))
 	}
 	return candidate.err()
 }
 
-func validateNamedModelGroupChildren(children []*syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
+func validateNamedModelGroupChildren(children []*syntaxElement, version XSDVersion, model string, allowLocal bool, candidate *schemaChildUnsupportedCandidate) error {
 	annotationSeen := false
 	contentSeen := false
 	for _, child := range children {
@@ -5544,17 +5544,17 @@ func validateNamedModelGroupChildren(children []*syntaxElement, version XSDVersi
 		if handled {
 			continue
 		}
-		if err := validateNamedModelGroupChild(child, version, model, candidate); err != nil {
+		if err := validateNamedModelGroupChild(child, version, model, allowLocal, candidate); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateNamedModelGroupChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
+func validateNamedModelGroupChild(child *syntaxElement, version XSDVersion, model string, allowLocal bool, candidate *schemaChildUnsupportedCandidate) error {
 	switch child.name.local {
 	case "element":
-		return validateNamedModelGroupElementChild(child, version, model, candidate)
+		return validateNamedModelGroupElementChild(child, version, model, allowLocal, candidate)
 	case "group":
 		return stageSchemaCandidateError(candidate, schemaInvalidWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version)))
 	case "choice", "sequence", "any":
@@ -5570,8 +5570,8 @@ func validateNamedModelGroupChild(child *syntaxElement, version XSDVersion, mode
 	}
 }
 
-func validateNamedModelGroupElementChild(child *syntaxElement, version XSDVersion, model string, candidate *schemaChildUnsupportedCandidate) error {
-	childCandidate, err := validateLocalElementParticle(child, version, true, "model-group "+model, false, false)
+func validateNamedModelGroupElementChild(child *syntaxElement, version XSDVersion, model string, allowLocal bool, candidate *schemaChildUnsupportedCandidate) error {
+	childCandidate, err := validateLocalElementParticle(child, version, true, "model-group "+model, allowLocal, false)
 	if err != nil {
 		return err
 	}
@@ -5581,6 +5581,25 @@ func validateNamedModelGroupElementChild(child *syntaxElement, version XSDVersio
 	}
 	if len(syntaxAttributesByLocal(child, "ref")) == 1 {
 		return nil
+	}
+	if allowLocal {
+		occurrences, err := schemaParticleOccurrenceRange(child, version)
+		if err != nil {
+			return err
+		}
+		if inline := inlineSimpleTypeChild(child); inline != nil {
+			return nil
+		}
+		if inline := inlineComplexTypeChild(child); inline != nil {
+			candidate.considerAtVersion(inline.loc, "named model-group inline local element types are not implemented", version)
+			return nil
+		}
+		if len(syntaxAttributesByLocal(child, "type")) == 1 {
+			return nil
+		}
+		if !occurrences.mapsToParticle() {
+			return nil
+		}
 	}
 	candidate.considerAtVersion(child.loc, "named model-group "+model+" local element declarations are not implemented", version)
 	return nil
