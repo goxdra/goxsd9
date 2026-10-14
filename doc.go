@@ -431,9 +431,10 @@
 // references retain ordered facts and TargetID. Named global model-group choices
 // and sequences admit direct, acyclic references to supported named choices or
 // sequences alongside element references. Their members remain opaque. A named
-// sequence may retain one nested choice of supported element and group refs with
-// exact bounds. Deeper anonymous compositors, local declarations, and broader
-// model-group references remain unsupported.
+// sequence may retain one nested choice. A named choice may retain one nested
+// sequence. Both keep supported element and group refs with exact bounds.
+// Deeper anonymous compositors, local declarations, and broader model-group
+// references remain unsupported.
 // Direct/indirect named-group cycles fail schema admission with invalid XSD3062
 // at the closing ref and related path; no Schema is published. Reference targets
 // are resolved and traversed before an effective 0/0 term is omitted.

@@ -1,0 +1,7 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:p="urn:issue743" targetNamespace="urn:issue743">
+  <xs:group name="Choice"><xs:choice>
+    <xs:sequence minOccurs="2" maxOccurs="3"><xs:element ref="p:item"/><xs:group ref="p:Tail" minOccurs="0"/></xs:sequence>
+  </xs:choice></xs:group>
+  <xs:group name="Tail"><xs:sequence/></xs:group>
+  <xs:element name="item" type="xs:integer"/>
+</xs:schema>

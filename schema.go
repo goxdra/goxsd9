@@ -2357,7 +2357,7 @@ func (particle WildcardParticle) ProcessContentsLoc() Loc {
 	return particle.facts.processContentsLoc
 }
 
-// SequenceParticle is an ordered direct sequence of particles.
+// SequenceParticle is an ordered sequence of particles.
 type SequenceParticle struct {
 	facts *schemaSequenceParticle
 }
@@ -2473,9 +2473,9 @@ func (particle SequenceParticle) Elements() []ElementParticle {
 	return elements
 }
 
-// Particles returns direct sequence particles in lexical declaration order.
+// Particles returns sequence child particles in lexical declaration order.
 // The returned slice is independent of the completed schema and may contain
-// local elements, element or model-group references, wildcards, and nested choices.
+// local elements, element or model-group references, wildcards, and nested compositors.
 func (particle SequenceParticle) Particles() []Particle {
 	if particle.facts == nil || len(particle.facts.particles) == 0 {
 		return nil
@@ -3002,6 +3002,7 @@ type schemaSequenceParticleInput struct {
 
 func (*schemaSequenceParticleInput) schemaComplexTypeParticleInput() {}
 func (*schemaSequenceParticleInput) schemaModelGroupParticleInput()  {}
+func (*schemaSequenceParticleInput) schemaParticleTermInput()        {}
 
 type schemaModelGroupReferenceParticleInput struct {
 	loc         Loc
@@ -4501,7 +4502,7 @@ func allocateSchemaSimpleTypeNodeID(
 	}
 }
 
-func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaParticleTermInput {
+func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaParticleTermInput { //nolint:gocognit // Each admitted term needs an owned copy of its input facts.
 	if len(inputs) == 0 {
 		return nil
 	}
@@ -4537,6 +4538,14 @@ func cloneSchemaParticleTermInputs(inputs []schemaParticleTermInput) []schemaPar
 					loc:          term.loc,
 					occurrences:  term.occurrences.clone(),
 					alternatives: cloneSchemaParticleTermInputs(term.alternatives),
+				}
+			}
+		case *schemaSequenceParticleInput:
+			if term != nil {
+				clones[index] = &schemaSequenceParticleInput{
+					loc:         term.loc,
+					occurrences: term.occurrences.clone(),
+					particles:   cloneSchemaParticleTermInputs(term.particles),
 				}
 			}
 		default:

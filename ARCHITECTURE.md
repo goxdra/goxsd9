@@ -66,7 +66,9 @@ named effective-long retains identity/facets/order; SimpleContent excludes local
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Compatibility/Strict11 map matching collapsed local `targetNamespace` to qualified
 QNames in named direct choices/sequences; Strict10 rejects. See [contract](doc.go).
-Named model-group sequences retain one nested choice: ordered global element refs and opaque named group refs with exact bounds, resolved before `0/0` omission.
+Named model-group choices retain one nested sequence; named sequences retain one
+nested choice. Ordered element/group refs keep exact bounds and resolve
+before `0/0` omission.
 Deeper nesting/local declarations/wildcards/all reject; cycles XSD3062 locate closing `ref`. Owning complex types reject validation/generation at their group `RefLoc`.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
