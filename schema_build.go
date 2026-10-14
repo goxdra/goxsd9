@@ -2332,6 +2332,14 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 			version,
 		)
 	}
+	choice, err := schemaNamedModelGroupChoiceInput(model, facts, version)
+	if err != nil {
+		return nil, err
+	}
+	return &schemaModelGroupInput{particle: choice}, nil
+}
+
+func schemaNamedModelGroupChoiceInput(model *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaChoiceParticleInput, error) {
 	occurrences, err := schemaParticleOccurrenceRange(model, version)
 	if err != nil {
 		return nil, err
@@ -2352,7 +2360,7 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 		}
 		choice.alternatives = append(choice.alternatives, alternative)
 	}
-	return &schemaModelGroupInput{particle: choice}, nil
+	return choice, nil
 }
 
 func schemaNamedModelGroupTermInput(child *syntaxElement, facts schemaDocumentFacts, version XSDVersion, model string) (schemaParticleTermInput, error) {
@@ -2393,6 +2401,14 @@ func schemaModelGroupSequenceInputFromElementWithFacts(element *syntaxElement, f
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
 		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		if child.name.local == "choice" {
+			choice, choiceErr := schemaNamedModelGroupChoiceInput(child, facts, version)
+			if choiceErr != nil {
+				return nil, choiceErr
+			}
+			sequence.particles = append(sequence.particles, choice)
 			continue
 		}
 		particle, particleErr := schemaNamedModelGroupTermInput(child, facts, version, "sequence")
@@ -8265,6 +8281,12 @@ func (resolver *schemaModelGroupResolver) resolveSequence(input *schemaSequenceP
 }
 
 func (resolver *schemaModelGroupResolver) resolveSequenceTerm(term schemaParticleTermInput, owner schemaComponentRecord, seen map[QName]Loc, loc Loc) (Particle, error) {
+	if choice, ok := term.(*schemaChoiceParticleInput); ok {
+		if choice == nil {
+			return nil, newSchemaBridgeInvariant(loc, "model group sequence has a nil choice input")
+		}
+		return resolver.resolveChoice(choice, owner)
+	}
 	if group, ok := term.(*schemaModelGroupReferenceParticleInput); ok {
 		return resolver.resolveChoiceGroup(group, owner)
 	}

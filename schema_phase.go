@@ -5436,7 +5436,7 @@ func validateNamedModelGroupChoice(element *syntaxElement, version XSDVersion) e
 	return candidate.err()
 }
 
-func validateNamedModelGroupSequence(element *syntaxElement, version XSDVersion) error {
+func validateNamedModelGroupSequence(element *syntaxElement, version XSDVersion) error { //nolint:gocognit // Keep lexical child order and one nested choice admission together.
 	var candidate schemaChildUnsupportedCandidate
 	if err := validateSchemaParticleOccurrences(element, version); err != nil {
 		return err
@@ -5449,8 +5449,47 @@ func validateNamedModelGroupSequence(element *syntaxElement, version XSDVersion)
 		return err
 	}
 	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
-	if err := validateNamedModelGroupChildren(children, version, "sequence", &candidate); err != nil {
+	annotationSeen := false
+	contentSeen := false
+	choiceSeen := false
+	for _, child := range children {
+		handled, err := consumeGlobalSchemaAnnotation(child, &annotationSeen, &contentSeen)
+		if err != nil {
+			return err
+		}
+		if handled {
+			continue
+		}
+		if child.name.local == "choice" {
+			if err := stageSchemaCandidateError(&candidate, validateNamedModelGroupNestedChoice(child, version)); err != nil {
+				return err
+			}
+			if choiceSeen {
+				candidate.considerAtVersion(child.loc, "multiple nested choices in a named model-group sequence are not implemented", version)
+				continue
+			}
+			choiceSeen = true
+			continue
+		}
+		if err := validateNamedModelGroupChild(child, version, "sequence", &candidate); err != nil {
+			return err
+		}
+	}
+	return candidate.err()
+}
+
+func validateNamedModelGroupNestedChoice(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
 		return err
+	}
+	children, collectedCandidate, err := collectGlobalSchemaChildren(element)
+	if err != nil {
+		return err
+	}
+	candidate.merge(versionNamedModelGroupCandidate(collectedCandidate, version))
+	if err := validateNamedModelGroupChildren(children, version, "choice", &candidate); err != nil {
+		return schemaInvalidWithSpecRef(err, schemaGroupParticleSpecRef(version))
 	}
 	return candidate.err()
 }
