@@ -364,7 +364,6 @@ func TestNamedGroupSequenceNestedChoiceExcludedShapes(t *testing.T) { //nolint:g
 		}{
 			{"deeper choice", `<xs:choice><xs:element ref="g:first"/></xs:choice>`, `<xs:choice><xs:element`, UnsupportedSchemaSyntaxCode, FailureUnsupported},
 			{"deeper sequence", `<xs:sequence><xs:element ref="g:first"/></xs:sequence>`, `<xs:sequence><xs:element`, UnsupportedSchemaSyntaxCode, FailureUnsupported},
-			{"local declaration", `<xs:element name="local" type="xs:integer"/>`, `<xs:element name="local"`, UnsupportedSchemaSyntaxCode, FailureUnsupported},
 			{"wildcard", `<xs:any/>`, `<xs:any`, UnsupportedSchemaSyntaxCode, FailureUnsupported},
 			{"all", `<xs:all/>`, `<xs:all`, invalidSchemaCompositionCode, FailureInvalid},
 		} {

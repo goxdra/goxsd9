@@ -62,6 +62,7 @@ const (
 	diagnosticSchemaAttributeUseDuplicateCode        = "XSD3052"
 	diagnosticSchemaAttributeUseIDDuplicateCode      = "XSD3061"
 	diagnosticSchemaModelGroupReferenceCycleCode     = "XSD3062"
+	diagnosticSchemaGroupElementConsistencyCode      = "XSD3063"
 )
 
 const (
@@ -151,6 +152,7 @@ var (
 	errSchemaElementReferenceAmbiguous           = errors.New("element reference is ambiguous")
 	errSchemaElementReferenceNamespace           = errors.New("element reference namespace is not imported")
 	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
+	errSchemaGroupElementConsistency             = errors.New("named model-group element declarations are inconsistent")
 	errSchemaAllMemberDuplicate                  = errors.New("all particle member has a duplicate expanded name")
 	errSchemaAllMemberScalar                     = errors.New("all particle member has an unsupported scalar type")
 	errSchemaUnsignedLong10FacetLexical          = errors.New("XSD 1.0 unsignedLong facet has a signed lexical value")
@@ -2332,14 +2334,14 @@ func schemaModelGroupInputFromElementWithFacts(element *syntaxElement, facts sch
 			version,
 		)
 	}
-	choice, err := schemaNamedModelGroupChoiceInput(model, facts, version)
+	choice, err := schemaNamedModelGroupChoiceInput(model, facts, version, false)
 	if err != nil {
 		return nil, err
 	}
 	return &schemaModelGroupInput{particle: choice}, nil
 }
 
-func schemaNamedModelGroupChoiceInput(model *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaChoiceParticleInput, error) {
+func schemaNamedModelGroupChoiceInput(model *syntaxElement, facts schemaDocumentFacts, version XSDVersion, allowLocal bool) (*schemaChoiceParticleInput, error) {
 	occurrences, err := schemaParticleOccurrenceRange(model, version)
 	if err != nil {
 		return nil, err
@@ -2362,7 +2364,7 @@ func schemaNamedModelGroupChoiceInput(model *syntaxElement, facts schemaDocument
 			choice.alternatives = append(choice.alternatives, sequence)
 			continue
 		}
-		alternative, err := schemaNamedModelGroupTermInput(child, facts, version, "choice")
+		alternative, err := schemaNamedModelGroupTermInput(child, facts, version, "choice", allowLocal)
 		if err != nil {
 			return nil, err
 		}
@@ -2386,7 +2388,7 @@ func schemaNamedModelGroupSequenceTermInput(model *syntaxElement, facts schemaDo
 		if !ok || child.name.local == "annotation" {
 			continue
 		}
-		particle, err := schemaNamedModelGroupTermInput(child, facts, version, "sequence")
+		particle, err := schemaNamedModelGroupTermInput(child, facts, version, "sequence", false)
 		if err != nil {
 			return nil, err
 		}
@@ -2395,7 +2397,7 @@ func schemaNamedModelGroupSequenceTermInput(model *syntaxElement, facts schemaDo
 	return sequence, nil
 }
 
-func schemaNamedModelGroupTermInput(child *syntaxElement, facts schemaDocumentFacts, version XSDVersion, model string) (schemaParticleTermInput, error) {
+func schemaNamedModelGroupTermInput(child *syntaxElement, facts schemaDocumentFacts, version XSDVersion, model string, allowLocal bool) (schemaParticleTermInput, error) {
 	if child.name.local == "group" {
 		occurrences, err := schemaParticleOccurrenceRange(child, version)
 		if err != nil {
@@ -2410,11 +2412,11 @@ func schemaNamedModelGroupTermInput(child *syntaxElement, facts schemaDocumentFa
 			version,
 		)
 	}
-	element, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, false, false)
+	element, err := schemaElementParticleInputFromElementWithFacts(child, facts, version, allowLocal, false)
 	if err != nil {
 		return nil, err
 	}
-	if element.reference == nil {
+	if element.reference == nil && !allowLocal {
 		return nil, newSchemaSyntaxUnsupportedForVersion(child.loc, "named model-group "+model+" requires global element references", version)
 	}
 	return element, nil
@@ -2436,14 +2438,14 @@ func schemaModelGroupSequenceInputFromElementWithFacts(element *syntaxElement, f
 			continue
 		}
 		if child.name.local == "choice" {
-			choice, choiceErr := schemaNamedModelGroupChoiceInput(child, facts, version)
+			choice, choiceErr := schemaNamedModelGroupChoiceInput(child, facts, version, true)
 			if choiceErr != nil {
 				return nil, choiceErr
 			}
 			sequence.particles = append(sequence.particles, choice)
 			continue
 		}
-		particle, particleErr := schemaNamedModelGroupTermInput(child, facts, version, "sequence")
+		particle, particleErr := schemaNamedModelGroupTermInput(child, facts, version, "sequence", true)
 		if particleErr != nil {
 			return nil, particleErr
 		}
@@ -8134,7 +8136,7 @@ func resolveSchemaModelGroups(
 	}
 	resolver := schemaModelGroupResolver{
 		records: records, byName: byName, visibleSources: visibleSources,
-		version: version,
+		simpleTypes: simpleTypes, version: version,
 		results: make([]schemaModelGroupResult, len(records)),
 		states:  make([]uint8, len(records)),
 	}
@@ -8153,6 +8155,7 @@ type schemaModelGroupResolver struct {
 	records        []schemaComponentRecord
 	byName         map[QName][]int
 	visibleSources map[SourceID][]SourceID
+	simpleTypes    schemaSimpleTypeResolution
 	version        XSDVersion
 	results        []schemaModelGroupResult
 	states         []uint8
@@ -8264,7 +8267,7 @@ func (resolver *schemaModelGroupResolver) resolveChoice(input *schemaChoiceParti
 
 func (resolver *schemaModelGroupResolver) resolveChoiceElement(input schemaElementParticleInput, owner schemaComponentRecord, seen map[QName]Loc) (Particle, error) {
 	if input.reference == nil {
-		return nil, newSchemaBridgeInvariant(input.loc, "model group choice has a non-reference element input")
+		return resolver.resolveLocalElement(input, owner)
 	}
 	particle, err := resolveSchemaElementReferenceParticle(input, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
 	if err != nil {
@@ -8328,10 +8331,93 @@ func (resolver *schemaModelGroupResolver) resolveSequenceTerm(term schemaParticl
 		return resolver.resolveChoiceGroup(group, owner)
 	}
 	element, ok := schemaElementParticleInputValue(term)
-	if !ok || element.reference == nil {
+	if !ok {
 		return nil, newSchemaBridgeInvariant(loc, "model group sequence has an unsupported term input")
 	}
+	if element.reference == nil {
+		return resolver.resolveLocalElement(element, owner)
+	}
 	return resolver.resolveSequenceElement(element, owner, seen)
+}
+
+func (resolver *schemaModelGroupResolver) resolveLocalElement(input schemaElementParticleInput, owner schemaComponentRecord) (Particle, error) { //nolint:gocognit // Resolve/omit each local type form before constructing an immutable particle.
+	if input.typeInput == nil {
+		if !input.occurrences.mapsToParticle() {
+			return nil, nil
+		}
+		return nil, newSchemaSyntaxUnsupportedForVersion(input.loc, "untyped named model-group local elements are not implemented", resolver.version)
+	}
+	if input.typeInput.inlineSimpleType != nil {
+		if resolver.simpleTypes.resolver == nil {
+			return nil, newSchemaBridgeInvariant(input.typeInput.typeLoc, "model-group inline simple type has no resolver")
+		}
+		_, err := resolver.simpleTypes.resolver.resolveInput(input.typeInput.inlineSimpleType, input.typeInput.typeLoc, true, owner.id.Source(), resolver.version)
+		if err != nil && (!input.occurrences.mapsToParticle() && schemaZeroOccurrenceMayOmitUnsupported(err)) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !input.occurrences.mapsToParticle() {
+			return nil, nil
+		}
+		return nil, newSchemaSyntaxUnsupportedForVersion(input.typeInput.typeLoc, "inline named model-group local element types are not implemented", resolver.version)
+	}
+	if name := input.typeInput.declaredType; name.Namespace() != xsdNamespaceURI {
+		candidates := resolver.byName[name]
+		if len(candidates) > 0 {
+			visible, err := schemaVisibleCandidates(candidates, owner.id.Source(), resolver.records, resolver.visibleSources, input.typeInput.typeLoc)
+			if err != nil {
+				return nil, err
+			}
+			if len(visible) == 0 {
+				return nil, newSchemaElementTypeDiagnostic(
+					diagnosticSchemaElementTypeUnresolvedCode, input.typeInput.typeLoc,
+					fmt.Sprintf("element type %q is not visible from its schema document", name),
+					schemaComponentLocations(resolver.records, candidates), resolver.version,
+					errSchemaElementTypeUnresolved,
+				)
+			}
+		}
+	}
+	resolved, err := resolveSchemaScalarType(
+		input.typeInput, resolver.records, resolver.byName, resolver.visibleSources,
+		owner.id.Source(), resolver.simpleTypes, resolver.version,
+		"for named model-group local elements", schemaScalarTypeLocalParticle,
+		true, false, true, true,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !namedModelGroupLocalTypeAllowed(resolved) {
+		return nil, newSchemaSyntaxUnsupportedForVersion(input.typeInput.typeLoc, "named model-group local element type is outside the supported atomic integer/string/token families", resolver.version)
+	}
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	return newResolvedSchemaElementParticle(input, resolved), nil
+}
+
+func namedModelGroupLocalTypeAllowed(resolved schemaElementTypeResult) bool {
+	if !resolved.hasTypeReference || resolved.typeReference.kind != SimpleTypeReferenceBuiltin && resolved.typeReference.kind != SimpleTypeReferenceNamed {
+		return false
+	}
+	switch resolved.typeReference.atomicKind {
+	case schemaSimpleTypeAtomicString, schemaSimpleTypeAtomicNormalizedString,
+		schemaSimpleTypeAtomicToken, schemaSimpleTypeAtomicNMTOKEN,
+		schemaSimpleTypeAtomicInteger, schemaSimpleTypeAtomicLong,
+		schemaSimpleTypeAtomicInt, schemaSimpleTypeAtomicShort,
+		schemaSimpleTypeAtomicByte, schemaSimpleTypeAtomicUnsignedLong,
+		schemaSimpleTypeAtomicNegativeInteger, schemaSimpleTypeAtomicNonNegativeInteger,
+		schemaSimpleTypeAtomicNonPositiveInteger, schemaSimpleTypeAtomicPositiveInteger:
+		return true
+	case schemaSimpleTypeAtomicUnknown, schemaSimpleTypeAtomicDecimal,
+		schemaSimpleTypeAtomicPrecisionDecimal, schemaSimpleTypeAtomicLanguage,
+		schemaSimpleTypeAtomicNCName, schemaSimpleTypeAtomicAnyURI,
+		schemaSimpleTypeAtomicID, schemaSimpleTypeAtomicQName:
+		return false
+	}
+	return false
 }
 
 func (resolver *schemaModelGroupResolver) resolveSequenceElement(input schemaElementParticleInput, owner schemaComponentRecord, seen map[QName]Loc) (Particle, error) {
@@ -8858,6 +8944,10 @@ func resolveSchemaElementParticle(
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
 	}
+	return newResolvedSchemaElementParticle(input, resolved), nil
+}
+
+func newResolvedSchemaElementParticle(input schemaElementParticleInput, resolved schemaElementTypeResult) Particle {
 	facts := &schemaElementParticle{
 		loc:                     input.loc,
 		occurrences:             input.occurrences.clone(),
@@ -8870,7 +8960,7 @@ func resolveSchemaElementParticle(
 		typeID:                  resolved.typeID,
 		hasTypeID:               resolved.hasTypeID,
 	}
-	return ElementParticle{facts: facts}, nil
+	return ElementParticle{facts: facts}
 }
 
 func schemaDirectNamedComplexPositiveOrNonPositiveInteger(owner schemaComponentRecord, model string, input *schemaElementInput) bool {

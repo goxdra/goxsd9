@@ -433,7 +433,12 @@
 // sequences alongside element references. Their members remain opaque. A named
 // sequence may retain one nested choice. A named choice may retain one nested
 // sequence. Both keep supported element and group refs with exact bounds.
-// Deeper anonymous compositors, local declarations, and broader model-group
+// Named sequences and their one nested choice retain explicitly typed built-in
+// or named atomic integer/string/token local elements with copied type facts,
+// QName, source location, and exact bounds. Differing types for one expanded
+// name fail; unresolved attribution is explicitly unsupported. Valid inline
+// simple and untyped 0/0 leaves omit after checks. Deeper anonymous
+// compositors, nonzero inline/untyped locals, and broader model-group
 // references remain unsupported.
 // Direct/indirect named-group cycles fail schema admission with invalid XSD3062
 // at the closing ref and related path; no Schema is published. Reference targets

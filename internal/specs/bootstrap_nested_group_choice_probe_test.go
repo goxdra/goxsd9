@@ -10,8 +10,8 @@ import (
 )
 
 // The attrDecls group is copied from each digest-checked Structures artifact.
-// Local choice children remain a separate blocker in the original fragment.
-func TestBootstrapNestedGroupChoiceBoundedProjection(t *testing.T) { //nolint:gocognit // Digest, copied bounds, supported projection, and next blocker stay together.
+// Its local children resolve types outside the bounded atomic group surface.
+func TestBootstrapNestedGroupChoiceBoundedProjection(t *testing.T) { //nolint:gocognit,funlen // Digest, copied bounds, supported projection, and next blocker stay together.
 	manifest := readBootstrapProbeManifest(t)
 	for _, artifact := range []struct {
 		id, version, syntaxSpec string
@@ -55,8 +55,42 @@ func TestBootstrapNestedGroupChoiceBoundedProjection(t *testing.T) { //nolint:go
 				t.Fatalf("original fragment returned schema: %v", err)
 			}
 			diagnostic, ok := firstBootstrapProbeDiagnostic(err)
-			if !ok || diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode || diagnostic.Loc() != inlineProbeLoc(t, id, original, `<xs:element name="attribute"`) || diagnostic.SpecRef() != artifact.syntaxSpec || len(diagnostic.Related()) != 0 || !errors.Is(err, goxsd9.ErrUnsupported) {
-				t.Fatalf("next blocker = %v, want local declaration", err)
+			if !ok || diagnostic.Class() != goxsd9.FailureUnsupported || diagnostic.Code() != goxsd9.UnsupportedSchemaSyntaxCode || diagnostic.Loc() != inlineProbeLoc(t, id, original, `type="xs:attribute"`) || diagnostic.SpecRef() != artifact.syntaxSpec || len(diagnostic.Related()) != 0 || !errors.Is(err, goxsd9.ErrUnsupported) {
+				t.Fatalf("next blocker = %v, want schema-for-schema complex type", err)
+			}
+			localProjection := strings.Replace(fragment, `type="xs:attribute"`, `type="xs:integer"`, 1)
+			localProjection = strings.Replace(localProjection, `type="xs:attributeGroupRef"`, `type="xs:token"`, 1)
+			localProjection = strings.Replace(localProjection, `ref="xs:anyAttribute"`, `ref="p:anyAttribute"`, 1)
+			localSource := root(localProjection)
+			localSchema, err := inlineProbeParse(t, id, localSource, artifact.policy)
+			if err != nil {
+				t.Fatalf("local bounded projection: %v", err)
+			}
+			localName, err := goxsd9.NewQName("urn:bootstrap-choice", "attrDecls")
+			if err != nil {
+				t.Fatal(err)
+			}
+			localGroups := localSchema.FindKind(goxsd9.ComponentKindModelGroupDefinition, localName)
+			if len(localGroups) != 1 {
+				t.Fatalf("local projection groups = %d", len(localGroups))
+			}
+			localGroup, ok := localGroups[0].ModelGroupDefinition()
+			if !ok {
+				t.Fatal("local projected group has no view")
+			}
+			localSequence, ok := localGroup.Particle().(goxsd9.SequenceParticle)
+			if !ok || len(localSequence.Particles()) != 2 {
+				t.Fatalf("local projection particle = %T", localGroup.Particle())
+			}
+			localChoice, ok := localSequence.Particles()[0].(goxsd9.ChoiceParticle)
+			if !ok || localChoice.Occurrences().String() != "0/unbounded" || len(localChoice.Alternatives()) != 2 || localChoice.Loc() != inlineProbeLoc(t, id, localSource, `<xs:choice minOccurs="0"`) {
+				t.Fatalf("local projection choice = %T", localSequence.Particles()[0])
+			}
+			for index, want := range []struct{ name, typ string }{{"attribute", "integer"}, {"attributeGroup", "token"}} {
+				leaf, leafOK := localChoice.Alternatives()[index].(goxsd9.ElementParticle)
+				if !leafOK || leaf.Name().Local() != want.name || leaf.Name().Namespace() != "" || leaf.DeclaredType().Local() != want.typ || leaf.Loc() != inlineProbeLoc(t, id, localSource, `<xs:element name="`+want.name+`"`) {
+					t.Fatalf("local projection leaf %d = %T", index, localChoice.Alternatives()[index])
+				}
 			}
 			projected := strings.Replace(fragment, `<xs:element name="attribute" type="xs:attribute"/>`, `<xs:element ref="p:attribute"/>`, 1)
 			projected = strings.Replace(projected, `<xs:element name="attributeGroup" type="xs:attributeGroupRef"/>`, `<xs:element ref="p:attributeGroup"/>`, 1)
