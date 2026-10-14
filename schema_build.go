@@ -2354,6 +2354,14 @@ func schemaNamedModelGroupChoiceInput(model *syntaxElement, facts schemaDocument
 		if !ok || child.name.local == "annotation" {
 			continue
 		}
+		if child.name.local == "sequence" {
+			sequence, sequenceErr := schemaNamedModelGroupSequenceTermInput(child, facts, version)
+			if sequenceErr != nil {
+				return nil, sequenceErr
+			}
+			choice.alternatives = append(choice.alternatives, sequence)
+			continue
+		}
 		alternative, err := schemaNamedModelGroupTermInput(child, facts, version, "choice")
 		if err != nil {
 			return nil, err
@@ -2361,6 +2369,30 @@ func schemaNamedModelGroupChoiceInput(model *syntaxElement, facts schemaDocument
 		choice.alternatives = append(choice.alternatives, alternative)
 	}
 	return choice, nil
+}
+
+func schemaNamedModelGroupSequenceTermInput(model *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaSequenceParticleInput, error) {
+	occurrences, err := schemaParticleOccurrenceRange(model, version)
+	if err != nil {
+		return nil, err
+	}
+	sequence := &schemaSequenceParticleInput{
+		loc:         model.loc,
+		occurrences: occurrences,
+		particles:   make([]schemaParticleTermInput, 0),
+	}
+	for _, node := range model.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		particle, err := schemaNamedModelGroupTermInput(child, facts, version, "sequence")
+		if err != nil {
+			return nil, err
+		}
+		sequence.particles = append(sequence.particles, particle)
+	}
+	return sequence, nil
 }
 
 func schemaNamedModelGroupTermInput(child *syntaxElement, facts schemaDocumentFacts, version XSDVersion, model string) (schemaParticleTermInput, error) {
@@ -8209,6 +8241,11 @@ func (resolver *schemaModelGroupResolver) resolveChoice(input *schemaChoiceParti
 			particle, err = resolver.resolveChoiceElement(*typed, owner, seenElements)
 		case *schemaModelGroupReferenceParticleInput:
 			particle, err = resolver.resolveChoiceGroup(typed, owner)
+		case *schemaSequenceParticleInput:
+			if typed == nil {
+				return nil, newSchemaBridgeInvariant(input.loc, "model group choice has a nil sequence input")
+			}
+			particle, err = resolver.resolveSequence(typed, owner)
 		default:
 			return nil, newSchemaBridgeInvariant(input.loc, "model group choice has an unsupported term input")
 		}
