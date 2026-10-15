@@ -62,7 +62,7 @@ Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
 Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
 Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Anonymous global-element `complexContent/extension` over named empty bases (including `anyType` restriction with `##other`/`lax`) admits a ref-only choice and group-then-element-ref nested sequence with exact bounds/order/targets/`Loc`s; the base wildcard persists.
+Anonymous global-element `complexContent/extension` over supported named empty-content bases (`##other`/`lax` `anyType` included) admits ref-only choice, nested sequence with default `1/1` group ref then element ref, or both choice-first; exact bounds/order/targets/`Loc`s persist with inherited wildcard.
 Refs resolve before zero omission. Other owners, broader nesting, direct groups, wildcards, locals, and combined attributes stay unsupported.
 Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
