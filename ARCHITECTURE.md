@@ -77,7 +77,7 @@ Strict10, true/1, refs, and other owners reject.
 Named empty/choice/sequence/grouped/extension owners query facet-free `xs:ID`
 (Strict10: one), built-in/named `xs:NCName` and `xs:normalizedString` locals.
 Inline/ref/value forms and consumers reject. Named empty owners additionally
-query built-in `xs:language` locals; restrictions, refs, values, other owners,
+query built-in `xs:language`/`xs:anyURI` locals; restrictions, refs, values, other owners,
 and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.

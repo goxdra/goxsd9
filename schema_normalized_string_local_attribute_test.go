@@ -233,11 +233,12 @@ func TestNormalizedStringLocalAttributeExcludedFormsAcrossNamedOwners(t *testing
 	}
 }
 
-func TestNormalizedStringLocalAttributeDoesNotAdmitOtherStringKinds(t *testing.T) {
+//nolint:gocognit // Each excluded built-in and named type retains its own public diagnostic.
+func TestNormalizedStringLocalAttributeExcludesUnsupportedOtherStringKinds(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		for _, kind := range []string{"string", "token", "NMTOKEN", "language", "anyURI", "QName"} {
 			for _, named := range []bool{false, true} {
-				if kind == "language" && !named {
+				if (kind == "language" || kind == "anyURI") && !named {
 					continue
 				}
 				name := "built-in"
