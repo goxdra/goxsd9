@@ -354,6 +354,10 @@
 // as ordered query-only AttributeUse facts under every language policy. Named
 // and inline restrictions of those types, attribute refs, local default/fixed values,
 // other owner shapes, validation, and generation remain unsupported.
+// Named empty owners also admit built-in and named effective atomic xs:token
+// and xs:NMTOKEN local declarations, retaining copied whitespace and
+// enumeration facts. Inline/list/union types, refs, values, other owners, and
+// consumers remain unsupported for these uses.
 // A named global complex type with an empty body also admits an effective-empty
 // block under Compatibility, Strict10, and Strict11. An explicit empty or
 // XML-whitespace-only block overrides even blockDefault="#all"; the empty set
