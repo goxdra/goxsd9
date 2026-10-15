@@ -52,9 +52,9 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 
 Bounded empty-base extensions/`xs:anyType` restrictions retain refs, IDs/`Loc`s,
 and `##other`/`lax` wildcards.
-Grouped/sequence extensions admit named/global-element inline owners; inline owners retain anonymous identity, excluding ID/inheritable/list/union uses.
-SimpleContent retains base/type/use `Loc`s, nil particle; Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
-Named attribute-free owners query built-in or supported named effective atomic `xs:token` bases (query-only).
+Grouped/sequence extensions admit named/global-element inline owners; anonymous identity persists, excluding ID/inheritable/list/union uses.
+SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
+Named attribute-free owners query built-in/supported named effective atomic `xs:token` bases.
 Direct and extension particles model selected integer-family locals; named
 direct models add sign restrictions. Built-in/named integer validates;
 broader derivatives and extensions remain query-only.
@@ -70,7 +70,7 @@ wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
 `0/0` omits; anonymous complex members/consumers reject.
-AttributeUse retains ordered IDs/`Loc`s; extensions resolve models→uses→base.
+AttributeUse retains ordered IDs/`Loc`s; grouped/sequence complexContent extensions resolve models→uses→base.
 `0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
 Named empty/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;
 Strict10, true/1, refs, and other owners reject.
