@@ -303,34 +303,106 @@ func inlineSequenceAssertFailure(t *testing.T, id, source string, policy goxsd9.
 	}
 }
 
-func TestPinnedXSD10InlineSequenceOccurrenceAndCompositionGates(t *testing.T) {
+func TestPinnedXSD10InlineSequenceProjection(t *testing.T) {
 	parts := pinnedXSD10InlineSequenceParts(t)
 	edition := inlineProbeEditions[0]
 	start, end := inlineProbeAnonymousOwner("xs:openAttrs")
 	simpleTarget := `<xs:group name="schemaTop"><xs:sequence/></xs:group>`
 	actualTarget := parts.schemaTop + parts.redefinable
 	for _, check := range []struct {
-		name, term, target, marker string
-		policy                     goxsd9.LanguagePolicy
-		spec                       string
+		name, term, target string
+		policy             goxsd9.LanguagePolicy
 	}{
-		{"simple-strict10", parts.sequence, simpleTarget, `minOccurs="0"`, goxsd9.Strict10, "xsd10-structures#cos-particle-extend"},
-		{"simple-compatibility", parts.sequence, simpleTarget, `minOccurs="0"`, goxsd9.Compatibility, "xsd11-structures#cos-particle-extend"},
-		{"actual-strict10", parts.sequence, actualTarget, `minOccurs="0"`, goxsd9.Strict10, "xsd10-structures#cos-particle-extend"},
-		{"combined-strict10", parts.choice + "\n" + parts.sequence, actualTarget, `minOccurs="0"`, goxsd9.Strict10, "xsd10-structures#cos-particle-extend"},
+		{"simple-strict10", parts.sequence, simpleTarget, goxsd9.Strict10},
+		{"simple-compatibility", parts.sequence, simpleTarget, goxsd9.Compatibility},
+		{"actual-strict10", parts.sequence, actualTarget, goxsd9.Strict10},
+		{"actual-compatibility", parts.sequence, actualTarget, goxsd9.Compatibility},
+		{"combined-strict10", parts.choice + "\n" + parts.sequence, actualTarget, goxsd9.Strict10},
+		{"combined-compatibility", parts.choice + "\n" + parts.sequence, actualTarget, goxsd9.Compatibility},
 	} {
 		t.Run(check.name, func(t *testing.T) {
 			id := "xsd10-inline-sequence-" + check.name
 			source := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, check.term, end, check.target+inlineSequenceStubElements())
-			inlineSequenceAssertFailure(t, id, source, check.policy, check.marker,
-				goxsd9.FailureUnsupported, goxsd9.UnsupportedSchemaSyntaxCode, goxsd9.FeatureSchemaSyntax,
-				check.spec, "", nil)
+			inlineSequenceAssertNestedProjection(t, id, source, check.policy, strings.HasPrefix(check.name, "combined"))
 		})
 	}
 	baseline := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, parts.choice, end,
 		`<xs:element name="include" type="xs:integer"/><xs:element name="import" type="xs:integer"/>`+
 			`<xs:element name="redefine" type="xs:integer"/><xs:element name="annotation" type="xs:integer"/>`)
 	inlineProbeAssertNestedChoice(t, "xsd10-inline-sequence-choice-baseline", baseline, goxsd9.Strict10)
+}
+
+func inlineSequenceAssertNestedProjection(t *testing.T, id, source string, policy goxsd9.LanguagePolicy, combined bool) { //nolint:gocognit // One public view checks copied owner, ordered refs, and isolation.
+	t.Helper()
+	schema, err := inlineProbeParse(t, id, source, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := inlineSequenceFindElement(t, schema, "schema")
+	inline, ok := owner.InlineComplexType()
+	if !ok || !inline.ID().IsZero() || inline.Name() != (goxsd9.QName{}) ||
+		inline.Derivation() != goxsd9.ComplexTypeDerivationExtension ||
+		inline.Loc() != inlineProbeLoc(t, id, source, `<xs:complexType><xs:complexContent>`) ||
+		inline.BaseLoc() != inlineProbeLoc(t, id, source, `base="xs:openAttrs"`) {
+		t.Fatalf("anonymous owner = %v/%t", inline, ok)
+	}
+	wildcard, ok := inline.AnyAttribute()
+	if !ok || wildcard.Namespace() != "##other" || wildcard.ProcessContents() != "lax" ||
+		wildcard.Loc() != inlineProbeLoc(t, id, source, `<xs:anyAttribute`) {
+		t.Fatalf("inherited wildcard = %v/%t", wildcard, ok)
+	}
+	outer, ok := inline.Particle().(goxsd9.SequenceParticle)
+	if !ok || outer.Occurrences().String() != "1/1" || outer.Loc() != inlineProbeLoc(t, id, source, `<xs:sequence>`) {
+		t.Fatalf("outer particle = %T", inline.Particle())
+	}
+	terms := outer.Particles()
+	wantTerms := 1
+	if combined {
+		wantTerms = 2
+	}
+	if len(terms) != wantTerms {
+		t.Fatalf("outer terms = %d, want %d", len(terms), wantTerms)
+	}
+	if combined {
+		choice, choiceOK := terms[0].(goxsd9.ChoiceParticle)
+		if !choiceOK || choice.Occurrences().String() != "0/unbounded" || len(choice.Alternatives()) != 4 {
+			t.Fatalf("preceding choice = %T", terms[0])
+		}
+		for index, name := range []string{"include", "import", "redefine", "annotation"} {
+			inlineSequenceAssertElementRef(t, choice.Alternatives()[index], schema, id, source, name)
+		}
+	}
+	nested, ok := terms[wantTerms-1].(goxsd9.SequenceParticle)
+	anchor := `<xs:sequence minOccurs="0" maxOccurs="unbounded">`
+	if !ok || nested.Loc() != inlineSequenceLocAfter(t, id, source, anchor, anchor) ||
+		nested.Occurrences().String() != "0/unbounded" || len(nested.Particles()) != 2 {
+		t.Fatalf("nested sequence = %T", terms[wantTerms-1])
+	}
+	group, ok := nested.Particles()[0].(goxsd9.ModelGroupReferenceParticle)
+	target := inlineSequenceFindGroup(t, schema, "schemaTop")
+	if !ok || group.Ref() != target.Name() || group.TargetID() != target.ID() ||
+		group.Loc() != inlineSequenceLocAfter(t, id, source, anchor, `<xs:group ref="xs:schemaTop"`) ||
+		group.RefLoc() != inlineSequenceLocAfter(t, id, source, anchor, `ref="xs:schemaTop"`) ||
+		group.Occurrences().String() != "1/1" {
+		t.Fatalf("nested group = %T", nested.Particles()[0])
+	}
+	annotation, ok := nested.Particles()[1].(goxsd9.ElementReferenceParticle)
+	annotationTarget := inlineSequenceFindElement(t, schema, "annotation")
+	if !ok || annotation.Ref() != annotationTarget.Name() || annotation.TargetID() != annotationTarget.ID() ||
+		annotation.Loc() != inlineSequenceLocAfter(t, id, source, anchor, `<xs:element ref="xs:annotation"`) ||
+		annotation.RefLoc() != inlineSequenceLocAfter(t, id, source, anchor, `ref="xs:annotation"`) ||
+		annotation.Occurrences().String() != "0/unbounded" {
+		t.Fatalf("nested annotation = %T", nested.Particles()[1])
+	}
+	terms[wantTerms-1] = nil
+	if outer.Particles()[wantTerms-1] == nil {
+		t.Fatal("outer terms exposed backing slice")
+	}
+	nestedTerms := nested.Particles()
+	nestedTerms[0] = nil
+	if nested.Particles()[0] == nil {
+		t.Fatal("nested terms exposed backing slice")
+	}
 }
 
 func TestPinnedXSD10InlineSequenceOwnerAndGroupUseGates(t *testing.T) {
@@ -367,8 +439,6 @@ func TestPinnedXSD10InlineSequenceAlternateExits(t *testing.T) {
 		feature                               goxsd9.FeatureID
 		related                               []string
 	}{
-		{"zero-range", strings.Replace(parts.sequence, `maxOccurs="unbounded"`, `maxOccurs="0"`, 1), `minOccurs="0"`, goxsd9.UnsupportedSchemaSyntaxCode, "xsd10-structures#cos-particle-extend", "", goxsd9.FailureUnsupported, goxsd9.FeatureSchemaSyntax, nil},
-		{"default-range", strings.Replace(parts.sequence, ` minOccurs="0" maxOccurs="unbounded"`, "", 1), `ref="xs:schemaTop"`, goxsd9.UnsupportedSchemaSyntaxCode, "xsd10-structures#cos-particle-extend", "", goxsd9.FailureUnsupported, goxsd9.FeatureSchemaSyntax, nil},
 		{"negative-minimum", strings.Replace(parts.sequence, `minOccurs="0"`, `minOccurs="-1"`, 1), `minOccurs="-1"`, "XSD3010", "xsd10-datatypes#nonNegativeInteger", "particle occurrence is negative", goxsd9.FailureInvalid, "", nil},
 		{"malformed-minimum", strings.Replace(parts.sequence, `minOccurs="0"`, `minOccurs="bad"`, 1), `minOccurs="bad"`, "XSD3010", "xsd10-datatypes#nonNegativeInteger", "XSD2001: invalid xs:integer lexical representation", goxsd9.FailureInvalid, "", nil},
 		{"reversed-range", strings.Replace(parts.sequence, `minOccurs="0" maxOccurs="unbounded"`, `minOccurs="2" maxOccurs="1"`, 1), `<xs:sequence minOccurs="2"`, "XSD3010", "xsd10-structures#coss-particle", "particle minimum occurrence exceeds maximum occurrence", goxsd9.FailureInvalid, "", []string{`minOccurs="2"`, `maxOccurs="1"`}},

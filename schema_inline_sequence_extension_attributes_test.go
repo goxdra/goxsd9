@@ -337,7 +337,7 @@ func TestInlineSequenceExtensionExcludedShapes(t *testing.T) {
 			{"named ID", ``, `<xs:attribute name="id" type="t:NamedID"/>`, `type="t:NamedID"`, schemaAttributeTypeSpecRef(version), errSchemaAttributeUseUnsupported},
 			{"inline ID", ``, `<xs:attribute name="id"><xs:simpleType><xs:restriction base="xs:ID"/></xs:simpleType></xs:attribute>`, `<xs:simpleType>`, schemaAttributeTypeSpecRef(version), errSchemaAttributeUseUnsupported},
 			{"ID reference", ``, `<xs:attribute ref="t:globalID" use="prohibited"/>`, `ref="t:globalID"`, schemaAttributeUseSpecRef(version), errSchemaAttributeReferenceUnsupported},
-			{"nested model", `<xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence>`, `<xs:attribute name="flag" type="xs:boolean"/>`, `<xs:sequence><xs:element`, schemaComplexParticleExtensionSpecRef(version), ErrUnsupported},
+			{"nested model", `<xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence>`, `<xs:attribute name="flag" type="xs:boolean"/>`, `<xs:element name="v"`, schemaComplexParticleExtensionSpecRef(version), ErrUnsupported},
 			{"direct anyAttribute", ``, `<xs:attribute name="flag" type="xs:boolean"/><xs:anyAttribute namespace="##other" processContents="lax"/>`, `<xs:anyAttribute`, schemaComplexTypeExtensionSpecRef(version), ErrUnsupported},
 		} {
 			t.Run(string(policy)+"/"+tc.name, func(t *testing.T) {
