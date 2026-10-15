@@ -358,6 +358,9 @@
 // and xs:NMTOKEN local declarations, retaining copied whitespace and
 // enumeration facts. Inline/list/union types, refs, values, other owners, and
 // consumers remain unsupported for these uses.
+// Named empty owners also admit built-in and named effective atomic xs:long
+// local declarations with copied exact bounds and type provenance under every
+// policy. Inline varieties, refs, values, other owners, and consumers reject.
 // A named global complex type with an empty body also admits an effective-empty
 // block under Compatibility, Strict10, and Strict11. An explicit empty or
 // XML-whitespace-only block overrides even blockDefault="#all"; the empty set
