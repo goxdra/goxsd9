@@ -20,7 +20,7 @@ func languageUseVersion(policy LanguagePolicy) XSDVersion {
 	return XSDVersion11
 }
 
-//nolint:gocognit // Check the complete public attribute-use view for every policy.
+//nolint:dupl,gocognit // Parallel built-in categories need independent public fact checks.
 func TestLanguageLocalAttributeNamedEmptyFactsAcrossPolicies(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		t.Run(string(policy), func(t *testing.T) {
@@ -161,7 +161,7 @@ func TestLanguageLocalAttributeGraphProvenanceAndWalks(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Test the excluded direct, named, inline, ref, value, and owner forms separately.
+//nolint:dupl,gocognit // Parallel built-in categories need independent excluded-shape checks.
 func TestLanguageLocalAttributeExclusionsRemainLocated(t *testing.T) {
 	cases := []struct {
 		name, body, extra, marker, related string
@@ -227,7 +227,7 @@ func TestLanguageLocalAttributeInvalidCompositionAndAdjacentType(t *testing.T) {
 		{"missing name and ref", `<xs:attribute type="xs:language"/>`, `<xs:attribute type=`, FailureInvalid, invalidSchemaCompositionCode, "use", nil},
 		{"both name and ref", `<xs:attribute name="a" ref="r:b" type="xs:language"/>`, `ref="r:b"`, FailureInvalid, invalidSchemaCompositionCode, "use", nil},
 		{"type and inline", `<xs:attribute name="a" type="xs:language"><xs:simpleType><xs:restriction base="xs:language"/></xs:simpleType></xs:attribute>`, `<xs:simpleType`, FailureInvalid, invalidSchemaCompositionCode, "use", nil},
-		{"adjacent built-in anyURI", `<xs:attribute name="a" type="xs:anyURI"/>`, `type="xs:anyURI"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, "type", errSchemaAttributeUseUnsupported},
+		{"adjacent built-in QName", `<xs:attribute name="a" type="xs:QName"/>`, `type="xs:QName"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, "type", errSchemaAttributeUseUnsupported},
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, test := range cases {
@@ -257,6 +257,7 @@ func TestLanguageLocalAttributeInvalidCompositionAndAdjacentType(t *testing.T) {
 	}
 }
 
+//nolint:dupl // The language graph exit must preserve its own resolver cause and location.
 func TestLanguageLocalAttributeGraphAcquisitionRetainsCause(t *testing.T) {
 	root := languageUseRoot(`<xs:include schemaLocation="missing.xsd"/><xs:complexType name="Record"><xs:attribute name="a" type="xs:language"/></xs:complexType>`)
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {

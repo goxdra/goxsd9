@@ -350,9 +350,9 @@
 // Named complex owners with empty, direct choice, direct sequence, grouped
 // extension, or direct-sequence extension bodies admit built-in or facet-free
 // named effective xs:ID local uses for queries.
-// Named empty complex owners also admit built-in xs:language local declarations
+// Named empty complex owners also admit built-in xs:language and xs:anyURI local declarations
 // as ordered query-only AttributeUse facts under every language policy. Named
-// and inline language restrictions, attribute refs, local default/fixed values,
+// and inline restrictions of those types, attribute refs, local default/fixed values,
 // other owner shapes, validation, and generation remain unsupported.
 // A named global complex type with an empty body also admits an effective-empty
 // block under Compatibility, Strict10, and Strict11. An explicit empty or

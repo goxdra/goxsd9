@@ -9,8 +9,8 @@ located diagnostics without partial output.
 Resolvers receive namespace URNs and lexical locations; library opens no
 resources. `ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects policy. Queries/walks are deterministic.
-Identity constraints retain ordered XPath/namespaces/targets; consumers reject.
-Named empty owners query `xs:language`; consumers reject. Named owners query NCName/`xs:normalizedString` facets; global inline NCName
+Identity constraints retain XPath/namespaces/targets; consumers reject.
+Named empty owners query `xs:language`/`xs:anyURI` locals; consumers reject. Named owners query NCName/`xs:normalizedString` facets; global inline NCName
 enumerations query. Enumerated list/union members and consumers reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
