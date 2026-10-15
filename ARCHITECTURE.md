@@ -52,9 +52,9 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 
 Bounded empty-base extensions/`xs:anyType` restrictions retain refs, IDs/`Loc`s,
 and `##other`/`lax` wildcards.
-Grouped/sequence extension uses admit named/global-element inline owners; inline owners retain anonymous identity and exclude ID, inheritable, list/union uses.
-SimpleContent retains base/type/use `Loc`s, nil particle.
-Bases: Boolean/string/integer/decimal, policy-gated `precisionDecimal`, named attribute-free `xs:token` (query-only).
+Grouped/sequence extensions admit named/global-element inline owners; inline owners retain anonymous identity, excluding ID/inheritable/list/union uses.
+SimpleContent retains base/type/use `Loc`s, nil particle; Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
+Named attribute-free owners query built-in or supported named effective atomic `xs:token` bases (query-only).
 Direct and extension particles model selected integer-family locals; named
 direct models add sign restrictions. Built-in/named integer validates;
 broader derivatives and extensions remain query-only.
@@ -63,7 +63,7 @@ Named direct choice/sequence and named-group sequence/nested-choice locals map m
 Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
 Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
 Anonymous global-element `complexContent/extension` over supported named empty-content bases (`##other`/`lax` `anyType` included) admits ref-only choice, nested sequence with default `1/1` group ref then element ref, or both choice-first; exact bounds/order/targets/`Loc`s persist with inherited wildcard.
-Refs resolve before zero omission. Other owners, broader nesting, direct groups, wildcards, locals, and combined attributes stay unsupported.
+Other owners, broader nesting, direct groups, wildcards, locals, and combined attributes stay unsupported.
 Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.

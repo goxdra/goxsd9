@@ -111,13 +111,8 @@
 // Supported local choice/sequence elements may retain a TypeID for a named
 // scalar simpleContent complex type, with exact occurrences and no particle on
 // the target type.
-// That target keeps its ordered attribute uses; string/Boolean/integer/decimal
-// bases work under every policy, while precisionDecimal requires Compatibility
-// or Strict11. Unsupported bases or attribute forms fail schema construction.
-// Named attribute-free simpleContent extensions also query built-in or named
-// effective atomic xs:token with copied facets and resolved base identity;
-// ValidateInstance and GenerateGo reject those token extensions.
-// Bounded attribute sequences validate named targets with selected local
+// That target keeps its ordered attribute uses. Bounded attribute sequences
+// validate named targets with selected local
 // precisionDecimal uses or precisionDecimal simpleContent without uses; a string
 // simpleContent base must be built-in. Generation rejects them. The model
 // exposes local inline anonymous atomic
@@ -395,10 +390,12 @@
 // schema-syntax FailureUnsupported/ErrUnsupported at RefLoc, relates its target declaration, and
 // returns no partial schema; unresolved, wrong-kind, ambiguous, and inaccessible
 // references remain invalid, preserving primary ref/type/base Locs and related
-// candidate/target locations. SimpleContent restrictions remain unsupported; a
-// bounded scalar simpleContent extension separately
-// admits Boolean/string/integer/decimal bases plus policy-gated precisionDecimal,
-// retaining base, type, and ordered-use locations with a nil particle. Local
+// candidate/target locations. SimpleContent restrictions remain unsupported.
+// Supported scalar extensions retain base, type, and ordered-use locations with
+// a nil particle. Boolean/string/integer/decimal bases work under every policy;
+// precisionDecimal requires Compatibility/Strict11. Named attribute-free owners
+// also query built-in or supported named effective atomic xs:token with copied
+// facets and base identity; ValidateInstance and GenerateGo reject token uses. Local
 // value/default/fixed semantics and attributeGroup expansion remain unsupported.
 // Compatibility/Strict11 admit inheritable=false/0 as omission on named local
 // declarations in direct named empty/choice/sequence/group complex types and
