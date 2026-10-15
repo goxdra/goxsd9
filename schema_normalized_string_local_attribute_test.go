@@ -237,6 +237,9 @@ func TestNormalizedStringLocalAttributeDoesNotAdmitOtherStringKinds(t *testing.T
 	for _, profile := range tokenPolicyProfiles() {
 		for _, kind := range []string{"string", "token", "NMTOKEN", "language", "anyURI", "QName"} {
 			for _, named := range []bool{false, true} {
+				if kind == "language" && !named {
+					continue
+				}
 				name := "built-in"
 				typeName := "xs:" + kind
 				extra := ""
@@ -479,11 +482,11 @@ func TestNormalizedStringLocalAttributeMalformedUses(t *testing.T) {
 			name, use, extra, primary, code, related, spec string
 			cause                                          error
 		}{
-			{"bad name", `<xs:attribute name="a:b" type="xs:normalizedString"/>`, "", `name="a:b"`, invalidSchemaCompositionCode, "", "", nil},
-			{"bad use", `<xs:attribute name="a" type="xs:normalizedString" use="sometimes"/>`, "", `use="sometimes"`, invalidSchemaCompositionCode, "", "", nil},
-			{"bad form", `<xs:attribute name="a" type="xs:normalizedString" form="local"/>`, "", `form="local"`, invalidSchemaCompositionCode, "", "", nil},
-			{"name and ref", `<xs:attribute name="a" ref="t:global" type="xs:normalizedString"/>`, `<xs:attribute name="global" type="xs:normalizedString"/>`, `ref="t:global"`, invalidSchemaCompositionCode, "", "", nil},
-			{"type and inline", `<xs:attribute name="a" type="xs:normalizedString"><xs:simpleType><xs:restriction base="xs:normalizedString"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, invalidSchemaCompositionCode, "", "", nil},
+			{"bad name", `<xs:attribute name="a:b" type="xs:normalizedString"/>`, "", `name="a:b"`, invalidSchemaCompositionCode, "", schemaAttributeUseSpecRef(profile.version), nil},
+			{"bad use", `<xs:attribute name="a" type="xs:normalizedString" use="sometimes"/>`, "", `use="sometimes"`, invalidSchemaCompositionCode, "", schemaAttributeUseSpecRef(profile.version), nil},
+			{"bad form", `<xs:attribute name="a" type="xs:normalizedString" form="local"/>`, "", `form="local"`, invalidSchemaCompositionCode, "", schemaAttributeUseSpecRef(profile.version), nil},
+			{"name and ref", `<xs:attribute name="a" ref="t:global" type="xs:normalizedString"/>`, `<xs:attribute name="global" type="xs:normalizedString"/>`, `ref="t:global"`, invalidSchemaCompositionCode, "", schemaAttributeUseSpecRef(profile.version), nil},
+			{"type and inline", `<xs:attribute name="a" type="xs:normalizedString"><xs:simpleType><xs:restriction base="xs:normalizedString"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, invalidSchemaCompositionCode, "", schemaAttributeUseSpecRef(profile.version), nil},
 			{"duplicate", `<xs:attribute name="a" type="xs:normalizedString"/><xs:attribute name="a" type="t:N"/>`, `<xs:simpleType name="N"><xs:restriction base="xs:normalizedString"/></xs:simpleType>`, `<xs:attribute name="a" type="t:N"`, diagnosticSchemaAttributeUseDuplicateCode, `<xs:attribute name="a"`, schemaAttributeUseSpecRef(profile.version), errSchemaAttributeUseDuplicate},
 		} {
 			t.Run(profile.name+"/"+malformed.name, func(t *testing.T) {
