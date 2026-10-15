@@ -2771,7 +2771,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			attributesSeen = true
 			childErr := validateAttributeGroupReference(child)
 			if child.name.local == "attribute" {
-				childErr = validateLocalAttribute(child, version, directNamedComplexAttributeOwner(parent))
+				childErr = schemaInvalidWithSpecRef(validateLocalAttribute(child, version, directNamedComplexAttributeOwner(parent)), schemaAttributeUseSpecRef(version))
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr

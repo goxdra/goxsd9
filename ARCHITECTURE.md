@@ -50,8 +50,8 @@ constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
-Bounded extensions over named empty bases and `xs:anyType` restrictions
-retain refs, base IDs/`Loc`s, and `##other`/`lax` wildcards.
+Bounded empty-base extensions/`xs:anyType` restrictions retain refs, IDs/`Loc`s,
+and `##other`/`lax` wildcards.
 Grouped/sequence extension uses admit named/global-element inline owners; inline owners retain anonymous identity and exclude ID, inheritable, list/union uses.
 SimpleContent retains base/type/use
 `Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
@@ -70,12 +70,15 @@ wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
 `0/0` omits; anonymous complex members/consumers reject.
-AttributeUse retains order, IDs, `Loc`s; grouped: group→uses→base; sequence extension: children→uses→base.
+AttributeUse retains ordered IDs/`Loc`s; extensions resolve models→uses→base.
 `0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
 Named empty/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;
 Strict10, true/1, refs, and other owners reject.
-Named empty, choice/sequence, grouped, and sequence extension owners query facet-free `xs:ID` (Strict10: one), built-in/named `xs:NCName`, and `xs:normalizedString` locals with copied effective facets.
-Inline/ref/value forms and consumers reject.
+Named empty/choice/sequence/grouped/extension owners query facet-free `xs:ID`
+(Strict10: one), built-in/named `xs:NCName` and `xs:normalizedString` locals.
+Inline/ref/value forms and consumers reject. Named empty owners additionally
+query built-in `xs:language` locals; restrictions, refs, values, other owners,
+and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

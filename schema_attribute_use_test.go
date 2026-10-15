@@ -1008,15 +1008,6 @@ func TestSchemaBridgeRejectsUnsupportedAndInvalidAttributeUses(t *testing.T) {
 			locMarker: `type="xs:string"`,
 		},
 		{
-			name:      "identity-only local type is unsupported",
-			body:      `<xs:attribute name="lang" type="xs:language"/>`,
-			policy:    Strict11,
-			class:     FailureUnsupported,
-			code:      UnsupportedSchemaSyntaxCode,
-			cause:     errSchemaAttributeUseUnsupported,
-			locMarker: `type="xs:language"`,
-		},
-		{
 			name:      "duplicate expanded names",
 			body:      `<xs:attribute name="item" type="xs:integer"/><xs:attribute name="item" type="xs:decimal"/>`,
 			policy:    Strict10,

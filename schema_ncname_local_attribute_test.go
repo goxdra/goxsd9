@@ -331,10 +331,10 @@ func TestNCNameLocalAttributeMalformedUsesAndDuplicatesStayLocated(t *testing.T)
 			cause                            error
 			spec                             string
 		}{
-			{"bad name", `<xs:attribute name="a:b" type="xs:NCName"/>`, "", `name="a:b"`, invalidSchemaCompositionCode, nil, ""},
-			{"bad use", `<xs:attribute name="a" type="xs:NCName" use="sometimes"/>`, "", `use="sometimes"`, invalidSchemaCompositionCode, nil, ""},
-			{"name and ref", `<xs:attribute name="a" ref="t:global" type="xs:NCName"/>`, `<xs:attribute name="global" type="xs:NCName"/>`, `ref="t:global"`, invalidSchemaCompositionCode, nil, ""},
-			{"type and inline", `<xs:attribute name="a" type="xs:NCName"><xs:simpleType><xs:restriction base="xs:NCName"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, invalidSchemaCompositionCode, nil, ""},
+			{"bad name", `<xs:attribute name="a:b" type="xs:NCName"/>`, "", `name="a:b"`, invalidSchemaCompositionCode, nil, schemaAttributeUseSpecRef(profile.version)},
+			{"bad use", `<xs:attribute name="a" type="xs:NCName" use="sometimes"/>`, "", `use="sometimes"`, invalidSchemaCompositionCode, nil, schemaAttributeUseSpecRef(profile.version)},
+			{"name and ref", `<xs:attribute name="a" ref="t:global" type="xs:NCName"/>`, `<xs:attribute name="global" type="xs:NCName"/>`, `ref="t:global"`, invalidSchemaCompositionCode, nil, schemaAttributeUseSpecRef(profile.version)},
+			{"type and inline", `<xs:attribute name="a" type="xs:NCName"><xs:simpleType><xs:restriction base="xs:NCName"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, invalidSchemaCompositionCode, nil, schemaAttributeUseSpecRef(profile.version)},
 			{"duplicate name", `<xs:attribute name="a" type="xs:NCName"/><xs:attribute name="a" type="t:N"/>`, `<xs:simpleType name="N"><xs:restriction base="xs:NCName"/></xs:simpleType>`, `<xs:attribute name="a" type="t:N"`, diagnosticSchemaAttributeUseDuplicateCode, errSchemaAttributeUseDuplicate, schemaAttributeUseSpecRef(profile.version)},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {

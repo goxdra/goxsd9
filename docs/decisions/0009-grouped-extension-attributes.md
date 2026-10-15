@@ -92,8 +92,8 @@ Direct-sequence extensions with local uses follow the separate
 
 Simple-type variety and reference identities remain distinct from list/union
 value semantics; named simple-type `final` controls remain enforced.
-`xs:language`, `xs:anyURI`, and `xs:QName` remain outside local attribute
-admission. Named grouped owners admit built-in and named effective atomic
+`xs:language`, `xs:anyURI`, and `xs:QName` remain outside grouped-extension local
+attribute admission. Named grouped owners admit built-in and named effective atomic
 `xs:NCName` declarations with copied enumeration facts. Built-in and named
 `xs:normalizedString` declarations retain effective whitespace and enumeration
 facts on the same named owners; inline, reference, value, and consumer forms

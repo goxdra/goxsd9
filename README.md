@@ -10,7 +10,7 @@ Resolvers receive namespace URNs and lexical locations; library opens no
 resources. `ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects policy. Queries/walks are deterministic.
 Identity constraints retain ordered XPath/namespaces/targets; consumers reject.
-Named owners query NCName/`xs:normalizedString` facets; global inline NCName
+Named empty owners query `xs:language`; consumers reject. Named owners query NCName/`xs:normalizedString` facets; global inline NCName
 enumerations query. Enumerated list/union members and consumers reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
@@ -25,8 +25,8 @@ See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrenc
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
 extension choices are attribute-free.
-Anonymous global-element extensions over supported named empty-content bases query a ref-only choice, nested sequence with default `1/1` group ref then element ref, or both choice-first. Exact bounds, ordered targets, `Loc`s, and inherited wildcard persist; broader nesting, combined attributes, validation, and generation reject.
-Named-group sequences/nested choices query typed atomic integer/string/token locals; consumers and overlaps reject.
+Anonymous global-element extensions over supported named empty-content bases query a ref-only choice, nested sequence with default `1/1` group ref then element ref, or both choice-first. Bounds, order, `Loc`s, and wildcard persist; broader nesting, combined attributes, and consumers reject.
+Named-group sequences/nested choices query atomic integer/string/token locals; consumers reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
