@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -46,13 +47,16 @@ type bootstrapProbeObservation struct {
 }
 
 type bootstrapProbeDiagnostic struct {
-	class   goxsd9.FailureClass
-	code    string
-	feature goxsd9.FeatureID
-	source  goxsd9.SourceID
-	line    int
-	column  int
-	specRef string
+	class     goxsd9.FailureClass
+	code      string
+	feature   goxsd9.FeatureID
+	source    goxsd9.SourceID
+	line      int
+	column    int
+	related   []goxsd9.Loc
+	specRef   string
+	causeType string
+	cause     string
 }
 
 // Rows intentionally follow manifest.BootstrapArtifacts, not the issue's
@@ -150,10 +154,56 @@ func TestBootstrapFirstBlockerMatrix(t *testing.T) {
 		}
 		t.Run(artifact.ID, func(t *testing.T) {
 			actual := observeBootstrapProbe(t, entry, row.policy)
-			if actual != row.expected {
+			if !reflect.DeepEqual(actual, row.expected) {
 				t.Fatalf("artifact %q outcome mismatch: expected=%+v actual=%+v", row.id, row.expected, actual)
 			}
 		})
+	}
+}
+
+func TestBootstrapRawDigestAndManifestConversionStages(t *testing.T) {
+	manifest := readBootstrapProbeManifest(t)
+	for _, artifact := range manifest.BootstrapArtifacts {
+		entry, err := manifest.Find(artifact.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Run(entry.ID, func(t *testing.T) {
+			raw, readErr := bootstrapProbeFixtures.ReadFile("testdata/bootstrap/" + entry.ID + ".raw")
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			t.Run("raw-digest", func(t *testing.T) {
+				assertBootstrapRawDigestStage(t, entry, raw)
+			})
+			t.Run("manifest-conversion", func(t *testing.T) {
+				assertBootstrapManifestConversionStage(t, entry, raw)
+			})
+		})
+	}
+}
+
+func assertBootstrapRawDigestStage(t *testing.T, entry Entry, raw []byte) {
+	t.Helper()
+	if got := testDigest(raw); !strings.EqualFold(got, entry.SHA256) {
+		t.Fatalf("raw SHA-256 = %s, want %s", got, entry.SHA256)
+	}
+}
+
+func assertBootstrapManifestConversionStage(t *testing.T, entry Entry, raw []byte) {
+	t.Helper()
+	converted, err := convert(entry, raw)
+	if err != nil {
+		t.Fatalf("%s conversion: %v", entry.Representation, err)
+	}
+	if err := validateBootstrapXML(entry, converted); err != nil {
+		t.Fatalf("%s converted XML: %v", entry.Representation, err)
+	}
+	if entry.Representation == manifestXMLRepresentation && !bytes.Equal(converted, raw) {
+		t.Fatal("xml representation changed raw bytes")
+	}
+	if entry.Representation == manifestXSD10DatatypesRepresentation && bytes.Equal(converted, raw) {
+		t.Fatal("XSD 1.0 datatype wrapper was not converted")
 	}
 }
 
@@ -232,7 +282,7 @@ func convertBootstrapProbe(t *testing.T, entry Entry, firstRaw, secondRaw []byte
 	}
 	firstObservation := bootstrapProbeConversionObservation(firstErr)
 	secondObservation := bootstrapProbeConversionObservation(secondErr)
-	if firstObservation != secondObservation {
+	if !reflect.DeepEqual(firstObservation, secondObservation) {
 		t.Fatalf("artifact %q conversion failure changed between calls: first=%+v second=%+v", entry.ID, firstObservation, secondObservation)
 	}
 	return nil, firstObservation, true
@@ -250,7 +300,7 @@ func validateBootstrapProbe(t *testing.T, entry Entry, converted []byte) (bootst
 	}
 	firstObservation := bootstrapProbeConversionObservation(firstErr)
 	secondObservation := bootstrapProbeConversionObservation(secondErr)
-	if firstObservation != secondObservation {
+	if !reflect.DeepEqual(firstObservation, secondObservation) {
 		t.Fatalf("artifact %q XML validation failure changed between calls: first=%+v second=%+v", entry.ID, firstObservation, secondObservation)
 	}
 	return firstObservation, true
@@ -264,7 +314,7 @@ func parseBootstrapProbeTwice(t *testing.T, entry Entry, converted []byte, polic
 	assertBootstrapProbeNoPartialSchema(t, entry.ID, secondSchema, secondParseErr)
 	firstObservation := bootstrapProbeParserObservation(firstParseErr)
 	secondObservation := bootstrapProbeParserObservation(secondParseErr)
-	if firstObservation != secondObservation {
+	if !reflect.DeepEqual(firstObservation, secondObservation) {
 		t.Fatalf("artifact %q parser outcome changed between calls: first=%+v second=%+v", entry.ID, firstObservation, secondObservation)
 	}
 	return firstObservation
@@ -288,7 +338,7 @@ func assertBootstrapProbeNoPartialSchema(t *testing.T, id string, schema goxsd9.
 	if err == nil {
 		return
 	}
-	if len(schema.Documents()) != 0 || len(schema.Components()) != 0 {
+	if !reflect.DeepEqual(schema, goxsd9.Schema{}) {
 		t.Fatalf("artifact %q parser returned schema data with error: documents=%d components=%d error=%v", id, len(schema.Documents()), len(schema.Components()), err)
 	}
 }
@@ -335,16 +385,25 @@ func bootstrapProbeParserObservation(err error) bootstrapProbeObservation {
 		return bootstrapProbeObservation{stage: bootstrapProbeParserMissingStage}
 	}
 	loc := diagnostic.Loc()
+	causeType := ""
+	cause := ""
+	if diagnosticCause := errors.Unwrap(diagnostic); diagnosticCause != nil {
+		causeType = fmt.Sprintf("%T", diagnosticCause)
+		cause = diagnosticCause.Error()
+	}
 	return bootstrapProbeObservation{
 		stage: bootstrapProbeParserStage,
 		diagnostic: bootstrapProbeDiagnostic{
-			class:   diagnostic.Class(),
-			code:    diagnostic.Code(),
-			feature: diagnostic.Feature(),
-			source:  loc.Source(),
-			line:    loc.Line(),
-			column:  loc.Column(),
-			specRef: diagnostic.SpecRef(),
+			class:     diagnostic.Class(),
+			code:      diagnostic.Code(),
+			feature:   diagnostic.Feature(),
+			source:    loc.Source(),
+			line:      loc.Line(),
+			column:    loc.Column(),
+			related:   diagnostic.Related(),
+			specRef:   diagnostic.SpecRef(),
+			causeType: causeType,
+			cause:     cause,
 		},
 	}
 }
