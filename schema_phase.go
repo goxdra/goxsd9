@@ -4904,19 +4904,35 @@ func validateInlineExtensionNestedSequence(element *syntaxElement, version XSDVe
 			if position != 2 || len(syntaxAttributesByLocal(child, "ref")) != 1 {
 				candidate.considerAtVersion(child.loc, "inline extension nested sequence requires a second global element reference", version)
 			}
-		case "all":
-			return newSchemaCompositionDiagnostic(child.loc, "sequence cannot contain an all particle")
 		default:
-			if err := validateUnsupportedParticle(child, version); err != nil && !candidate.considerError(err) {
+			if err := validateInlineExtensionNestedSequenceOtherChild(child, version, &candidate); err != nil {
 				return err
 			}
-			candidate.considerAtVersion(child.loc, "inline extension nested sequence permits only a group then element reference", version)
 		}
 	}
 	if position != 2 {
 		candidate.considerAtVersion(element.loc, "inline extension nested sequence requires a group then element reference", version)
 	}
 	return candidate.err()
+}
+
+func validateInlineExtensionNestedSequenceOtherChild(child *syntaxElement, version XSDVersion, candidate *schemaChildUnsupportedCandidate) error {
+	switch child.name.local {
+	case "all":
+		return newSchemaCompositionDiagnostic(child.loc, "sequence cannot contain an all particle")
+	case "choice", "sequence", "any":
+		if err := validateUnsupportedParticle(child, version); err != nil && !candidate.considerError(err) {
+			return err
+		}
+		candidate.considerAtVersion(child.loc, "inline extension nested sequence permits only a group then element reference", version)
+		return nil
+	default:
+		if err := forbiddenGlobalSchemaChild("sequence", child); err != nil {
+			return err
+		}
+		candidate.considerAtVersion(child.loc, fmt.Sprintf("sequence child <%s> is not implemented", child.name.local), version)
+		return nil
+	}
 }
 
 //nolint:gocognit // Keep group particle grammar and support classification together.

@@ -155,6 +155,47 @@ func TestInlineExtensionNestedSequenceExcludedShapes(t *testing.T) { //nolint:go
 	}
 }
 
+func TestInlineExtensionNestedSequenceForbiddenAndUnknownChildren(t *testing.T) { //nolint:gocognit // The scoped child walker must distinguish invalid grammar from unsupported vocabulary before zero omission.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, test := range []struct {
+			name, child, marker string
+			class               FailureClass
+			code, spec          string
+		}{
+			{"attribute", `<xs:attribute name="bad"/>`, `<xs:attribute name="bad"`, FailureInvalid, invalidSchemaCompositionCode, ""},
+			{"complex type", `<xs:complexType/>`, `<xs:complexType/>`, FailureInvalid, invalidSchemaCompositionCode, ""},
+			{"all", `<xs:all/>`, `<xs:all/>`, FailureInvalid, invalidSchemaCompositionCode, ""},
+			{"foreign", `<bad xmlns="urn:foreign"/>`, `<bad xmlns="urn:foreign"`, FailureInvalid, invalidSchemaCompositionCode, ""},
+			{"text", `bad text`, `bad text`, FailureInvalid, invalidSchemaCompositionCode, ""},
+			{"late annotation", `<xs:group ref="t:Target"/><xs:annotation/>`, `<xs:annotation/>`, FailureInvalid, invalidSchemaCompositionCode, ""},
+			{"unknown", `<xs:bogus/>`, `<xs:bogus/>`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaComplexParticleExtensionSpecRef(profile.factVersion)},
+		} {
+			for _, zero := range []bool{false, true} {
+				name := profile.name + "/" + test.name
+				sequence := `<xs:sequence>`
+				if zero {
+					name += "/zero"
+					sequence = `<xs:sequence minOccurs="0" maxOccurs="0">`
+				}
+				t.Run(name, func(t *testing.T) {
+					root := inlineExtensionChoiceSchema(profile.version, sequence+test.child+`</xs:sequence>`, inlineNestedTargets)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					loc := complexContentTestLoc(t, root, test.marker)
+					if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != loc ||
+						diagnostic.SpecRef() != test.spec || len(diagnostic.Related()) != 0 || errors.Unwrap(diagnostic) != nil {
+						t.Fatalf("nested child = %v; want %s at %s, spec %q, no related locations or cause", err, test.code, loc, test.spec)
+					}
+					if (test.class == FailureUnsupported) != errors.Is(err, ErrUnsupported) {
+						t.Fatalf("unsupported classification = %v", err)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestInlineExtensionNestedSequenceOtherOwnersAndCombinedAttributes(t *testing.T) {
 	for _, profile := range nestedGroupChoiceProfiles {
 		for _, test := range []struct{ name, owner, marker string }{
@@ -194,6 +235,7 @@ func TestInlineExtensionNestedSequenceReferenceAndOccurrenceExits(t *testing.T) 
 			{"missing element under zero", `<xs:sequence minOccurs="0" maxOccurs="0"><xs:group ref="t:Target"/><xs:element ref="t:Missing"/></xs:sequence>`, inlineNestedTargets, `ref="t:Missing"`, diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(profile.factVersion), FailureInvalid, errSchemaElementReferenceUnresolved, nil},
 			{"wrong element kind under zero", `<xs:sequence minOccurs="0" maxOccurs="0"><xs:group ref="t:Target"/><xs:element ref="t:Target"/></xs:sequence>`, inlineNestedTargets, `ref="t:Target"`, diagnosticSchemaElementReferenceWrongKindCode, schemaElementReferenceSpecRef(profile.factVersion), FailureInvalid, errSchemaElementReferenceWrongKind, []string{`<xs:group name="Target"`}},
 			{"malformed nested minimum", strings.Replace(inlineNestedSequence, `minOccurs="0"`, `minOccurs="bad"`, 1), inlineNestedTargets, `minOccurs="bad"`, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.factVersion), FailureInvalid, nil, nil},
+			{"malformed minimum before unknown child", `<xs:sequence minOccurs="bad"><xs:bogus/></xs:sequence>`, inlineNestedTargets, `minOccurs="bad"`, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.factVersion), FailureInvalid, nil, nil},
 			{"negative nested minimum", strings.Replace(inlineNestedSequence, `minOccurs="0"`, `minOccurs="-1"`, 1), inlineNestedTargets, `minOccurs="-1"`, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.factVersion), FailureInvalid, errParticleOccurrenceNegative, nil},
 			{"reversed nested range", strings.Replace(inlineNestedSequence, `minOccurs="0" maxOccurs="unbounded"`, `minOccurs="2" maxOccurs="1"`, 1), inlineNestedTargets, `<xs:sequence minOccurs="2"`, invalidSchemaCompositionCode, schemaParticleCorrectSpecRef(profile.factVersion), FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum, []string{`minOccurs="2"`, `maxOccurs="1"`}},
 			{"malformed element maximum", strings.Replace(inlineNestedSequence, `maxOccurs="unbounded"/>`, `maxOccurs="bad"/>`, 1), inlineNestedTargets, `maxOccurs="bad"`, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.factVersion), FailureInvalid, nil, nil},
