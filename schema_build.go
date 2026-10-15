@@ -6894,9 +6894,13 @@ func (resolver *schemaComplexTypeResolver) resolveSimpleContentExtension(body *s
 	if resolveErr := resolver.resolve(targetIndex); resolveErr != nil {
 		return schemaSimpleContentExtension{}, resolveErr
 	}
-	targetBody, ok := resolver.results[targetIndex].body.(*schemaComplexTypeSimpleContentBodyResult)
+	base := resolver.results[targetIndex]
+	targetBody, ok := base.body.(*schemaComplexTypeSimpleContentBodyResult)
 	if !ok || targetBody == nil {
 		return schemaSimpleContentExtension{}, newSchemaBridgeInvariant(body.base.loc, "simple-content base has no completed body")
+	}
+	if finalErr := resolver.rejectExtensionFinal(base, body.base.name, body.base.loc); finalErr != nil {
+		return schemaSimpleContentExtension{}, finalErr
 	}
 	if targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicToken {
 		return schemaSimpleContentExtension{}, err
@@ -7843,18 +7847,25 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 	if err != nil {
 		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, err
 	}
-	if base.final.set&schemaComplexTypeFinalExtension != 0 {
-		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, newSchemaComplexTypeExtensionBaseDiagnostic(
-			input.loc,
-			fmt.Sprintf("complex type extension base %q prohibits extension derivation", reference.name),
-			[]Loc{base.final.loc},
-			resolver.version,
-			fmt.Errorf("%w: extension is prohibited by base final", errSchemaComplexTypeBaseUnsupported),
-		)
+	if finalErr := resolver.rejectExtensionFinal(base, reference.name, input.loc); finalErr != nil {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, finalErr
 	}
 	reference.id = resolver.records[candidate].id
 	reference.hasID = true
 	return reference, inherited, nil
+}
+
+func (resolver *schemaComplexTypeResolver) rejectExtensionFinal(base schemaComplexTypeResult, name QName, loc Loc) error {
+	if base.final.set&schemaComplexTypeFinalExtension == 0 {
+		return nil
+	}
+	return newSchemaComplexTypeExtensionBaseDiagnostic(
+		loc,
+		fmt.Sprintf("complex type extension base %q prohibits extension derivation", name),
+		[]Loc{base.final.loc},
+		resolver.version,
+		fmt.Errorf("%w: extension is prohibited by base final", errSchemaComplexTypeBaseUnsupported),
+	)
 }
 
 func (resolver *schemaComplexTypeResolver) extensionBaseFacts(

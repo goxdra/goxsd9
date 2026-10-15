@@ -405,8 +405,8 @@ func TestTokenSimpleContentComplexBasePropagatesFinal(t *testing.T) {
 					diagnostic := requireDiagnostic(t, err)
 					if profile.policy == Strict10 {
 						want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)
-						related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, `<xs:complexType name="Inner"`)}
-						if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) {
+						related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, test.finalMarker)}
+						if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
 							t.Fatalf("Strict10 complex base diagnostic = %s", diagnostic)
 						}
 						return
@@ -418,6 +418,109 @@ func TestTokenSimpleContentComplexBasePropagatesFinal(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+//nolint:gocognit // The final-policy matrix checks both prohibited and permitted extension exits.
+func TestTokenSimpleContentComplexBaseFinalPolicy(t *testing.T) {
+	outer := tokenSimpleContentNamedOwner("Outer", "t:Inner", "")
+	for _, profile := range tokenSimpleContentPolicies() {
+		for _, test := range []struct {
+			name, rootFinal, innerFinal, finalMarker string
+			prohibited                               bool
+		}{
+			{"explicit extension", "", ` final="extension"`, `final="extension"`, true},
+			{"explicit all", "", ` final="#all"`, `final="#all"`, true},
+			{"default extension", ` finalDefault="extension"`, "", `finalDefault="extension"`, true},
+			{"default all", ` finalDefault="#all"`, "", `finalDefault="#all"`, true},
+			{"explicit empty override", ` finalDefault="extension"`, ` final=""`, "", false},
+			{"restriction override", ` finalDefault="extension"`, ` final="restriction"`, "", false},
+		} {
+			inner := strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:token", ""), `name="Inner"`, `name="Inner"`+test.innerFinal, 1)
+			for _, order := range []struct{ name, declarations string }{
+				{"forward", outer + inner},
+				{"reordered", inner + outer},
+			} {
+				t.Run(profile.name+"/"+test.name+"/"+order.name, func(t *testing.T) {
+					root := strings.Replace(tokenSimpleContentRoot(order.declarations), `targetNamespace="urn:token"`, `targetNamespace="urn:token"`+test.rootFinal, 1)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertZeroSchema(t, schema)
+					if err == nil {
+						t.Fatal("complex simpleContent base returned a schema")
+					}
+					diagnostic := requireDiagnostic(t, err)
+					want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)
+					if test.prohibited {
+						related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, test.finalMarker)}
+						if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+							t.Fatalf("prohibited complex final diagnostic = %s", diagnostic)
+						}
+						return
+					}
+					related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, `<xs:complexType name="Inner"`)}
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+						t.Fatalf("permitted complex final diagnostic = %s", diagnostic)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestTokenSimpleContentComplexBaseFinalDefaultDocument(t *testing.T) {
+	for _, profile := range tokenSimpleContentPolicies() {
+		for _, test := range []struct{ name, link, target, prefix string }{
+			{"include", `<xs:include schemaLocation="inner.xsd"/>`, "urn:token", "t"},
+			{"import", `<xs:import namespace="urn:other" schemaLocation="inner.xsd"/>`, "urn:other", "o"},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := tokenSimpleContentRoot(test.link + tokenSimpleContentNamedOwner("Outer", test.prefix+":Inner", ""))
+				root = strings.Replace(root, `xmlns:t="urn:token"`, `xmlns:t="urn:token" xmlns:o="urn:other"`, 1)
+				inner := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="` + test.target + `" finalDefault="extension">` + tokenSimpleContentNamedOwner("Inner", "xs:token", "") + `</xs:schema>`
+				fixtures := map[string]discoveryFixture{"inner.xsd": {id: "inner.xsd", contents: inner}}
+				schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+				assertZeroSchema(t, schema)
+				if err == nil {
+					t.Fatal("target-document complex final default returned a schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				want := tokenSimpleContentLoc(t, "root.xsd", root, `base="`+test.prefix+`:Inner"`)
+				related := []Loc{tokenSimpleContentLoc(t, "inner.xsd", inner, `finalDefault="extension"`)}
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(profile.version) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+					t.Fatalf("target-document final diagnostic = %s", diagnostic)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Both final and atomic-kind exits require exact diagnostic provenance.
+func TestTokenSimpleContentComplexBaseFinalBeforeAtomicFallback(t *testing.T) {
+	for _, profile := range tokenSimpleContentPolicies() {
+		for _, test := range []struct{ name, final, code, marker string }{
+			{"prohibited", ` final="extension"`, invalidSchemaCompositionCode, `final="extension"`},
+			{"permitted", ` final=""`, diagnosticSchemaSimpleContentBaseWrongKindCode, `<xs:complexType name="Inner"`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				inner := strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:string", ""), `name="Inner"`, `name="Inner"`+test.final, 1)
+				root := tokenSimpleContentRoot(tokenSimpleContentNamedOwner("Outer", "t:Inner", "") + inner)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				if err == nil {
+					t.Fatal("non-token complex base returned a schema")
+				}
+				diagnostic := requireDiagnostic(t, err)
+				want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)
+				related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, test.marker)}
+				cause, spec := errSchemaComplexTypeBaseUnsupported, schemaComplexTypeExtensionSpecRef(profile.version)
+				if test.name == "permitted" {
+					cause, spec = errSchemaSimpleContentBaseWrongKind, schemaSimpleContentSpecRef(profile.version)
+				}
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != spec || !errors.Is(err, cause) {
+					t.Fatalf("non-token final diagnostic = %s", diagnostic)
+				}
+			})
 		}
 	}
 }
