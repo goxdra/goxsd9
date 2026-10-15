@@ -6998,7 +6998,7 @@ func resolveSchemaAttributeUseType(
 	if err := rejectSchemaExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedEmptyLocalLanguageAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalAnyURIAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedEmptyLocalLanguageAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -7167,6 +7167,20 @@ func schemaNamedEmptyLocalAnyURIAttributeTypeSupported(reference schemaSimpleTyp
 		return false
 	}
 	if owner.complexType == nil {
+		return false
+	}
+	_, ok := owner.complexType.body.(*schemaComplexTypeAttributeOnlyBodyInput)
+	return ok
+}
+
+func schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+	if reference.kind != SimpleTypeReferenceBuiltin && reference.kind != SimpleTypeReferenceNamed {
+		return false
+	}
+	if reference.variety != SimpleTypeVarietyAtomicRestriction || (reference.atomicKind != schemaSimpleTypeAtomicToken && reference.atomicKind != schemaSimpleTypeAtomicNMTOKEN) {
+		return false
+	}
+	if _, ok := reference.facets.(schemaStringFacetVariant); !ok || owner.complexType == nil {
 		return false
 	}
 	_, ok := owner.complexType.body.(*schemaComplexTypeAttributeOnlyBodyInput)
