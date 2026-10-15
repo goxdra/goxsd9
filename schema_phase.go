@@ -3100,13 +3100,13 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	var particleUnsupported error
 	groupExtension := false
 	sequenceExtension := false
-	inlineNestedChoice := false
+	inlineNestedTerm := false
 	groupedAttributes := false
 	if complexContent && element.name.local == "extension" {
 		model := schemaComplexTypeModel(element)
 		groupExtension = model != nil && model.name.local == "group"
 		sequenceExtension = model != nil && model.name.local == "sequence"
-		inlineNestedChoice = globalElementInline && sequenceExtension && schemaInlineExtensionSequenceHasChoice(model)
+		inlineNestedTerm = globalElementInline && sequenceExtension && schemaInlineExtensionSequenceHasNestedTerm(model)
 		if groupExtension {
 			for _, child := range children {
 				if child.name.local == "attribute" {
@@ -3220,8 +3220,8 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
 			}
-			if inlineNestedChoice && child.name.local == "attribute" {
-				candidate.considerAtVersion(child.loc, "inline extension nested choice with attributes is not implemented", version)
+			if inlineNestedTerm && child.name.local == "attribute" {
+				candidate.considerAtVersion(child.loc, "inline extension nested term with attributes is not implemented", version)
 			}
 		case "anyAttribute":
 			if anyAttributeSeen || assertSeen {
@@ -3277,13 +3277,13 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	return derivationErr
 }
 
-func schemaInlineExtensionSequenceHasChoice(sequence *syntaxElement) bool {
+func schemaInlineExtensionSequenceHasNestedTerm(sequence *syntaxElement) bool {
 	if sequence == nil {
 		return false
 	}
 	for _, node := range sequence.children {
 		child, ok := node.(*syntaxElement)
-		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == "choice" {
+		if ok && child.name.namespace == xsdNamespaceURI && (child.name.local == "choice" || child.name.local == "sequence") {
 			return true
 		}
 	}
@@ -4020,7 +4020,7 @@ func validateModelParticleChildren(element *syntaxElement, model string, version
 }
 
 //nolint:gocognit,funlen // Keep the supported direct-sequence grammar in the shared traversal.
-func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy, inlineExtensionChoice bool) (schemaChildUnsupportedCandidate, error) {
+func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy, inlineExtensionNested bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
@@ -4030,6 +4030,7 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 	annotationSeen := false
 	contentSeen := false
 	choiceSeen := false
+	sequenceSeen := false
 	for _, node := range element.children {
 		textNode, ok := node.(syntaxText)
 		if ok {
@@ -4063,16 +4064,19 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 				return candidate, err
 			}
 			candidate.merge(localCandidate)
-			if inlineExtensionChoice && len(syntaxAttributesByLocal(child, "ref")) != 1 {
+			if inlineExtensionNested && len(syntaxAttributesByLocal(child, "ref")) != 1 {
 				candidate.considerAtVersion(child.loc, "inline extension nested choice sequence requires global element references", version)
 			}
 		case "choice":
-			if inlineExtensionChoice && model == "sequence" {
+			if inlineExtensionNested && model == "sequence" {
 				if err := stageSchemaCandidateError(&candidate, validateInlineExtensionNestedChoice(child, version)); err != nil {
 					return candidate, err
 				}
 				if choiceSeen {
 					candidate.considerAtVersion(child.loc, "multiple nested choices in an inline extension sequence are not implemented", version)
+				}
+				if sequenceSeen {
+					candidate.considerAtVersion(child.loc, "inline extension nested choice must precede the nested sequence", version)
 				}
 				choiceSeen = true
 				continue
@@ -4082,6 +4086,16 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 			}
 			candidate.considerAt(child.loc, model+" child <choice> is not implemented")
 		case "group", "sequence":
+			if inlineExtensionNested && model == "sequence" && child.name.local == "sequence" {
+				if err := stageSchemaCandidateError(&candidate, validateInlineExtensionNestedSequence(child, version)); err != nil {
+					return candidate, err
+				}
+				if sequenceSeen {
+					candidate.considerAtVersion(child.loc, "multiple nested sequences in an inline extension sequence are not implemented", version)
+				}
+				sequenceSeen = true
+				continue
+			}
 			if err := validateUnsupportedParticle(child, version); err != nil {
 				if !candidate.considerError(err) {
 					return candidate, err
@@ -4098,7 +4112,7 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 						return candidate, err
 					}
 				}
-				if inlineExtensionChoice {
+				if inlineExtensionNested {
 					candidate.considerAtVersion(child.loc, "inline extension nested choice sequence wildcard is not implemented", version)
 				}
 				continue
@@ -4811,7 +4825,7 @@ func validateInlineExtensionSequenceParticle(element *syntaxElement, version XSD
 	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true, schemaInlineExtensionSequenceHasChoice(element))
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true, schemaInlineExtensionSequenceHasNestedTerm(element))
 	if err != nil {
 		return err
 	}
@@ -4833,6 +4847,76 @@ func validateInlineExtensionNestedChoice(element *syntaxElement, version XSDVers
 		}
 	}
 	return nil
+}
+
+func validateInlineExtensionNestedSequence(element *syntaxElement, version XSDVersion) error { //nolint:gocognit // Syntax and scoped group-then-element classification share source order.
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
+		return err
+	}
+	annotationSeen := false
+	contentSeen := false
+	position := 0
+	for _, node := range element.children {
+		if text, ok := node.(syntaxText); ok {
+			if !xmlWhitespace([]byte(text.data)) {
+				return newSchemaCompositionDiagnostic(text.loc, "sequence contains non-whitespace character data")
+			}
+			continue
+		}
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			return newSchemaBridgeInvariant(element.loc, "nested sequence contains an unknown syntax node")
+		}
+		if child.name.namespace != xsdNamespaceURI {
+			return newSchemaCompositionDiagnostic(child.loc, "sequence contains a forbidden non-XSD child")
+		}
+		if child.name.local == "annotation" {
+			if annotationSeen || contentSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "sequence annotation must be first and unique")
+			}
+			annotationSeen = true
+			if err := stageSchemaCandidateError(&candidate, validateSchemaAnnotationElement(child)); err != nil {
+				return err
+			}
+			continue
+		}
+		contentSeen = true
+		position++
+		switch child.name.local {
+		case "group":
+			if err := stageSchemaCandidateError(&candidate, validateGroupParticleWithOptions(child, version, true)); err != nil {
+				return err
+			}
+			groupOccurrences, err := schemaParticleOccurrenceRange(child, version)
+			if err != nil {
+				return err
+			}
+			if position != 1 || !groupOccurrences.isDefault() {
+				candidate.considerAtVersion(child.loc, "inline extension nested sequence requires a first group reference with default occurrences", version)
+			}
+		case "element":
+			local, err := validateLocalElementParticle(child, version, true, "sequence", true, false)
+			if err != nil {
+				return err
+			}
+			candidate.merge(local)
+			if position != 2 || len(syntaxAttributesByLocal(child, "ref")) != 1 {
+				candidate.considerAtVersion(child.loc, "inline extension nested sequence requires a second global element reference", version)
+			}
+		case "all":
+			return newSchemaCompositionDiagnostic(child.loc, "sequence cannot contain an all particle")
+		default:
+			if err := validateUnsupportedParticle(child, version); err != nil && !candidate.considerError(err) {
+				return err
+			}
+			candidate.considerAtVersion(child.loc, "inline extension nested sequence permits only a group then element reference", version)
+		}
+	}
+	if position != 2 {
+		candidate.considerAtVersion(element.loc, "inline extension nested sequence requires a group then element reference", version)
+	}
+	return candidate.err()
 }
 
 //nolint:gocognit // Keep group particle grammar and support classification together.

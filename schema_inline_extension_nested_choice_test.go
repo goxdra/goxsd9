@@ -436,7 +436,7 @@ func TestInlineExtensionChoiceLaterSequenceAndGroupStayExcluded(t *testing.T) {
 	choice := `<xs:choice minOccurs="0" maxOccurs="0"><xs:element ref="t:first"/></xs:choice>`
 	for _, profile := range nestedGroupChoiceProfiles {
 		for _, test := range []struct{ name, later, marker string }{
-			{"later sequence", `<xs:sequence minOccurs="0" maxOccurs="0"><xs:element ref="t:last"/></xs:sequence>`, `minOccurs="0"`},
+			{"later sequence", `<xs:sequence minOccurs="0" maxOccurs="0"><xs:element ref="t:last"/></xs:sequence>`, `<xs:element ref="t:last"`},
 			{"later group", `<xs:group ref="t:Missing" minOccurs="0" maxOccurs="0"/>`, `ref="t:Missing"`},
 			{"sibling local", `<xs:element name="local" type="xs:integer" minOccurs="0" maxOccurs="0"/>`, `<xs:element name="local"`},
 			{"sibling wildcard", `<xs:any namespace="##other" minOccurs="0" maxOccurs="0"/>`, `<xs:any namespace="##other"`},
@@ -448,9 +448,6 @@ func TestInlineExtensionChoiceLaterSequenceAndGroupStayExcluded(t *testing.T) {
 				assertZeroSchema(t, schema)
 				diagnostic := requireDiagnostic(t, err)
 				wantLoc := complexContentTestLoc(t, root, test.marker)
-				if test.name == "later sequence" {
-					wantLoc = namedGroupLastLoc(t, root, test.marker)
-				}
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != schemaComplexParticleExtensionSpecRef(profile.factVersion) || len(diagnostic.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("later %s = %v; related=%v, spec=%q", test.name, err, diagnostic.Related(), diagnostic.SpecRef())
 				}

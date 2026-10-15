@@ -437,11 +437,12 @@
 // sequence may retain one nested choice. A named choice may retain one nested
 // sequence. Both keep supported element and group refs with exact bounds.
 // A global element's anonymous complexContent extension over a supported named
-// base may retain one nested choice of global element refs in its direct
-// sequence. The choice keeps exact occurrences, ordered resolved targets, and
-// source locations; refs and base cycles are checked before 0/0 omission.
-// Nested sequences, groups, wildcards, local declarations, deeper nesting,
-// other owners, and attributes combined with this nested form reject.
+// base may retain one nested choice of global element refs and one nested
+// sequence of a group ref followed by an element ref in its direct sequence.
+// Both keep exact occurrences, ordered resolved targets, and source locations;
+// refs and base cycles are checked before 0/0 omission. Broader nested
+// sequences, direct nested groups, wildcards, local declarations, deeper
+// nesting, other owners, and attributes combined with these forms reject.
 // Validation and generation reject the admitted extension.
 // Named sequences and their one nested choice retain explicitly typed built-in
 // or named atomic integer/string/token local elements with copied type facts,

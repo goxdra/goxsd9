@@ -1983,6 +1983,14 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 					sequence.particles = append(sequence.particles, choice)
 					continue
 				}
+				if child.name.local == "sequence" {
+					nested, nestedErr := schemaInlineExtensionNestedSequenceInput(child, facts, version)
+					if nestedErr != nil {
+						return nil, nestedErr
+					}
+					sequence.particles = append(sequence.particles, nested)
+					continue
+				}
 				input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
 				if particleErr != nil {
 					return nil, particleErr
@@ -2041,6 +2049,44 @@ func schemaInlineExtensionNestedChoiceInput(element *syntaxElement, facts schema
 		choice.alternatives = append(choice.alternatives, alternative)
 	}
 	return choice, nil
+}
+
+func schemaInlineExtensionNestedSequenceInput(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (*schemaSequenceParticleInput, error) { //nolint:gocognit // Preserve the two authored refs in lexical order.
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return nil, err
+	}
+	sequence := &schemaSequenceParticleInput{loc: element.loc, occurrences: occurrences, particles: make([]schemaParticleTermInput, 0, 2)}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		if child.name.local == "group" {
+			groupOccurrences, occurrenceErr := schemaParticleOccurrenceRange(child, version)
+			if occurrenceErr != nil {
+				return nil, occurrenceErr
+			}
+			group, groupErr := schemaModelGroupReferenceParticleInputFromElementWithFacts(child, groupOccurrences, facts)
+			if groupErr != nil {
+				return nil, groupErr
+			}
+			sequence.particles = append(sequence.particles, group)
+			continue
+		}
+		if child.name.local != "element" {
+			return nil, newSchemaBridgeInvariant(child.loc, "admitted inline extension nested sequence has an unexpected child")
+		}
+		reference, referenceErr := schemaElementParticleInputFromElementWithFacts(child, facts, version, true, !occurrences.mapsToParticle())
+		if referenceErr != nil {
+			return nil, referenceErr
+		}
+		if reference.reference == nil {
+			return nil, newSchemaBridgeInvariant(child.loc, "admitted inline extension nested sequence has a non-reference element")
+		}
+		sequence.particles = append(sequence.particles, reference)
+	}
+	return sequence, nil
 }
 
 func schemaGroupedComplexTypeExtensionInput(
@@ -4080,6 +4126,15 @@ func resolveSchemaSimpleTypeInputsInParticleTerms(
 				return newSchemaBridgeInvariant(Loc{}, "simple type resolution has a nil nested choice input")
 			}
 			if err := resolveSchemaSimpleTypeInputsInParticleTerms(choice.alternatives, ownerOmitted || !choice.occurrences.mapsToParticle(), source, resolver, version); err != nil {
+				return err
+			}
+			continue
+		}
+		if sequence, ok := term.(*schemaSequenceParticleInput); ok {
+			if sequence == nil {
+				return newSchemaBridgeInvariant(Loc{}, "simple type resolution has a nil nested sequence input")
+			}
+			if err := resolveSchemaSimpleTypeInputsInParticleTerms(sequence.particles, ownerOmitted || !sequence.occurrences.mapsToParticle(), source, resolver, version); err != nil {
 				return err
 			}
 			continue
@@ -8683,6 +8738,19 @@ func resolveSchemaSequenceParticle(
 			}
 			continue
 		}
+		if nested, ok := termInput.(*schemaSequenceParticleInput); ok {
+			if nested == nil {
+				return nil, newSchemaBridgeInvariant(input.loc, "sequence has a nil nested sequence input")
+			}
+			particle, err := resolveSchemaInlineExtensionNestedSequence(nested, owner, records, byName, visibleSources, simpleTypes, version)
+			if err != nil {
+				return nil, err
+			}
+			if particle != nil {
+				particles = append(particles, particle)
+			}
+			continue
+		}
 		particle, err := resolveSchemaParticleTerm(
 			termInput,
 			owner,
@@ -8713,6 +8781,43 @@ func resolveSchemaSequenceParticle(
 		particles:   particles,
 	}
 	return SequenceParticle{facts: sequence}, nil
+}
+
+func resolveSchemaInlineExtensionNestedSequence(
+	input *schemaSequenceParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes schemaSimpleTypeResolution,
+	version XSDVersion,
+) (Particle, error) {
+	particles := make([]Particle, 0, len(input.particles))
+	for _, term := range input.particles {
+		var particle Particle
+		var err error
+		if group, ok := term.(*schemaModelGroupReferenceParticleInput); ok {
+			particle, err = resolveSchemaModelGroupReferenceParticle(group, owner, records, byName, visibleSources, version)
+			if err != nil {
+				return nil, err
+			}
+			if particle != nil {
+				particles = append(particles, particle)
+			}
+			continue
+		}
+		particle, err = resolveSchemaParticleTerm(term, owner, records, byName, visibleSources, simpleTypes, version, "sequence")
+		if err != nil {
+			return nil, err
+		}
+		if particle != nil {
+			particles = append(particles, particle)
+		}
+	}
+	if !input.occurrences.mapsToParticle() {
+		return nil, nil
+	}
+	return SequenceParticle{facts: &schemaSequenceParticle{loc: input.loc, occurrences: input.occurrences.clone(), particles: particles}}, nil
 }
 
 // resolveSchemaAllParticle resolves every member before omission and publishes one
@@ -8842,6 +8947,11 @@ func schemaParticleTermInputOccurrences(input schemaParticleTermInput) (particle
 	case *schemaWildcardParticleInput:
 		if term == nil {
 			return particleOccurrenceRange{}, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
+		}
+		return term.occurrences, nil
+	case *schemaModelGroupReferenceParticleInput:
+		if term == nil {
+			return particleOccurrenceRange{}, newSchemaBridgeInvariant(Loc{}, "particle term has a nil group reference input")
 		}
 		return term.occurrences, nil
 	default:

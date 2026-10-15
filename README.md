@@ -25,7 +25,7 @@ See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrenc
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
 extension choices are attribute-free.
-A global element's anonymous `complexContent/extension` over a supported named empty-content base queries one ref-only choice in its direct sequence with exact bounds, ordered targets and `Loc`s, and inherited wildcard when present; other nested terms, combined attributes, validation, and generation reject.
+An anonymous global-element extension over a named empty base queries a ref-only choice and group-then-element nested sequence with exact bounds, ordered targets, `Loc`s, and inherited wildcard; other nesting, combined attributes, validation, and generation reject.
 Named-group sequences/nested choices query typed atomic integer/string/token locals; consumers and overlaps reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
