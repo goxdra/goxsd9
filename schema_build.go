@@ -6842,6 +6842,26 @@ func resolveSchemaComplexTypeSimpleContentBody(
 	if err != nil {
 		return nil, err
 	}
+	if extension.typeReference.atomicKind == schemaSimpleTypeAtomicToken {
+		if owner.kind != ComponentKindComplexTypeDefinition || owner.complexType == nil {
+			return nil, unsupportedSchemaSimpleContentBase(
+				body.simpleContentLoc,
+				"token simpleContent requires a named complex type",
+				nil,
+				version,
+				errSchemaSimpleContentBaseUnsupported,
+			)
+		}
+		if len(body.attributeUses) != 0 {
+			return nil, unsupportedSchemaSimpleContentBase(
+				body.attributeUses[0].loc,
+				"token simpleContent attributes are not implemented",
+				nil,
+				version,
+				errSchemaSimpleContentBaseUnsupported,
+			)
+		}
+	}
 	attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, records, byName, visibleSources, simpleTypes, attributes, version)
 	if err != nil {
 		return nil, err
@@ -7332,13 +7352,13 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicNormalizedString,
-		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInt,
 		schemaSimpleTypeAtomicShort,
@@ -7360,6 +7380,7 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 	}
 }
 
+//nolint:gocognit // Keep scalar resolution, final policy, and excluded complex bases at one boundary.
 func resolveSchemaSimpleContentExtension(
 	input *schemaComplexTypeSimpleContentBodyInput,
 	owner schemaComponentRecord,
@@ -7379,6 +7400,21 @@ func resolveSchemaSimpleContentExtension(
 		version,
 	)
 	if err != nil {
+		if errors.Is(err, errSchemaSimpleTypeBaseWrongKind) {
+			related, tokenBase, tokenErr := schemaTokenComplexSimpleContentBase(input.base, owner, records, simpleTypes, version)
+			if tokenErr != nil {
+				return schemaSimpleContentExtension{}, tokenErr
+			}
+			if tokenBase {
+				return schemaSimpleContentExtension{}, unsupportedSchemaSimpleContentBase(
+					input.base.loc,
+					fmt.Sprintf("simpleContent complex base %q is not implemented", input.base.name),
+					related,
+					version,
+					errors.Join(err, errSchemaSimpleContentBaseUnsupported),
+				)
+			}
+		}
 		return schemaSimpleContentExtension{}, reframeSchemaSimpleContentBaseError(
 			err,
 			input.base,
@@ -7394,6 +7430,18 @@ func resolveSchemaSimpleContentExtension(
 			fmt.Errorf("%w: %q", errSchemaSimpleContentBaseUnsupported, input.base.name),
 		)
 	}
+	if base.atomicKind == schemaSimpleTypeAtomicToken {
+		finalErr := simpleTypes.resolver.rejectSchemaSimpleTypeFinal(base, schemaSimpleTypeFinalExtension, "simpleContent extension base", input.base.loc, version)
+		if finalErr != nil {
+			var diagnostic Diagnostic
+			if !errors.As(finalErr, &diagnostic) {
+				return schemaSimpleContentExtension{}, finalErr
+			}
+			return schemaSimpleContentExtension{}, newSchemaSimpleContentBaseDiagnostic(
+				diagnostic.Code(), input.base.loc, diagnostic.Message(), diagnostic.Related(), version, finalErr,
+			)
+		}
+	}
 	extension := schemaSimpleContentExtension{
 		base:             input.base.name,
 		baseLoc:          input.base.loc,
@@ -7408,6 +7456,44 @@ func resolveSchemaSimpleContentExtension(
 		extension.hasTypeID = true
 	}
 	return extension, nil
+}
+
+func schemaTokenComplexSimpleContentBase(
+	base schemaSimpleTypeReferenceInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	simpleTypes schemaSimpleTypeResolution,
+	version XSDVersion,
+) ([]Loc, bool, error) {
+	if simpleTypes.resolver == nil {
+		return nil, false, newSchemaBridgeInvariant(base.loc, "simple-content base has no type resolver")
+	}
+	candidates, err := schemaVisibleCandidates(simpleTypes.resolver.byName[base.name], owner.id.Source(), records, simpleTypes.resolver.visibleSources, base.loc)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(candidates) != 1 {
+		return nil, false, nil
+	}
+	target := records[candidates[0]]
+	if target.kind != ComponentKindComplexTypeDefinition {
+		return nil, false, nil
+	}
+	body, ok := target.complexTypeBody().(*schemaComplexTypeSimpleContentBodyInput)
+	if !ok || body == nil {
+		return nil, false, nil
+	}
+	if body.base.name == base.name {
+		return nil, false, nil
+	}
+	reference, err := simpleTypes.resolver.resolveReference(body.base, target.id.Source(), version)
+	if err != nil {
+		return nil, false, err
+	}
+	if reference.variety != SimpleTypeVarietyAtomicRestriction || reference.atomicKind != schemaSimpleTypeAtomicToken {
+		return nil, false, nil
+	}
+	return []Loc{target.loc}, true, nil
 }
 
 func reframeSchemaSimpleContentBaseError(err error, input schemaSimpleTypeReferenceInput, version XSDVersion) error {

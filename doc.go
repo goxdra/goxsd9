@@ -113,8 +113,11 @@
 // the target type.
 // That target keeps its ordered attribute uses; string/Boolean/integer/decimal
 // bases work under every policy, while precisionDecimal requires Compatibility
-// or Strict11. Unsupported bases or attribute forms fail schema construction;
-// bounded attribute sequences validate named targets with selected local
+// or Strict11. Unsupported bases or attribute forms fail schema construction.
+// Named attribute-free simpleContent extensions also query built-in or named
+// effective atomic xs:token with copied facets and resolved base identity;
+// ValidateInstance and GenerateGo reject those token extensions.
+// Bounded attribute sequences validate named targets with selected local
 // precisionDecimal uses or precisionDecimal simpleContent without uses; a string
 // simpleContent base must be built-in. Generation rejects them. The model
 // exposes local inline anonymous atomic

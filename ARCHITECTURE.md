@@ -53,8 +53,8 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 Bounded empty-base extensions/`xs:anyType` restrictions retain refs, IDs/`Loc`s,
 and `##other`/`lax` wildcards.
 Grouped/sequence extension uses admit named/global-element inline owners; inline owners retain anonymous identity and exclude ID, inheritable, list/union uses.
-SimpleContent retains base/type/use
-`Loc`s, nil particle; restrictions reject. Bases: Boolean/string/integer/decimal or policy-gated `precisionDecimal`.
+SimpleContent retains base/type/use `Loc`s, nil particle.
+Bases: Boolean/string/integer/decimal, policy-gated `precisionDecimal`, named attribute-free `xs:token` (query-only).
 Direct and extension particles model selected integer-family locals; named
 direct models add sign restrictions. Built-in/named integer validates;
 broader derivatives and extensions remain query-only.
