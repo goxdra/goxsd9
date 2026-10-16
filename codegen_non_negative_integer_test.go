@@ -264,10 +264,10 @@ func TestGenerateGoNamedNonNegativeIntegerGatesAcrossPolicies(t *testing.T) {
 			wantRelated: "<xs:union",
 		},
 		{
-			name:        "effective-facet",
-			typeBody:    `<xs:simpleType name="Value"><xs:restriction base="xs:unsignedLong"><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>`,
+			name:        "broader-family-facet",
+			typeBody:    `<xs:simpleType name="Value"><xs:restriction base="xs:positiveInteger"><xs:totalDigits value="2"/></xs:restriction></xs:simpleType>`,
 			withElement: false,
-			wantRelated: `base="xs:unsignedLong"`,
+			wantRelated: `base="xs:positiveInteger"`,
 		},
 	}
 	for _, policy := range []struct {
@@ -330,7 +330,7 @@ func TestGenerateGoNamedNonNegativeIntegerGatesAcrossPolicies(t *testing.T) {
 				if test.name == "variety" {
 					wantRelated = definition.VarietyLoc()
 				}
-				if test.name == "effective-facet" {
+				if test.name == "broader-family-facet" {
 					wantRelated = definition.BaseLoc()
 				}
 				related := false

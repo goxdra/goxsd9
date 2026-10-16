@@ -135,11 +135,12 @@ resolves. Other byte/short/int/long/unsignedLong validation uses reject.
 
 Generation covers selected named/inline scalars, default Boolean/integer/decimal
 choices and sequences, and all-token choices. Other locals, attributes, and
-reference targets reject; exact supported types are in [the contract](doc.go).
+reference targets reject; see [the contract](doc.go).
 No-view globals, admitted `abstract=true`/`nillable=true` globals, identity constraints yield `GOXSD9029`, nil output.
 Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
 integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.
-Byte bounds [-128,127]; named facets retain provenance. Unsupported final/
+Byte bounds [-128,127]; unsignedLong bounds [0,18446744073709551615]. Named
+facets retain provenance. Unsupported final/
 variety/effective facets yield `GOXSD9029`; malformed facts `GOXSD9030`.
 Nonzero inline `nonNegativeInteger` has no schema; valid `0/0` terms omit.
 

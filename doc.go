@@ -694,13 +694,15 @@
 // malformed/stale built-in or named facts fail closed as FailureInternal/GOXSD9030
 // with nil output. Named final, atomic-restriction-variety, and effective-facet
 // gates reject unsupported forms with FailureUnsupported/GOXSD9029 and no output.
-// Standalone named atomic-long/int types and direct or named global long/int
-// elements generate under all three policies. Built-in fields and standalone
-// named declarations use StrictInteger; named fields use their generated type.
+// Standalone named atomic-long/int/unsignedLong types and direct or named
+// global long/int/unsignedLong elements generate under all three policies.
+// Built-in fields and standalone named declarations use StrictInteger; named
+// fields use their generated type.
 // Effective facets retain exact bounds, locations, and named identities.
 // Built-in long bounds are [-9223372036854775808,9223372036854775807]; int
-// bounds are [-2147483648,2147483647], both inclusive with fixed
-// fractionDigits=0. Malformed or stale long/int facts yield
+// bounds are [-2147483648,2147483647]; unsignedLong bounds are
+// [0,18446744073709551615], all inclusive with fixed fractionDigits=0.
+// Malformed or stale long/int/unsignedLong facts yield
 // FailureInternal/GOXSD9030 and nil output.
 // Supported global built-in/named Boolean/integer/decimal and effective
 // xs:string-atomic/token/NMTOKEN simple-type components and global element
