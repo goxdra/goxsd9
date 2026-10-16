@@ -832,7 +832,7 @@ func TestSchemaBridgeClassifiesSimpleContentBaseFailures(t *testing.T) {
 		},
 		{
 			name:  "wrong kind",
-			base:  "r:Record",
+			base:  "r:Other",
 			class: FailureInvalid,
 			code:  diagnosticSchemaSimpleContentBaseWrongKindCode,
 			cause: errSchemaSimpleContentBaseWrongKind,
@@ -968,7 +968,7 @@ func assertSimpleContentBaseFailure(t *testing.T, test struct {
 	cause error
 }) {
 	t.Helper()
-	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:complexType name="Record"><xs:simpleContent><xs:extension base="` + test.base + `">` + test.body + `</xs:extension></xs:simpleContent></xs:complexType></xs:schema>`
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:complexType name="Record"><xs:simpleContent><xs:extension base="` + test.base + `">` + test.body + `</xs:extension></xs:simpleContent></xs:complexType><xs:complexType name="Other"/></xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
 	if err == nil {
 		t.Fatal("discoverSchema accepted an invalid simpleContent base")
