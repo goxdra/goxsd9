@@ -16,7 +16,7 @@ Named owners query NCName/`xs:normalizedString` facets. Named empty owners query
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
 precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
-never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
+never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`/`xs:unsignedLong`:
 built-ins use `StrictInteger`; named use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
 Named owners query ordered facet-free `xs:ID` uses; inline grouped/sequence extensions query selected atomic uses. Both consumers reject. Empty `block` overrides defaults for named empty complexes and untyped globals. Compatibility/Strict11 omit false untyped-global `inheritable`; local refs and consumers reject. Empty-complex `@type` rejects; extension-base refs resolve.
