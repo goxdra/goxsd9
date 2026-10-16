@@ -317,3 +317,116 @@ func TestCapturePRRejectsAmbiguousEvidenceAndWrongHead(t *testing.T) {
 		})
 	}
 }
+
+//nolint:gocognit // Each named artifact must round-trip through the public command with its actual schema.
+func TestCaptureArtifactAcceptsNamedSharedSchemas(t *testing.T) {
+	evidence, _ := evidenceTestView(t)
+	evidence.Base, evidence.Head = captureBase, captureHead
+	evidence.DevelopmentSignals.Base, evidence.DevelopmentSignals.Head = captureBase, captureHead
+	evidence.DevelopmentSignals.Coverage.Base, evidence.DevelopmentSignals.Coverage.Head = captureBase, captureHead
+	evidence.DocumentationAudit.Base, evidence.DocumentationAudit.Head = captureBase, captureHead
+	evidence.Curator.Head = captureHead
+	auditPath := filepath.Join(t.TempDir(), "audit.json")
+	auditJSON, err := json.Marshal(evidence.DocumentationAudit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(auditPath, auditJSON, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		value  any
+		schema string
+	}{
+		{name: "development-signals", value: evidence.DevelopmentSignals, schema: developmentSignalsSchema},
+		{name: "documentation-audit", value: evidence.DocumentationAudit, schema: documentationAuditSchema},
+		{name: "pr-evidence", value: evidence, schema: prEvidenceSchema},
+		{name: "curator-result", value: evidence.Curator, schema: curatorResultSchema},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "artifact.json")
+			data, marshalErr := json.Marshal(test.value)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			if writeErr := os.WriteFile(path, data, 0600); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+			args := []string{"artifact", test.name, "--file", path, "--base", captureBase, "--head", captureHead}
+			if test.name == "curator-result" {
+				args = append(args, "--audit-file", auditPath)
+			}
+			var output bytes.Buffer
+			application := app{stdout: &output}
+			if captureErr := application.runCapture(args); captureErr != nil {
+				t.Fatalf("capture %s: %v", test.name, captureErr)
+			}
+			var got struct {
+				Schema   string `json:"schema"`
+				Artifact struct {
+					Schema string `json:"schema"`
+					Head   string `json:"head"`
+				} `json:"artifact"`
+				CaptureError string `json:"captureError"`
+			}
+			if decodeErr := json.Unmarshal(output.Bytes(), &got); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if got.Schema != captureSchema || got.Artifact.Schema != test.schema ||
+				got.Artifact.Head != captureHead || got.CaptureError != "" {
+				t.Fatalf("artifact capture = %#v", got)
+			}
+		})
+	}
+}
+
+//nolint:gocognit // Both tracked modes are asserted at the public JSON boundary.
+func TestCaptureGitObjectCommandExposesPinnedModes(t *testing.T) {
+	for _, test := range []struct {
+		name, path, mode, kind, content string
+	}{
+		{name: "gitlink", path: "deps/spec", mode: "160000", kind: "gitlink"},
+		{name: "blob", path: "README.md", mode: "100644", kind: "blob", content: "raw\x00bytes"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls []string
+			var output bytes.Buffer
+			application := app{stdout: &output, executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+				call := name + " " + strings.Join(args, " ")
+				calls = append(calls, call)
+				switch {
+				case call == "git rev-parse --show-toplevel":
+					return "/repo", nil
+				case strings.HasPrefix(call, "git ls-tree -z "):
+					typeName := "blob"
+					if test.kind == "gitlink" {
+						typeName = "commit"
+					}
+					return test.mode + " " + typeName + " " + captureHead + "\t" + test.path + "\x00", nil
+				case strings.HasPrefix(call, "git cat-file -s "):
+					return strconv.Itoa(len(test.content)), nil
+				case strings.HasPrefix(call, "git cat-file blob "):
+					return test.content, nil
+				default:
+					return "", fmt.Errorf("unexpected command %s", call)
+				}
+			}}
+			if err := application.runCapture([]string{"git-object", "--commit", captureBase, "--path", test.path}); err != nil {
+				t.Fatal(err)
+			}
+			var got captureEnvelope
+			if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.GitObject == nil || got.GitObject.Commit != captureBase || got.GitObject.Path != test.path ||
+				got.GitObject.Mode != test.mode || got.GitObject.Kind != test.kind ||
+				got.GitObject.OID != captureHead || string(got.GitObject.Bytes) != test.content {
+				t.Fatalf("git capture = %#v", got.GitObject)
+			}
+			if test.kind == "gitlink" && len(calls) != 2 {
+				t.Fatalf("gitlink read blob or submodule: %v", calls)
+			}
+		})
+	}
+}
