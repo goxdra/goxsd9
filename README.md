@@ -1,21 +1,21 @@
 # goxsd9
 
-goxsd9 parses XML Schema into immutable components; unsupported features return
-located diagnostics without partial output.
+goxsd9 parses XML Schema into immutable components. Errors prevent partial
+schemas; source diagnostics are located.
 
 ## Library
 
-`NewResolvedSource`, `ParseSchema`, and `Resolver` handle includes/imports.
-Resolvers receive namespace URNs and lexical locations; library opens no
-resources. `ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
+`NewResolvedSource`/`ParseSchema`/`Resolver` handle includes/imports.
+Resolvers receive namespace URNs/lexical locations; the library opens no resources.
+`ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects policy. Queries/walks are deterministic.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named owners query NCName/`xs:normalizedString` facets; named empty owners query built-in `xs:language`/`xs:anyURI` and built-in/named `xs:token`/`xs:NMTOKEN`/effective `xs:long` locals. `ValidateInstance`/`GenerateGo` reject them. Enumerated NCName list/union members reject.
+Named owners query NCName/`xs:normalizedString` facets. Named empty owners query built-in `xs:language`/`xs:anyURI` and built-in/named `xs:token`/`xs:NMTOKEN`/effective `xs:long` locals. Named attribute-free simpleContent extensions query built-in or supported named effective atomic `xs:token`/`xs:NMTOKEN` bases. Consumers reject these uses; enumerated NCName list/union members reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
 precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
-precisionDecimal sequences of typed locals or global refs; `xsi:schemaLocation`
+precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`:
 built-ins use `StrictInteger`; named use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
@@ -24,7 +24,7 @@ See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrenc
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
 extension choices are attribute-free.
-Anonymous global-element extensions over supported named empty-content bases query a ref-only choice, nested sequence with default `1/1` group ref then element ref, or both choice-first. Bounds, order, `Loc`s, and wildcard persist; broader nesting, combined attributes, and consumers reject.
+Anonymous global-element extensions over supported named empty bases query ref-only choice, nested sequence of default `1/1` group then element ref, or both choice-first. Bounds/order/`Loc`s/wildcard persist; broader nesting, combined attributes, and consumers reject.
 Named-group sequences/nested choices query atomic integer/string/token locals; consumers reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
@@ -37,7 +37,7 @@ Compatibility/Strict11 query strict `xs:any` `notQName`; consumers reject.
 
 ## CLI
 
-`goxsd9` provides `parse`, `validate`, and `generate`:
+`goxsd9` commands: `parse`, `validate`, `generate`:
 
 ```sh
 go run ./cmd/goxsd9 parse schema.xsd
@@ -51,7 +51,7 @@ required for stdin. `--diagnostics json` emits machine-readable errors.
 
 ## Development
 
-Fresh checkout:
+Checkout:
 
 ```sh
 git submodule update --init --recursive

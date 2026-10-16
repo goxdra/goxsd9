@@ -317,7 +317,7 @@ func TestTokenSimpleContentBaseResolutionExits(t *testing.T) {
 		}{
 			{"missing", "t:Missing", "", diagnosticSchemaSimpleContentBaseUnresolvedCode, "", errSchemaSimpleContentBaseUnresolved},
 			{"wrong kind", "t:Wrong", `<xs:complexType name="Wrong"/>`, diagnosticSchemaSimpleContentBaseWrongKindCode, `<xs:complexType name="Wrong"`, errSchemaSimpleContentBaseWrongKind},
-			{"unsupported atomic", "xs:NMTOKEN", "", UnsupportedSchemaSyntaxCode, "", errSchemaSimpleContentBaseUnsupported},
+			{"unsupported atomic", "xs:normalizedString", "", UnsupportedSchemaSyntaxCode, "", errSchemaSimpleContentBaseUnsupported},
 			{"unsupported list", "t:List", `<xs:simpleType name="List"><xs:list itemType="xs:token"/></xs:simpleType>`, UnsupportedSchemaSyntaxCode, "", errSchemaSimpleContentBaseUnsupported},
 			{"unsupported union", "t:Union", `<xs:simpleType name="Union"><xs:union memberTypes="xs:token xs:string"/></xs:simpleType>`, UnsupportedSchemaSyntaxCode, "", errSchemaSimpleContentBaseUnsupported},
 			{"complex token content", "t:Inner", strings.Replace(tokenSimpleContentOwner("xs:token", ""), `name="Value"`, `name="Inner"`, 1), UnsupportedSchemaSyntaxCode, `<xs:complexType name="Inner"`, errSchemaSimpleContentBaseUnsupported},

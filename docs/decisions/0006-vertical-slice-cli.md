@@ -316,7 +316,7 @@ atomic file transaction; it does not expose private naming or rendering state.
 
 This decision changes no library boundary or current architecture. The
 [package parsing contract](../../doc.go),
-[ARCHITECTURE input/resolution rules](../../ARCHITECTURE.md#input-and-resolution),
+[architecture resolution rules](../../ARCHITECTURE.md#resolution),
 [0004 language-policy decision](0004-xsd-language-policy.md), and
 [0005 naming decision](0005-codegen-naming.md) are the repository evidence.
 The pinned [specification manifest](../../specs/manifest.json) remains the

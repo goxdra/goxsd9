@@ -4,7 +4,7 @@
 
 Immutable models feed validation/generation.
 
-## Deterministic phase pipeline
+## Pipeline
 
 ```mermaid
 flowchart LR
@@ -21,7 +21,7 @@ flowchart LR
 Identities intern before resolution; slices order walks/output.
 Phases never backpatch.
 
-## Input and resolution
+## Resolution
 
 `ParseSchema(root ResolvedSource, resolver Resolver)` uses Compatibility;
 `ParseSchemaWithPolicy` selects policy. Resolvers acquire sources; streams close,
@@ -54,7 +54,7 @@ Bounded empty-base extensions/`xs:anyType` restrictions retain refs, IDs/`Loc`s,
 and `##other`/`lax` wildcards.
 Grouped/sequence extensions admit named/global-element inline owners; anonymous identity persists, excluding ID/inheritable/list/union uses.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
-Named attribute-free owners query built-in/supported named effective atomic `xs:token` bases.
+Named attribute-free simpleContent extensions query built-in/supported named effective atomic `xs:token`/`xs:NMTOKEN` bases; restrictions remain unsupported.
 Direct and extension particles model selected integer-family locals; named
 direct models add sign restrictions. Built-in/named integer validates;
 broader derivatives and extensions remain query-only.
