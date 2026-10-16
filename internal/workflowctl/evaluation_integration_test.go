@@ -455,7 +455,7 @@ func TestEvaluationChallengeFinalReadRejectsCurrentStateDrift(t *testing.T) {
 			application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
 				if name == "gh" && strings.Join(args, " ") == "api repos/goxdra/goxsd9/pulls/14" {
 					prReads++
-					if prReads == 3 {
+					if prReads == 4 {
 						test.mutate(t, backend)
 					}
 				}
@@ -468,8 +468,8 @@ func TestEvaluationChallengeFinalReadRejectsCurrentStateDrift(t *testing.T) {
 			if stdout.Len() != 0 {
 				t.Fatalf("final %s drift emitted marker %q", test.name, stdout.String())
 			}
-			if prReads != 3 {
-				t.Fatalf("PR reads = %d, want final-read mutation at read 3", prReads)
+			if prReads != 4 {
+				t.Fatalf("PR reads = %d, want final-read mutation at read 4", prReads)
 			}
 			if backend.commentPostCount != 1 {
 				t.Fatalf("final %s drift comment POST count = %d, want initial challenge only", test.name, backend.commentPostCount)
