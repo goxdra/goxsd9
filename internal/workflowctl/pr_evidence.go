@@ -134,8 +134,8 @@ func validateDocumentationAuditReport(report documentationAuditReport, base, hea
 	if strings.TrimSpace(report.MergeBase) == "" {
 		return errors.New("mergeBase is empty")
 	}
-	if report.ManagedChanges == nil || report.EvaluationFixtures == nil {
-		return errors.New("managedChanges and evaluationFixtures must be JSON arrays")
+	if report.ManagedChanges == nil || report.EvaluationFixtures == nil || report.CurrentStateReviewTriggers == nil {
+		return errors.New("managedChanges, evaluationFixtures, and currentStateReviewTriggers must be JSON arrays")
 	}
 	if err := validateDocumentationChangeReports(report.ManagedChanges); err != nil {
 		return err

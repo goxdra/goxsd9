@@ -45,6 +45,9 @@ compare canonical JSON, preserve non-owned PR bytes, use exact `pending`/
 `evidence-ready` records. Challenge/finish bind exact REST base/head, audit,
 Curator, current-state triggers, and body/evidence digests.
 Challenges/comments/records are immutable.
+
+`workflowctl capture`: [contract](decisions/0010-workflow-capture.md).
+
 `go tool workflowctl evaluation resolve PR --challenge ID --reason-file FILE`
 records no-verdict after expiry or REST-proven changed head without receipt;
 it binds both heads, grants no merge authority. Fresh Examiners reject stale/
