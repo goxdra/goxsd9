@@ -316,7 +316,7 @@ func TestNMTOKENSimpleContentGraphAndPrecedence(t *testing.T) {
 			{"duplicate named base", tokenSimpleContentOwner("t:Named", "") + nmtokenSimpleContentNamed("Named") + nmtokenSimpleContentNamed("Named"), `<xs:simpleType name="Named"`, diagnosticSchemaGlobalDuplicateCode, schemaGlobalDuplicateSpecRef(profile.version), []string{`<xs:simpleType name="Named"`}, FailureInvalid, errSchemaGlobalDeclarationDuplicate},
 			{"missing before attribute exclusion", tokenSimpleContentOwner("t:Missing", `<xs:attribute name="flag" type="xs:boolean" use="prohibited"/>`), `base="t:Missing"`, diagnosticSchemaSimpleContentBaseUnresolvedCode, schemaSimpleContentSpecRef(profile.version), nil, FailureInvalid, errSchemaSimpleContentBaseUnresolved},
 			{"invalid facet before attribute exclusion", tokenSimpleContentOwner("t:Bad", `<xs:attribute name="flag" type="xs:boolean" use="prohibited"/>`) + `<xs:simpleType name="Bad"><xs:restriction base="xs:NMTOKEN"><xs:enumeration value="bad/value"/></xs:restriction></xs:simpleType>`, `value="bad/value"`, InvalidEnumerationRestrictionCode, enumerationSpecRef(profile.version, enumerationRestrictionRule), nil, FailureInvalid, errSchemaNMTOKENValueViolation},
-			{"complex NMTOKEN chain", tokenSimpleContentNamedOwner("Outer", "t:Inner", "") + tokenSimpleContentNamedOwner("Inner", "xs:NMTOKEN", ""), `base="t:Inner"`, diagnosticSchemaSimpleContentBaseWrongKindCode, schemaSimpleContentSpecRef(profile.version), []string{`<xs:complexType name="Inner"`}, FailureInvalid, errSchemaSimpleContentBaseWrongKind},
+			{"complex NMTOKEN chain", tokenSimpleContentNamedOwner("Outer", "t:Inner", "") + tokenSimpleContentNamedOwner("Inner", "xs:NMTOKEN", ""), `base="t:Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), []string{`<xs:complexType name="Inner"`}, FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				root := tokenSimpleContentRoot(test.body)
@@ -339,7 +339,7 @@ func TestNMTOKENSimpleContentGraphAndPrecedence(t *testing.T) {
 				if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != test.spec || !errors.Is(err, test.cause) {
 					t.Fatalf("graph exit = %s; got related %v spec %s, want %v spec %s", diagnostic, diagnostic.Related(), diagnostic.SpecRef(), related, test.spec)
 				}
-				if test.name == "complex NMTOKEN chain" && !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+				if test.name == "complex NMTOKEN chain" && (!errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind)) {
 					t.Fatalf("complex chain lost wrong-kind cause: %v", err)
 				}
 			})
@@ -355,6 +355,84 @@ func TestNMTOKENSimpleContentGraphAndPrecedence(t *testing.T) {
 			want := tokenSimpleContentLoc(t, "root.xsd", root, `base="o:Hidden"`)
 			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaSimpleContentBaseUnresolvedCode || diagnostic.Loc() != want || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, errSchemaSimpleContentBaseUnresolved) {
 				t.Fatalf("invisible base = %s", diagnostic)
+			}
+		})
+	}
+}
+
+func TestNMTOKENSimpleContentComplexBaseUnsupported(t *testing.T) {
+	outer := tokenSimpleContentNamedOwner("Outer", "t:Inner", "")
+	for _, profile := range tokenSimpleContentPolicies() {
+		for _, base := range []struct{ name, inner, named string }{
+			{"built-in", tokenSimpleContentNamedOwner("Inner", "xs:NMTOKEN", ""), ""},
+			{"named effective", tokenSimpleContentNamedOwner("Inner", "t:Named", ""), nmtokenSimpleContentNamed("Named")},
+		} {
+			for _, order := range []struct{ name, declarations string }{
+				{"forward", outer + base.inner + base.named},
+				{"reordered", base.named + base.inner + outer},
+			} {
+				t.Run(profile.name+"/"+base.name+"/"+order.name, func(t *testing.T) {
+					root := tokenSimpleContentRoot(order.declarations)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)
+					related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, `<xs:complexType name="Inner"`)}
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+						t.Fatalf("complex NMTOKEN base diagnostic = %s; related %v, want %v", diagnostic, diagnostic.Related(), related)
+					}
+				})
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Alternate exits at the same complex-base boundary retain their earlier diagnostics.
+func TestNMTOKENSimpleContentComplexBaseAlternateExits(t *testing.T) {
+	outer := tokenSimpleContentNamedOwner("Outer", "t:Inner", "")
+	for _, profile := range tokenSimpleContentPolicies() {
+		for _, test := range []struct {
+			name, inner, named, schemaFinal, primary, related, code, spec string
+			class                                                         FailureClass
+			cause                                                         error
+		}{
+			{"inner final", strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:NMTOKEN", ""), `name="Inner"`, `name="Inner" final="extension"`, 1), "", "", `base="t:Inner"`, `final="extension"`, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.version), FailureInvalid, errSchemaComplexTypeBaseUnsupported},
+			{"final default", tokenSimpleContentNamedOwner("Inner", "xs:NMTOKEN", ""), "", ` finalDefault="extension"`, `base="t:Inner"`, `finalDefault="extension"`, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.version), FailureInvalid, errSchemaComplexTypeBaseUnsupported},
+			{"final override", strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:NMTOKEN", ""), `name="Inner"`, `name="Inner" final=""`, 1), "", ` finalDefault="extension"`, `base="t:Inner"`, `<xs:complexType name="Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
+			{"named simple final", tokenSimpleContentNamedOwner("Inner", "t:Named", ""), strings.Replace(nmtokenSimpleContentNamed("Named"), `name="Named"`, `name="Named" final="extension"`, 1), "", `base="t:Named"`, `final="extension"`, diagnosticSchemaSimpleTypeBaseCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleTypeInvalidDerivation},
+			{"inner unresolved", tokenSimpleContentNamedOwner("Inner", "t:Missing", ""), "", "", `base="t:Missing"`, "", diagnosticSchemaSimpleContentBaseUnresolvedCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseUnresolved},
+			{"other atomic kind", tokenSimpleContentNamedOwner("Inner", "xs:string", ""), "", "", `base="t:Inner"`, `<xs:complexType name="Inner"`, diagnosticSchemaSimpleContentBaseWrongKindCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseWrongKind},
+		} {
+			if profile.policy == Strict10 && test.name == "named simple final" {
+				continue
+			}
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := strings.Replace(tokenSimpleContentRoot(outer+test.inner+test.named), `targetNamespace="urn:token"`, `targetNamespace="urn:token"`+test.schemaFinal, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				want := tokenSimpleContentLoc(t, "root.xsd", root, test.primary)
+				var related []Loc
+				if test.related != "" {
+					related = []Loc{tokenSimpleContentLoc(t, "root.xsd", root, test.related)}
+				}
+				if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != test.spec || !errors.Is(err, test.cause) {
+					t.Fatalf("alternate exit = %s; got related %v, want %v", diagnostic, diagnostic.Related(), related)
+				}
+				if test.class == FailureUnsupported && (!errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind)) {
+					t.Fatalf("unsupported cause chain = %v", err)
+				}
+			})
+		}
+		t.Run(profile.name+"/complex cycle", func(t *testing.T) {
+			root := tokenSimpleContentRoot(outer + tokenSimpleContentNamedOwner("Inner", "t:Outer", ""))
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Outer"`)
+			related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)}
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaSimpleContentBaseUnresolvedCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, errSchemaComplexTypeBaseCycle) || !errors.Is(err, errSchemaSimpleContentBaseUnresolved) {
+				t.Fatalf("cycle exit = %s; related %v, want %v", diagnostic, diagnostic.Related(), related)
 			}
 		})
 	}
