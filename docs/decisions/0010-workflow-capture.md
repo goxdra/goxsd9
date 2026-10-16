@@ -27,18 +27,21 @@ When evidence markers exist, `pr.evidence` is the raw unfenced parsed
 bytes from start through end marker, and `pr.evidenceSHA256` hashes those
 marker-inclusive bytes. `bodySHA256` hashes the complete PR body.
 `pr.receipts` is an ordered array of authenticated logical receipts. Each
-preserves its comment ID, typed receipt fields, raw base64 receipt marker,
-comment body, and decoded attestation bytes. No terminal newline is added.
+preserves its comment ID, typed receipt fields, full base64 comment body,
+and decoded attestation bytes. `receiptMarker` is base64 for the raw JSON
+payload inside the receipt HTML marker, excluding its delimiters. No terminal
+newline is added.
 Absent evidence omits its fields; absent receipts use an empty array.
 
 `go tool workflowctl capture artifact NAME --file FILE --base SHA --head SHA`
 validates raw JSON through the controller's shared types and exact identities.
 Names: `development-signals`, `documentation-audit`, `pr-evidence`, and
 `curator-result`. Curator capture also requires `--audit-file FILE` to
-validate the decision against the matching audit. Actual artifact fields are
-`base` and `head`; documentation audit also has `mergeBase`. Callers must
-not substitute `baseSHA` or `sourceSHA`. Missing required arrays and
-unknown or trailing fields fail validation.
+validate the decision against the matching audit. Development signals and PR
+evidence use `base` and `head`; documentation audit adds `mergeBase`.
+Curator result has `head` only, while the command's `--base` binds its audit.
+Callers must not substitute `baseSHA` or `sourceSHA`. Missing required
+arrays and unknown or trailing fields fail validation.
 
 `go tool workflowctl capture git-object --commit SHA --path PATH` resolves one
 tracked tree entry at that exact commit. A mode `160000` entry yields
