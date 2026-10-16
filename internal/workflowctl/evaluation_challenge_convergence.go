@@ -732,11 +732,12 @@ func (a app) convergeEvaluationChallengeClosuresMode(root string, number int,
 
 //nolint:gocognit // Select and converge each outstanding equivalent group in order.
 func (a app) convergeEvaluationChallengeHistory(root string, number int,
-	view pullRequestView, history evaluationHistory) (pullRequestView, evaluationHistory, error) {
+	view pullRequestView, history evaluationHistory) (pullRequestView, evaluationHistory, bool, error) {
+	changed := false
 	for attempt := 0; attempt < 100; attempt++ {
 		projection, err := evaluationChallengeOnlyProjectionForHistory(history)
 		if err != nil {
-			return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge convergence", fmt.Errorf("PR #%d has invalid logical evaluation history: %w", number, err))
+			return pullRequestView{}, evaluationHistory{}, changed, terminalOperation("evaluation challenge convergence", fmt.Errorf("PR #%d has invalid logical evaluation history: %w", number, err))
 		}
 		var target evaluationChallenge
 		var targetKey evaluationChallengeKey
@@ -759,8 +760,9 @@ func (a app) convergeEvaluationChallengeHistory(root string, number int,
 			}
 		}
 		if !found {
-			return view, history, nil
+			return view, history, changed, nil
 		}
+		changed = true
 		currentKey, currentKeyComplete := evaluationChallengeKeyForView(number, view)
 		var convergenceErr error
 		if currentKeyComplete && equalEvaluationChallengeKeys(currentKey, targetKey) {
@@ -770,19 +772,19 @@ func (a app) convergeEvaluationChallengeHistory(root string, number int,
 			convergenceErr = a.convergeEvaluationChallengeClosuresByIdentity(root, number, target, view, history)
 		}
 		if convergenceErr != nil {
-			return pullRequestView{}, evaluationHistory{}, convergenceErr
+			return pullRequestView{}, evaluationHistory{}, changed, convergenceErr
 		}
 		view, err = a.readPullRequest(root, number)
 		if err != nil {
-			return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation challenge convergence", fmt.Errorf("reread PR #%d after challenge convergence: %w",
+			return pullRequestView{}, evaluationHistory{}, changed, retryableOperation("evaluation challenge convergence", fmt.Errorf("reread PR #%d after challenge convergence: %w",
 				number, err))
 		}
 		history, err = readEvaluationMutationHistoryForConvergence(number, view.Comments)
 		if err != nil {
-			return pullRequestView{}, evaluationHistory{}, terminalOperation("evaluation challenge convergence", fmt.Errorf("reread PR #%d challenge history after convergence: %w",
+			return pullRequestView{}, evaluationHistory{}, changed, terminalOperation("evaluation challenge convergence", fmt.Errorf("reread PR #%d challenge history after convergence: %w",
 				number, err))
 		}
 	}
-	return pullRequestView{}, evaluationHistory{}, retryableOperation("evaluation challenge convergence", fmt.Errorf(
+	return pullRequestView{}, evaluationHistory{}, changed, retryableOperation("evaluation challenge convergence", fmt.Errorf(
 		"PR #%d challenge convergence exceeded the bounded history pass; preserve history and retry after inspection", number))
 }

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -1369,21 +1370,24 @@ func (a app) requestEvaluation(number int) error {
 	if historyErr != nil {
 		return stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
 	}
-	if evidenceErr := a.validatePREvidenceForPRBeforeConvergence(root, number, view); evidenceErr != nil {
+	parsedEvidence, evidenceErr := a.validatePREvidenceForPR(root, number, view)
+	if evidenceErr != nil {
 		return evidenceErr
 	}
-	return a.requestEvaluationAfterEvidence(root, number, view, history)
+	validated := validatedChallengeEvidence{view: view, parsed: parsedEvidence}
+	return a.requestEvaluationAfterEvidence(root, number, history, validated)
 }
 
-func (a app) validatePREvidenceForPRBeforeConvergence(root string, number int, view pullRequestView) error {
-	_, err := a.validatePREvidenceForPR(root, number, view)
-	return err
+type validatedChallengeEvidence struct {
+	view   pullRequestView
+	parsed parsedPREvidence
 }
 
-func (a app) requestEvaluationAfterEvidence(root string, number int, view pullRequestView,
-	history evaluationHistory,
+func (a app) requestEvaluationAfterEvidence(root string, number int,
+	history evaluationHistory, validated validatedChallengeEvidence,
 ) error {
-	view, history, err := a.convergeEvaluationChallengeHistory(root, number, view, history)
+	view := validated.view
+	view, history, changed, err := a.convergeEvaluationChallengeHistory(root, number, view, history)
 	if err != nil {
 		return fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
 	}
@@ -1400,7 +1404,8 @@ func (a app) requestEvaluationAfterEvidence(root string, number int, view pullRe
 			number, len(outstanding), first.Challenge, first.RequestedAt.Add(evaluationChallengeDuration).Format(time.RFC3339Nano),
 			number, first.Challenge)
 	}
-	parsedEvidence, err := a.validatePREvidenceForPR(root, number, view)
+	view, parsedEvidence, err := a.prepareEvaluationChallengeEvidence(root, number, validated,
+		view, changed)
 	if err != nil {
 		return err
 	}
@@ -1437,6 +1442,92 @@ func (a app) requestEvaluationAfterEvidence(root string, number int, view pullRe
 			postErr))
 	}
 	return a.completeEvaluationChallenge(root, number, challenge, verifiedView, verifiedHistory)
+}
+
+func (a app) prepareEvaluationChallengeEvidence(root string, number int, validated validatedChallengeEvidence,
+	convergedView pullRequestView, changed bool) (pullRequestView, parsedPREvidence, error) {
+	parsed := validated.parsed
+	if changed {
+		var err error
+		parsed, err = a.validatePREvidenceForPR(root, number, convergedView)
+		if err != nil {
+			return pullRequestView{}, parsedPREvidence{}, err
+		}
+	}
+	fresh, err := a.proveEvaluationChallengeState(root, number, validated, convergedView, parsed, changed)
+	return fresh, parsed, err
+}
+
+// proveEvaluationChallengeState checks the publication snapshot after any
+// required second measurement and before posting a new challenge.
+func (a app) proveEvaluationChallengeState(root string, number int, validated validatedChallengeEvidence,
+	convergedView pullRequestView, convergedEvidence parsedPREvidence, changed bool) (pullRequestView, error) {
+	validatedView := validated.view
+	if !sameEvaluationChallengePRState(convergedView, validatedView) ||
+		(!changed && !reflect.DeepEqual(convergedView.Comments, validatedView.Comments)) {
+		return pullRequestView{}, stateError("PR #%d changed after evaluation evidence validation; no challenge was posted", number)
+	}
+	fresh, err := a.readPullRequest(root, number)
+	if err != nil {
+		return pullRequestView{}, fmt.Errorf("reread PR #%d before evaluation challenge: %w", number, err)
+	}
+	if !sameEvaluationChallengePRState(fresh, validatedView) ||
+		!reflect.DeepEqual(fresh.Comments, convergedView.Comments) {
+		return pullRequestView{}, stateError("PR #%d changed after evaluation evidence validation; no challenge was posted", number)
+	}
+	if _, historyErr := readEvaluationMutationHistoryForConvergence(number, fresh.Comments); historyErr != nil {
+		return pullRequestView{}, stateError("PR #%d evaluation history could not be reauthenticated before challenge: %v", number, historyErr)
+	}
+	freshEvidence, err := validatePREvidenceForView(fresh)
+	if err != nil {
+		return pullRequestView{}, stateError("PR #%d evidence changed before evaluation challenge: %v", number, err)
+	}
+	validatedBody, validatedBlock := currentPREvidenceDigest(validatedView, validated.parsed)
+	convergedBody, convergedBlock := currentPREvidenceDigest(convergedView, convergedEvidence)
+	freshBody, freshBlock := currentPREvidenceDigest(fresh, freshEvidence)
+	if convergedBody != validatedBody || convergedBlock != validatedBlock ||
+		freshBody != validatedBody || freshBlock != validatedBlock {
+		return pullRequestView{}, stateError("PR #%d evidence identity changed before evaluation challenge", number)
+	}
+	if err := a.proveEvaluationChallengeLocalState(root, number, fresh); err != nil {
+		return pullRequestView{}, err
+	}
+	return fresh, nil
+}
+
+func (a app) proveEvaluationChallengeLocalState(root string, number int, fresh pullRequestView) error {
+	clean, err := a.command(root, "git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none")
+	if err != nil {
+		return fmt.Errorf("read evaluation worktree status: %w", err)
+	}
+	if clean != "" {
+		return stateError("PR #%d evaluation worktree changed after evidence validation", number)
+	}
+	localHead, err := a.resolveCommit(root, "HEAD")
+	if err != nil {
+		return fmt.Errorf("resolve evaluation HEAD: %w", err)
+	}
+	if localHead != fresh.HeadRefOID {
+		return stateError("PR #%d local HEAD changed after evidence validation", number)
+	}
+	localBase, err := a.resolveCommit(root, fresh.BaseRefOID)
+	if err != nil {
+		return fmt.Errorf("resolve evaluation base: %w", err)
+	}
+	if localBase != fresh.BaseRefOID {
+		return stateError("PR #%d local base changed after evidence validation", number)
+	}
+	return nil
+}
+
+func sameEvaluationChallengePRState(view, validated pullRequestView) bool {
+	if validated.State != "OPEN" {
+		return false
+	}
+	return view.State == "OPEN" &&
+		view.BaseRefName == validated.BaseRefName && view.BaseRefOID == validated.BaseRefOID &&
+		view.HeadRefName == validated.HeadRefName && view.HeadRefOID == validated.HeadRefOID &&
+		view.Body == validated.Body
 }
 
 func evaluationRetryChallengeForView(outstanding []evaluationChallengeRecord, number int, view pullRequestView) (
@@ -1604,7 +1695,7 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 		number, view, history, time.Now().UTC(), replay); validationErr != nil {
 		return stateError("reject Examiner attestation: %v", validationErr)
 	}
-	view, history, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+	view, history, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
 	if err != nil {
 		return fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
 	}
@@ -1618,7 +1709,7 @@ func (a app) postEvaluation(number int, attestationFile string) error {
 		if err != nil {
 			return fmt.Errorf("PR #%d equivalent evaluation receipts could not be converged: %w", number, err)
 		}
-		view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+		view, _, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
 		if err != nil {
 			return fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
 		}
@@ -2142,7 +2233,7 @@ func (a app) readEvaluationResolutionContext(number int, reason string) (string,
 	if historyErr != nil {
 		return "", pullRequestView{}, evaluationHistory{}, "", stateError("PR #%d has invalid evaluation history: %v", number, historyErr)
 	}
-	view, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
+	view, _, _, err = a.convergeEvaluationChallengeHistory(root, number, view, history)
 	if err != nil {
 		return "", pullRequestView{}, evaluationHistory{}, "", fmt.Errorf("PR #%d equivalent evaluation challenges could not be converged: %w", number, err)
 	}
