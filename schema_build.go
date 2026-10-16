@@ -6837,11 +6837,15 @@ func (resolver *schemaComplexTypeResolver) resolveSchemaComplexTypeSimpleContent
 	if err != nil {
 		return nil, err
 	}
-	if extension.typeReference.atomicKind == schemaSimpleTypeAtomicToken {
+	if extension.typeReference.atomicKind == schemaSimpleTypeAtomicToken || extension.typeReference.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
+		baseKind := "token"
+		if extension.typeReference.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
+			baseKind = "NMTOKEN"
+		}
 		if owner.kind != ComponentKindComplexTypeDefinition || owner.complexType == nil {
 			return nil, unsupportedSchemaSimpleContentBase(
 				body.simpleContentLoc,
-				"token simpleContent requires a named complex type",
+				baseKind+" simpleContent requires a named complex type",
 				nil,
 				resolver.version,
 				errSchemaSimpleContentBaseUnsupported,
@@ -6850,7 +6854,7 @@ func (resolver *schemaComplexTypeResolver) resolveSchemaComplexTypeSimpleContent
 		if len(body.attributeUses) != 0 {
 			return nil, unsupportedSchemaSimpleContentBase(
 				body.attributeUses[0].loc,
-				"token simpleContent attributes are not implemented",
+				baseKind+" simpleContent attributes are not implemented",
 				nil,
 				resolver.version,
 				errSchemaSimpleContentBaseUnsupported,
@@ -7395,13 +7399,13 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicString,
 		schemaSimpleTypeAtomicToken,
+		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInteger,
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicNormalizedString,
-		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInt,
 		schemaSimpleTypeAtomicShort,
 		schemaSimpleTypeAtomicByte,
@@ -7456,7 +7460,7 @@ func resolveSchemaSimpleContentExtension(
 			fmt.Errorf("%w: %q", errSchemaSimpleContentBaseUnsupported, input.base.name),
 		)
 	}
-	if base.atomicKind == schemaSimpleTypeAtomicToken {
+	if base.atomicKind == schemaSimpleTypeAtomicToken || base.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
 		finalErr := simpleTypes.resolver.rejectSchemaSimpleTypeFinal(base, schemaSimpleTypeFinalExtension, "simpleContent extension base", input.base.loc, version)
 		if finalErr != nil {
 			var diagnostic Diagnostic
