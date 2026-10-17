@@ -1,6 +1,11 @@
 package goxsd9
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var errSchemaInlineDirectGroupAmbiguous = errors.New("inline direct group has ambiguous repetition")
 
 type schemaGroupLeaf struct {
 	name         QName
@@ -223,4 +228,113 @@ func schemaGroupNonAmbiguousSpecRef(version XSDVersion) string {
 		return "xsd10-structures#cos-nonambig"
 	}
 	return "xsd11-structures#cos-nonambig"
+}
+
+// validateSchemaInlineDirectGroupProof checks attribution only for the newly
+// admitted sole direct group term after all named groups have been resolved.
+func validateSchemaInlineDirectGroupProof(records []schemaComponentRecord, byName map[QName][]int, visibleSources map[SourceID][]SourceID, groups []schemaModelGroupResult, version XSDVersion) error { //nolint:gocognit // Narrow post-resolution boundary selects only the admitted owner and term.
+	for _, record := range records {
+		if record.element == nil || record.element.inlineComplexType == nil {
+			continue
+		}
+		body, ok := record.element.inlineComplexType.body.(*schemaComplexTypeExtensionBodyInput)
+		if !ok || body == nil {
+			continue
+		}
+		sequence, ok := body.particle.(*schemaSequenceParticleInput)
+		if !ok || sequence == nil || len(sequence.particles) != 1 {
+			continue
+		}
+		group, ok := sequence.particles[0].(*schemaModelGroupReferenceParticleInput)
+		if !ok || group == nil {
+			continue
+		}
+		targetIndex, err := schemaModelGroupReferenceTarget(group, record, records, byName, visibleSources, version)
+		if err != nil {
+			return err
+		}
+		if targetIndex >= len(groups) || !groups[targetIndex].present {
+			return newSchemaBridgeInvariant(group.loc, "direct group target has no resolved model")
+		}
+		if err := proveSchemaInlineDirectGroup(group, groups[targetIndex].particle, records, groups, version); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func proveSchemaInlineDirectGroup(input *schemaModelGroupReferenceParticleInput, target Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, version XSDVersion) error { //nolint:gocognit // Compare target leaves in lexical order with substitution visibility.
+	if target == nil {
+		return nil
+	}
+	// The target graph was already checked for cycles. Mark every target as
+	// local-bearing so the leaf walk visits repeated references separately.
+	visitEveryReference := make(map[ComponentID]bool)
+	for _, record := range records {
+		if record.modelGroup != nil {
+			visitEveryReference[record.id] = true
+		}
+	}
+	var leaves []schemaGroupLeaf
+	if err := walkSchemaGroupLeaves(target, records, groups, Loc{}, visitEveryReference, make(map[ComponentID]bool), func(leaf schemaGroupLeaf) error {
+		leaves = append(leaves, leaf)
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := validateSchemaInlineDirectGroupChoiceOverlap(input, target, records, groups, visitEveryReference, version); err != nil {
+		return err
+	}
+	for laterIndex, later := range leaves {
+		for _, first := range leaves[:laterIndex] {
+			if first.name == later.name {
+				if !first.declaredType.IsZero() && !later.declaredType.IsZero() && first.declaredType != later.declaredType {
+					return newSchemaGroupElementConsistencyDiagnostic(later, first, version)
+				}
+				return newSchemaInlineDirectGroupAttributionDiagnostic(input, first, later, version)
+			}
+			if schemaGroupSubstitutionMayMatch(records, first.name, later.name) || schemaGroupSubstitutionMayMatch(records, later.name, first.name) {
+				return newSchemaInlineDirectGroupAttributionDiagnostic(input, first, later, version)
+			}
+		}
+	}
+	return nil
+}
+
+func validateSchemaInlineDirectGroupChoiceOverlap(input *schemaModelGroupReferenceParticleInput, target Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, visitEveryReference map[ComponentID]bool, version XSDVersion) error {
+	choice, ok := target.(ChoiceParticle)
+	if !ok {
+		return nil
+	}
+	var prior []schemaGroupLeaf
+	for _, alternative := range choice.Alternatives() {
+		var current []schemaGroupLeaf
+		if err := walkSchemaGroupLeaves(alternative, records, groups, Loc{}, visitEveryReference, make(map[ComponentID]bool), func(leaf schemaGroupLeaf) error {
+			current = append(current, leaf)
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, later := range current {
+			for _, first := range prior {
+				if first.name != later.name {
+					continue
+				}
+				return Diagnostic{
+					class: FailureInvalid, code: "XSD3064", loc: later.loc, related: []Loc{first.loc, input.reference.loc},
+					message: "choice alternatives compete for the same element",
+					specRef: schemaGroupNonAmbiguousSpecRef(version), cause: errSchemaInlineDirectGroupAmbiguous,
+				}
+			}
+		}
+		prior = append(prior, current...)
+	}
+	return nil
+}
+
+func newSchemaInlineDirectGroupAttributionDiagnostic(input *schemaModelGroupReferenceParticleInput, first, later schemaGroupLeaf, version XSDVersion) Diagnostic {
+	diagnostic := newSchemaSyntaxUnsupportedForVersion(input.reference.loc, "direct group target requires unimplemented particle attribution proof", version)
+	diagnostic.related = []Loc{first.loc, later.loc}
+	diagnostic.specRef = schemaGroupNonAmbiguousSpecRef(version)
+	return diagnostic
 }

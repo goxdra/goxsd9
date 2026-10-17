@@ -3100,17 +3100,19 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 	var particleUnsupported error
 	groupExtension := false
 	sequenceExtension := false
-	inlineNestedTerm := false
+	inlineSpecialTerm := false
 	groupedAttributes := false
+	sequenceDirectGroupWithAttributes := false
 	if complexContent && element.name.local == "extension" {
 		model := schemaComplexTypeModel(element)
 		groupExtension = model != nil && model.name.local == "group"
 		sequenceExtension = model != nil && model.name.local == "sequence"
-		inlineNestedTerm = globalElementInline && sequenceExtension && schemaInlineExtensionSequenceHasNestedTerm(model)
-		if groupExtension {
+		inlineSpecialTerm = globalElementInline && sequenceExtension && (schemaInlineExtensionSequenceHasNestedTerm(model) || schemaInlineExtensionSequenceHasDirectGroup(model))
+		if groupExtension || sequenceExtension {
 			for _, child := range children {
 				if child.name.local == "attribute" {
-					groupedAttributes = true
+					groupedAttributes = groupExtension
+					sequenceDirectGroupWithAttributes = sequenceExtension && schemaInlineExtensionSequenceHasDirectGroup(model)
 					break
 				}
 			}
@@ -3174,7 +3176,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
 				particleErr = validateSupportedSequenceParticle(child, version)
-				if globalElementInline && !namedOwner {
+				if globalElementInline && !namedOwner && !sequenceDirectGroupWithAttributes {
 					particleErr = validateInlineExtensionSequenceParticle(child, version)
 				}
 			}
@@ -3220,8 +3222,8 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
 			}
-			if inlineNestedTerm && child.name.local == "attribute" {
-				candidate.considerAtVersion(child.loc, "inline extension nested term with attributes is not implemented", version)
+			if inlineSpecialTerm && child.name.local == "attribute" {
+				candidate.considerAtVersion(child.loc, "inline extension group or nested term with attributes is not implemented", version)
 			}
 		case "anyAttribute":
 			if anyAttributeSeen || assertSeen {
@@ -3284,6 +3286,19 @@ func schemaInlineExtensionSequenceHasNestedTerm(sequence *syntaxElement) bool {
 	for _, node := range sequence.children {
 		child, ok := node.(*syntaxElement)
 		if ok && child.name.namespace == xsdNamespaceURI && (child.name.local == "choice" || child.name.local == "sequence") {
+			return true
+		}
+	}
+	return false
+}
+
+func schemaInlineExtensionSequenceHasDirectGroup(sequence *syntaxElement) bool {
+	if sequence == nil {
+		return false
+	}
+	for _, node := range sequence.children {
+		child, ok := node.(*syntaxElement)
+		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == "group" {
 			return true
 		}
 	}
@@ -4007,7 +4022,7 @@ func validateChoiceParticleWithOptions(element *syntaxElement, version XSDVersio
 	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, allowOccurrences); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "choice", version, allowOccurrences, allowNamespacePolicy, false)
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "choice", version, allowOccurrences, allowNamespacePolicy, false, false)
 	if err != nil {
 		return err
 	}
@@ -4016,11 +4031,11 @@ func validateChoiceParticleWithOptions(element *syntaxElement, version XSDVersio
 }
 
 func validateModelParticleChildren(element *syntaxElement, model string, version XSDVersion) (schemaChildUnsupportedCandidate, error) {
-	return validateModelParticleChildrenWithOptions(element, model, version, false, false, false)
+	return validateModelParticleChildrenWithOptions(element, model, version, false, false, false, false)
 }
 
 //nolint:gocognit,funlen // Keep the supported direct-sequence grammar in the shared traversal.
-func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy, inlineExtensionNested bool) (schemaChildUnsupportedCandidate, error) {
+func validateModelParticleChildrenWithOptions(element *syntaxElement, model string, version XSDVersion, allowElementOccurrences, allowNamespacePolicy, inlineExtensionNested, inlineExtensionDirectGroup bool) (schemaChildUnsupportedCandidate, error) {
 	var candidate schemaChildUnsupportedCandidate
 	occurrences, err := schemaParticleOccurrenceRange(element, version)
 	if err != nil {
@@ -4031,6 +4046,9 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 	contentSeen := false
 	choiceSeen := false
 	sequenceSeen := false
+	directGroupSeen := false
+	var extraTermLoc Loc
+	termCount := 0
 	for _, node := range element.children {
 		textNode, ok := node.(syntaxText)
 		if ok {
@@ -4057,6 +4075,10 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 			continue
 		}
 		contentSeen = true
+		termCount++
+		if child.name.local != "group" && extraTermLoc.IsZero() {
+			extraTermLoc = child.loc
+		}
 		switch child.name.local {
 		case "element":
 			localCandidate, err := validateLocalElementParticle(child, version, allowElementOccurrences, model, allowNamespacePolicy, ownerOmitted)
@@ -4086,6 +4108,19 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 			}
 			candidate.considerAt(child.loc, model+" child <choice> is not implemented")
 		case "group", "sequence":
+			if inlineExtensionDirectGroup && model == "sequence" && child.name.local == "group" {
+				if err := stageSchemaCandidateError(&candidate, validateGroupParticleWithOptions(child, version, true)); err != nil {
+					return candidate, err
+				}
+				if termCount > 1 && !directGroupSeen {
+					extraTermLoc = syntaxAttributesByLocal(child, "ref")[0].loc
+				}
+				if directGroupSeen && extraTermLoc.IsZero() {
+					extraTermLoc = child.loc
+				}
+				directGroupSeen = true
+				continue
+			}
 			if inlineExtensionNested && model == "sequence" && child.name.local == "sequence" {
 				if err := stageSchemaCandidateError(&candidate, validateInlineExtensionNestedSequence(child, version)); err != nil {
 					return candidate, err
@@ -4134,6 +4169,9 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 			}
 			candidate.considerAt(child.loc, fmt.Sprintf("%s child <%s> is not implemented", model, child.name.local))
 		}
+	}
+	if directGroupSeen && termCount != 1 {
+		candidate.considerAtVersion(extraTermLoc, "inline extension direct group requires the sole outer sequence term", version)
 	}
 	return candidate, nil
 }
@@ -4812,7 +4850,7 @@ func validateSupportedSequenceParticle(element *syntaxElement, version XSDVersio
 	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true, false)
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true, false, false)
 	if err != nil {
 		return err
 	}
@@ -4825,7 +4863,7 @@ func validateInlineExtensionSequenceParticle(element *syntaxElement, version XSD
 	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
 		return err
 	}
-	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true, schemaInlineExtensionSequenceHasNestedTerm(element))
+	childrenCandidate, err := validateModelParticleChildrenWithOptions(element, "sequence", version, true, true, schemaInlineExtensionSequenceHasNestedTerm(element), true)
 	if err != nil {
 		return err
 	}

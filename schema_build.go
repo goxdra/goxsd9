@@ -1991,6 +1991,18 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 					sequence.particles = append(sequence.particles, nested)
 					continue
 				}
+				if child.name.local == "group" {
+					groupOccurrences, occurrenceErr := schemaParticleOccurrenceRange(child, version)
+					if occurrenceErr != nil {
+						return nil, occurrenceErr
+					}
+					group, groupErr := schemaModelGroupReferenceParticleInputFromElementWithFacts(child, groupOccurrences, facts)
+					if groupErr != nil {
+						return nil, groupErr
+					}
+					sequence.particles = append(sequence.particles, group)
+					continue
+				}
 				input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
 				if particleErr != nil {
 					return nil, particleErr
@@ -8885,6 +8897,16 @@ func resolveSchemaSequenceParticle(
 ) (Particle, error) {
 	particles := make([]Particle, 0, len(input.particles))
 	for _, termInput := range input.particles {
+		if group, ok := termInput.(*schemaModelGroupReferenceParticleInput); ok {
+			particle, err := resolveSchemaModelGroupReferenceParticle(group, owner, records, byName, visibleSources, version)
+			if err != nil {
+				return nil, err
+			}
+			if particle != nil && group.occurrences.mapsToParticle() {
+				particles = append(particles, particle)
+			}
+			continue
+		}
 		if choice, ok := termInput.(*schemaChoiceParticleInput); ok {
 			if choice == nil {
 				return nil, newSchemaBridgeInvariant(input.loc, "sequence has a nil nested choice input")

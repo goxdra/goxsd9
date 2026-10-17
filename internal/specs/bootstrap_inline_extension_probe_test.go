@@ -136,6 +136,43 @@ func inlineProbeAssertUnsupported(t *testing.T, id, source string, policy goxsd9
 	}
 }
 
+func inlineProbeAssertDirectGroup(t *testing.T, id, source string, policy goxsd9.LanguagePolicy, name, marker, bounds string) {
+	t.Helper()
+	schema, err := inlineProbeParse(t, id, source, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var owner goxsd9.ElementDeclaration
+	var target goxsd9.ModelGroupDefinition
+	for _, component := range schema.Components() {
+		if component.Name().Local() == "schema" {
+			owner, _ = component.Element()
+		}
+		if component.Name().Local() == name {
+			target, _ = component.ModelGroup()
+		}
+	}
+	inline, ok := owner.InlineComplexType()
+	if !ok || !inline.ID().IsZero() || target.ID().IsZero() {
+		t.Fatalf("direct group owner/target = %v/%v", inline, target)
+	}
+	outer, ok := inline.Particle().(goxsd9.SequenceParticle)
+	if !ok || outer.Occurrences().String() != "1/1" {
+		t.Fatalf("direct group outer = %v", inline.Particle())
+	}
+	terms := outer.Particles()
+	if bounds == "" {
+		if len(terms) != 0 {
+			t.Fatalf("zero direct group survived: %v", terms)
+		}
+		return
+	}
+	group, ok := terms[0].(goxsd9.ModelGroupReferenceParticle)
+	if len(terms) != 1 || !ok || group.TargetID() != target.ID() || group.Ref() != target.Name() || group.RefLoc() != inlineProbeLoc(t, id, source, marker) || group.Occurrences().String() != bounds {
+		t.Fatalf("direct group = %v", terms)
+	}
+}
+
 func inlineProbeAssertNestedChoice(t *testing.T, id, source string, policy goxsd9.LanguagePolicy) { //nolint:gocognit // Check the copied owner, base, wildcard, and ordered refs together.
 	t.Helper()
 	schema, err := inlineProbeParse(t, id, source, policy)
@@ -208,8 +245,8 @@ func TestPinnedInlineExtensionTermGate(t *testing.T) { //nolint:gocognit // Pair
 				inlineProbeAssertNestedChoice(t, edition.artifact+"-compat", root, goxsd9.Compatibility)
 			}
 			if edition.version == "1.1" {
-				inlineProbeAssertUnsupported(t, edition.artifact+"-projected", root, edition.policy, edition.marker, edition.specRef)
-				inlineProbeAssertUnsupported(t, edition.artifact+"-compat", root, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
+				inlineProbeAssertDirectGroup(t, edition.artifact+"-projected", root, edition.policy, "composition", edition.marker, "0/unbounded")
+				inlineProbeAssertDirectGroup(t, edition.artifact+"-compat", root, goxsd9.Compatibility, "composition", edition.marker, "0/unbounded")
 			}
 			namedStart := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="xs:openAttrs"><xs:sequence>`
 			namedEnd := `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`
@@ -238,7 +275,7 @@ func TestPinnedInlineExtensionTermGate(t *testing.T) { //nolint:gocognit // Pair
 				}
 			}
 			if edition.version == "1.1" {
-				inlineProbeAssertUnsupported(t, edition.artifact+"-zero", zero, edition.policy, edition.marker, edition.specRef)
+				inlineProbeAssertDirectGroup(t, edition.artifact+"-zero", zero, edition.policy, "composition", edition.marker, "")
 			}
 			invalidTerm := strings.Replace(term, `minOccurs="0"`, `minOccurs="-1"`, 1)
 			invalid := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, invalidTerm, end, group)
@@ -309,7 +346,7 @@ func TestPinnedInlineExtensionControlAndTermIsolation(t *testing.T) {
 				inlineProbeAssertNestedChoice(t, edition.artifact+"-term", projected, edition.policy)
 			}
 			if edition.version == "1.1" {
-				inlineProbeAssertUnsupported(t, edition.artifact+"-term", projected, edition.policy, marker, edition.specRef)
+				inlineProbeAssertDirectGroup(t, edition.artifact+"-term", projected, edition.policy, "composition", marker, "0/unbounded")
 			}
 		})
 	}
