@@ -19,7 +19,7 @@ precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`/`xs:unsignedLong`:
 built-ins use `StrictInteger`; named use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Named owners query ordered facet-free `xs:ID` uses; inline grouped/sequence extensions query selected atomic uses. Both consumers reject. Empty `block` overrides defaults for named empty complexes and untyped globals. Compatibility/Strict11 omit false untyped-global `inheritable`; local refs and consumers reject. Empty-complex `@type` rejects; extension-base refs resolve.
+Named owners query ordered facet-free `xs:ID` uses; inline grouped/sequence extensions query selected atomic uses. Consumers reject. Empty `block` overrides named empty complexes and untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals (including direct `xs:all`) and untyped globals; local refs and `ValidateInstance`/`GenerateGo` reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;

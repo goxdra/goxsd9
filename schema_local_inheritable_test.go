@@ -31,6 +31,9 @@ func TestLocalInheritableFalseMatchesOmissionOnSupportedOwners(t *testing.T) {
 		{"choice", func(attribute string) string {
 			return localInheritableDirect(`<xs:choice><xs:element name="item" type="xs:integer"/></xs:choice>` + attribute)
 		}},
+		{"all", func(attribute string) string {
+			return localInheritableDirect(`<xs:all><xs:element name="item" type="xs:integer"/></xs:all>` + attribute)
+		}},
 		{"sequence", func(attribute string) string {
 			return localInheritableDirect(`<xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence>` + attribute)
 		}},
@@ -173,6 +176,75 @@ func TestLocalInheritableFalseScalarAndOrderFacts(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Check the retained use order and all-particle facts together.
+func TestLocalInheritableFalseDirectAllOrderedFacts(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, spelling := range []string{"", ` inheritable="false"`, ` inheritable="0"`} {
+			t.Run(string(policy)+"/"+spelling, func(t *testing.T) {
+				attributes := `<xs:attribute name="first" type="xs:boolean" use="required"` + spelling + `/>` +
+					`<xs:attribute name="second" type="t:Named" inheritable=" &#x9;0&#xA; "/>` +
+					`<xs:attribute name="excluded" type="xs:integer" use="prohibited" inheritable="false"/>`
+				root := localInheritableSchema(localInheritableDirect(
+					`<xs:all minOccurs="0"><xs:element name="item" type="xs:integer" minOccurs="2" maxOccurs="18446744073709551616"/></xs:all>`+attributes),
+					`<xs:simpleType name="Named"><xs:restriction base="xs:decimal"/></xs:simpleType>`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				definition := requireTestComplexTypeDefinition(t, schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Record"))[0], "Record")
+				all, ok := definition.Particle().(AllParticle)
+				if !ok || all.Occurrences().String() != "0/1" || all.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:all minOccurs=`) {
+					t.Fatalf("all facts = %#v", definition.Particle())
+				}
+				members := all.Members()
+				if len(members) != 1 || members[0].Occurrences().String() != "2/18446744073709551616" || members[0].Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:element name="item"`) {
+					t.Fatalf("all members = %#v", members)
+				}
+				uses := definition.AttributeUses()
+				if len(uses) != 2 {
+					t.Fatalf("ordered uses = %#v", uses)
+				}
+				for index, name := range []string{"first", "second"} {
+					use, useOK := uses[index].(LocalAttributeUse)
+					if !useOK || use.Name() != mustTestQName(t, "urn:root", name) ||
+						use.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="`+name+`"`) ||
+						use.NameLoc() != elementReferenceTestAttributeLoc(t, root, `name="`+name+`"`) {
+						t.Fatalf("use %d = %#v", index, uses[index])
+					}
+				}
+				first, ok := uses[0].(LocalAttributeUse)
+				if !ok {
+					t.Fatalf("first use = %T", uses[0])
+				}
+				if first.Use() != AttributeUseRequired || first.UseLoc() != elementReferenceTestAttributeLoc(t, root, `use="required"`) ||
+					first.DeclaredType() != mustTestQName(t, testXSDNamespace, "boolean") || first.TypeLoc() != elementReferenceTestAttributeLoc(t, root, `type="xs:boolean"`) {
+					t.Fatalf("first facts = %#v", first)
+				}
+				second, ok := uses[1].(LocalAttributeUse)
+				if !ok {
+					t.Fatalf("second use = %T", uses[1])
+				}
+				if second.Use() != AttributeUseOptional || second.UseLoc() != (Loc{}) ||
+					second.DeclaredType() != mustTestQName(t, "urn:root", "Named") || second.TypeLoc() != elementReferenceTestAttributeLoc(t, root, `type="t:Named"`) {
+					t.Fatalf("second facts = %#v", second)
+				}
+				named := schema.FindKind(ComponentKindSimpleTypeDefinition, mustTestQName(t, "urn:root", "Named"))
+				if len(named) != 1 {
+					t.Fatalf("Named components = %d", len(named))
+				}
+				if id, hasID := second.TypeID(); !hasID || id != named[0].ID() {
+					t.Fatalf("named type identity = %v/%t", id, hasID)
+				}
+				uses[0] = nil
+				members[0] = nil
+				if len(definition.AttributeUses()) != 2 || definition.AttributeUses()[0] == nil || len(all.Members()) != 1 || all.Members()[0] == nil {
+					t.Fatal("mutation changed completed use or all facts")
+				}
+			})
+		}
+	}
+}
+
 //nolint:gocognit // Keep every excluded owner and lexical exit in one matrix.
 func TestLocalInheritableMalformedAndExcludedShapes(t *testing.T) {
 	ownerCases := []struct {
@@ -180,7 +252,9 @@ func TestLocalInheritableMalformedAndExcludedShapes(t *testing.T) {
 	}{
 		{"direct named", localInheritableDirect(`<xs:attribute name="flag" type="xs:boolean" inheritable="%s"/>`), ""},
 		{"direct anonymous inline", `<xs:element name="root"><xs:complexType><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:complexType></xs:element>`, ""},
+		{"direct all anonymous inline", `<xs:element name="root"><xs:complexType><xs:all/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:complexType></xs:element>`, ""},
 		{"direct all", localInheritableDirect(`<xs:all/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/>`), ""},
+		{"direct all ref", localInheritableDirect(`<xs:all/><xs:attribute ref="t:global" inheritable="%s"/>`), `<xs:attribute name="global" type="xs:boolean"/>`},
 		{"simpleContent extension", `<xs:complexType name="Record"><xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:extension></xs:simpleContent></xs:complexType>`, ""},
 		{"sequence extension", `<xs:complexType name="Record"><xs:complexContent><xs:extension base="t:Base"><xs:sequence/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:extension></xs:complexContent></xs:complexType>`, `<xs:complexType name="Base"/>`},
 		{"sequence extension anonymous inline", `<xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:sequence/><xs:attribute name="flag" type="xs:boolean" inheritable="%s"/></xs:extension></xs:complexContent></xs:complexType></xs:element>`, `<xs:complexType name="Base"/>`},
@@ -197,7 +271,7 @@ func TestLocalInheritableMalformedAndExcludedShapes(t *testing.T) {
 		}
 		for _, owner := range ownerCases {
 			for _, spelling := range []string{"maybe", "true", "1", "false", "0"} {
-				if (owner.name == "direct named" || owner.name == "grouped extension" || owner.name == "sequence extension") && (spelling == "false" || spelling == "0") && policy != Strict10 {
+				if (owner.name == "direct named" || owner.name == "direct all" || owner.name == "grouped extension" || owner.name == "sequence extension") && (spelling == "false" || spelling == "0") && policy != Strict10 {
 					continue
 				}
 				t.Run(string(policy)+"/"+owner.name+"/"+spelling, func(t *testing.T) {
@@ -209,11 +283,21 @@ func TestLocalInheritableMalformedAndExcludedShapes(t *testing.T) {
 					assertZeroSchema(t, schema)
 					d := requireDiagnostic(t, err)
 					wantLoc := elementReferenceTestAttributeLoc(t, root, `inheritable="`+spelling+`"`)
+					if owner.name == "direct all anonymous inline" && policy != Strict10 && spelling != "maybe" {
+						wantLoc = elementReferenceTestAttributeLoc(t, root, `<xs:all/>`)
+					}
 					if d.Loc() != wantLoc {
 						t.Fatalf("primary Loc = %s, want %s: %v", d.Loc(), wantLoc, err)
 					}
 					if len(d.Related()) != 0 {
 						t.Fatalf("related Locs = %v, want none", d.Related())
+					}
+					if owner.name == "direct all anonymous inline" && policy != Strict10 && spelling != "maybe" {
+						if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode ||
+							d.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:all/>`) || !errors.Is(err, ErrUnsupported) {
+							t.Fatalf("anonymous all owner diagnostic = %v", err)
+						}
+						return
 					}
 					if spelling == "maybe" {
 						cause := errors.Unwrap(d)
@@ -263,6 +347,38 @@ func TestLocalInheritableFalseConsumersMatchOmission(t *testing.T) {
 				t.Fatalf("generation = %q/%v", generated, err)
 			}
 		})
+	}
+}
+
+//nolint:gocognit // Compare both consumers across editions and spellings.
+func TestLocalInheritableFalseDirectAllConsumersMatchOmission(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, spelling := range []string{"", ` inheritable="false"`, ` inheritable="0"`} {
+			t.Run(string(policy)+"/"+spelling, func(t *testing.T) {
+				root := localInheritableSchema(localInheritableDirect(
+					`<xs:all><xs:element name="item" type="xs:integer"/></xs:all>`+localInheritableUse(spelling)),
+					`<xs:element name="root" type="t:Record"/>`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				instanceErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<t:root xmlns:t="urn:root"><t:item>1</t:item></t:root>`)))
+				instanceDiagnostic := requireDiagnostic(t, instanceErr)
+				if instanceDiagnostic.Class() != FailureUnsupported || instanceDiagnostic.Code() != UnsupportedInstanceValidationCode ||
+					instanceDiagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="flag"`) ||
+					instanceDiagnostic.SpecRef() != instanceValidationSpecRef(XSDVersion11) || !errors.Is(instanceErr, errInstanceAttributes) {
+					t.Fatalf("direct all validation = %v", instanceErr)
+				}
+				output, generationErr := GenerateGo(schema, "generated")
+				generationDiagnostic := requireDiagnostic(t, generationErr)
+				if output != nil || generationDiagnostic.Class() != FailureUnsupported || generationDiagnostic.Code() != diagnosticCodegenUnsupported ||
+					generationDiagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="flag"`) ||
+					generationDiagnostic.SpecRef() != codegenDirectSequenceSpecReference(XSDVersion11, codegenDirectSequenceParticlesReference) ||
+					!errors.Is(generationErr, errCodegenUnsupported) {
+					t.Fatalf("direct all generation = %q/%v", output, generationErr)
+				}
+			})
+		}
 	}
 }
 
@@ -327,35 +443,50 @@ func TestLocalInheritableFalseGraphDiscoveryAndVisibility(t *testing.T) {
 func TestLocalInheritableFalseBoundaryDiagnostics(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		version := XSDVersion11
-		for _, tc := range []struct {
-			name, attributes, declarations, marker, related string
-			code                                            string
-			cause                                           error
-			spec                                            string
-		}{
-			{"duplicate effective name", `<xs:attribute name="flag" type="xs:boolean" inheritable="false"/><xs:attribute name="flag" type="xs:integer"/>`, "", `<xs:attribute name="flag" type="xs:integer"`, `<xs:attribute name="flag" type="xs:boolean"`, diagnosticSchemaAttributeUseDuplicateCode, errSchemaAttributeUseDuplicate, schemaAttributeUseSpecRef(version)},
-			{"duplicate global type", `<xs:attribute name="flag" type="t:Named" inheritable="false"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType name="Named" id="second"><xs:restriction base="xs:integer"/></xs:simpleType>`, `<xs:simpleType name="Named" id="second"`, `<xs:simpleType name="Named"><xs:restriction`, diagnosticSchemaGlobalDuplicateCode, errSchemaGlobalDeclarationDuplicate, schemaGlobalDuplicateSpecRef(version)},
-			{"unresolved type", `<xs:attribute name="flag" type="t:Missing" inheritable="0"/>`, "", `type="t:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, errSchemaAttributeTypeUnresolved, schemaAttributeTypeSpecRef(version)},
-			{"wrong kind type", `<xs:attribute name="flag" type="t:Wrong" inheritable="false"/>`, `<xs:element name="Wrong" type="xs:integer"/>`, `type="t:Wrong"`, `<xs:element name="Wrong"`, diagnosticSchemaAttributeTypeWrongKindCode, errSchemaAttributeTypeWrongKind, schemaAttributeTypeSpecRef(version)},
-			{"prohibited unresolved", `<xs:attribute name="flag" type="t:Missing" use="prohibited" inheritable="false"/>`, "", `type="t:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, errSchemaAttributeTypeUnresolved, schemaAttributeTypeSpecRef(version)},
-		} {
-			t.Run(string(policy)+"/"+tc.name, func(t *testing.T) {
-				root := localInheritableSchema(localInheritableDirect(tc.attributes), tc.declarations)
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-				if err == nil {
-					t.Fatal("invalid boundary accepted")
-				}
-				assertZeroSchema(t, schema)
-				d := requireDiagnostic(t, err)
-				wantRelated := []Loc(nil)
-				if tc.related != "" {
-					wantRelated = []Loc{elementReferenceTestAttributeLoc(t, root, tc.related)}
-				}
-				if d.Class() != FailureInvalid || d.Code() != tc.code || d.Loc() != elementReferenceTestAttributeLoc(t, root, tc.marker) ||
-					!reflect.DeepEqual(d.Related(), wantRelated) || d.SpecRef() != tc.spec || !errors.Is(err, tc.cause) {
-					t.Fatalf("boundary diagnostic = %v related=%v wantRelated=%v spec=%q wantSpec=%q loc=%s wantLoc=%s cause=%t", err, d.Related(), wantRelated, d.SpecRef(), tc.spec, d.Loc(), elementReferenceTestAttributeLoc(t, root, tc.marker), errors.Is(err, tc.cause))
-				}
-			})
+		for _, owner := range []struct {
+			name, model string
+		}{{"empty", ""}, {"all", `<xs:all><xs:element name="item" type="xs:integer"/></xs:all>`}} {
+			for _, tc := range []struct {
+				name, attributes, declarations, marker, related string
+				code                                            string
+				cause                                           error
+				spec                                            string
+			}{
+				{"duplicate effective name", `<xs:attribute name="flag" type="xs:boolean" inheritable="false"/><xs:attribute name="flag" type="xs:integer"/>`, "", `<xs:attribute name="flag" type="xs:integer"`, `<xs:attribute name="flag" type="xs:boolean"`, diagnosticSchemaAttributeUseDuplicateCode, errSchemaAttributeUseDuplicate, schemaAttributeUseSpecRef(version)},
+				{"duplicate global type", `<xs:attribute name="flag" type="t:Named" inheritable="false"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType name="Named" id="second"><xs:restriction base="xs:integer"/></xs:simpleType>`, `<xs:simpleType name="Named" id="second"`, `<xs:simpleType name="Named"><xs:restriction`, diagnosticSchemaGlobalDuplicateCode, errSchemaGlobalDeclarationDuplicate, schemaGlobalDuplicateSpecRef(version)},
+				{"unresolved type", `<xs:attribute name="flag" type="t:Missing" inheritable="0"/>`, "", `type="t:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, errSchemaAttributeTypeUnresolved, schemaAttributeTypeSpecRef(version)},
+				{"wrong kind type", `<xs:attribute name="flag" type="t:Wrong" inheritable="false"/>`, `<xs:element name="Wrong" type="xs:integer"/>`, `type="t:Wrong"`, `<xs:element name="Wrong"`, diagnosticSchemaAttributeTypeWrongKindCode, errSchemaAttributeTypeWrongKind, schemaAttributeTypeSpecRef(version)},
+				{"prohibited unresolved", `<xs:attribute name="flag" type="t:Missing" use="prohibited" inheritable="false"/>`, "", `type="t:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, errSchemaAttributeTypeUnresolved, schemaAttributeTypeSpecRef(version)},
+				{"duplicate inheritable", `<xs:attribute name="flag" type="xs:boolean" inheritable="false" inheritable="0"/>`, "", `inheritable="0"`, "", InvalidXMLSyntaxCode, nil, ""},
+				{"invalid use", `<xs:attribute name="flag" type="xs:boolean" inheritable="false" use="sometimes"/>`, "", `use="sometimes"`, "", invalidSchemaCompositionCode, nil, schemaAttributeUseSpecRef(version)},
+				{"ref type conflict", `<xs:attribute ref="t:global" type="xs:boolean" inheritable="false"/>`, "", `ref="t:global"`, "", invalidSchemaCompositionCode, nil, schemaAttributeUseSpecRef(version)},
+			} {
+				t.Run(string(policy)+"/"+owner.name+"/"+tc.name, func(t *testing.T) {
+					root := localInheritableSchema(localInheritableDirect(owner.model+tc.attributes), tc.declarations)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+					if err == nil {
+						t.Fatal("invalid boundary accepted")
+					}
+					assertZeroSchema(t, schema)
+					d := requireDiagnostic(t, err)
+					wantRelated := []Loc(nil)
+					if tc.related != "" {
+						wantRelated = []Loc{elementReferenceTestAttributeLoc(t, root, tc.related)}
+					}
+					causeOK := tc.cause != nil && errors.Is(err, tc.cause)
+					if tc.cause == nil {
+						causeOK = errors.Unwrap(d) == nil
+					}
+					relatedOK := len(wantRelated) == 0 && len(d.Related()) == 0
+					if len(wantRelated) > 0 {
+						relatedOK = reflect.DeepEqual(d.Related(), wantRelated)
+					}
+					if d.Class() != FailureInvalid || d.Code() != tc.code || d.Loc() != elementReferenceTestAttributeLoc(t, root, tc.marker) ||
+						!relatedOK || d.SpecRef() != tc.spec || !causeOK {
+						t.Fatalf("boundary diagnostic = %v related=%v wantRelated=%v spec=%q wantSpec=%q loc=%s wantLoc=%s causeOK=%t", err, d.Related(), wantRelated, d.SpecRef(), tc.spec, d.Loc(), elementReferenceTestAttributeLoc(t, root, tc.marker), causeOK)
+					}
+				})
+			}
 		}
 	}
 }
