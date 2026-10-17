@@ -4030,7 +4030,7 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 	annotationSeen := false
 	contentSeen := false
 	choiceSeen := false
-	sequenceSeen := false
+	sequenceCount := 0
 	for _, node := range element.children {
 		textNode, ok := node.(syntaxText)
 		if ok {
@@ -4075,7 +4075,7 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 				if choiceSeen {
 					candidate.considerAtVersion(child.loc, "multiple nested choices in an inline extension sequence are not implemented", version)
 				}
-				if sequenceSeen {
+				if sequenceCount > 0 {
 					candidate.considerAtVersion(child.loc, "inline extension nested choice must precede the nested sequence", version)
 				}
 				choiceSeen = true
@@ -4090,10 +4090,10 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 				if err := stageSchemaCandidateError(&candidate, validateInlineExtensionNestedSequence(child, version)); err != nil {
 					return candidate, err
 				}
-				if sequenceSeen {
-					candidate.considerAtVersion(child.loc, "multiple nested sequences in an inline extension sequence are not implemented", version)
+				sequenceCount++
+				if sequenceCount > 2 || choiceSeen && sequenceCount > 1 {
+					candidate.considerAtVersion(child.loc, "inline extension permits two nested sequences or one choice followed by one sequence", version)
 				}
-				sequenceSeen = true
 				continue
 			}
 			if err := validateUnsupportedParticle(child, version); err != nil {

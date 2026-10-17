@@ -122,7 +122,7 @@ func TestInlineExtensionNestedSequenceExcludedShapes(t *testing.T) { //nolint:go
 			{"deeper sequence", `<xs:sequence><xs:group ref="t:Target"/><xs:sequence><xs:element ref="t:annotation"/></xs:sequence></xs:sequence>`, inlineNestedTargets, `<xs:sequence><xs:element ref="t:annotation"`},
 			{"reversed", `<xs:sequence><xs:element ref="t:annotation"/><xs:group ref="t:Target"/></xs:sequence>`, inlineNestedTargets, `<xs:element ref="t:annotation"`},
 			{"group bounds", `<xs:sequence><xs:group ref="t:Target" minOccurs="0"/><xs:element ref="t:annotation"/></xs:sequence>`, inlineNestedTargets, `<xs:group ref="t:Target"`},
-			{"second sequence", inlineNestedSequence + inlineNestedSequence, inlineNestedTargets, `<xs:sequence minOccurs="0"`},
+			{"third sequence", inlineNestedSequence + inlineNestedSequence + inlineNestedSequence, inlineNestedTargets, `<xs:sequence minOccurs="0"`},
 			{"later choice", inlineNestedSequence + `<xs:choice><xs:element ref="t:first"/></xs:choice>`, inlineNestedTargets, `<xs:choice>`},
 		} {
 			for _, zero := range []bool{false, true} {
@@ -139,7 +139,7 @@ func TestInlineExtensionNestedSequenceExcludedShapes(t *testing.T) { //nolint:go
 					assertZeroSchema(t, schema)
 					diagnostic := requireDiagnostic(t, err)
 					loc := complexContentTestLoc(t, root, test.marker)
-					if test.name == "second sequence" {
+					if test.name == "third sequence" {
 						loc = namedGroupLastLoc(t, root, test.marker)
 					}
 					if test.name == "wildcard" {
