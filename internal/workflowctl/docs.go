@@ -39,7 +39,7 @@ var documentRules = []documentRule{
 	{path: "docs/decisions/0007-particle-occurrence.md", charter: "exact particle occurrence representation contract", maxLines: 220, maxWords: 2200},
 	{path: "docs/decisions/0008-precision-decimal-instance-evidence.md", charter: "precisionDecimal instance evidence classification and ownership contract", maxLines: 180, maxWords: 1500},
 	{path: "docs/decisions/0009-grouped-extension-attributes.md", charter: "grouped extension and local attribute composition contract", maxLines: 240, maxWords: 2250},
-	{path: "docs/operations.md", charter: "scheduler and operator contract", maxLines: 60, maxWords: 525},
+	{path: "docs/operations.md", charter: "scheduler and operator contract", maxLines: 70, maxWords: 650},
 }
 
 func (a app) runDocs(args []string) error {
@@ -90,6 +90,9 @@ func (a app) checkDocs(root string, report bool) error {
 		if err := checkDocument(filepath.Join(root, filepath.FromSlash(rule.path)), rule); err != nil {
 			return err
 		}
+	}
+	if err := checkDocumentHeadingLinks(root, documentRules); err != nil {
+		return err
 	}
 	if err := validateSkills(root); err != nil {
 		return err
