@@ -62,11 +62,11 @@ Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
 Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
 Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Global-element inline extensions over empty named bases (`##other`/`lax` `anyType`) query sole outer-sequence group ref, ref-only choice, nested group-then-element sequence, or both choice-first. Facts/wildcard persist; attribution follows resolution.
+Global-element inline extensions over supported empty named bases (`##other`/`lax` `anyType`) query sole outer-sequence group ref, ref-only choice, nested group-then-element sequence, or both choice-first. Facts/wildcard persist; attribution follows resolution.
 Direct-group form rejects siblings, deeper nesting, content wildcards, locals, and attributes.
 Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
-wildcard/`all` reject. Cycles XSD3062. Named group-only consumers use `RefLoc`; inline validation uses instance root, generation first unsupported component.
+wildcard/`all` reject. Cycles XSD3062. Named group-only consumers use `RefLoc`; inline validation: instance root, generation first unsupported component.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
 `0/0` omits; anonymous complex members/consumers reject.
