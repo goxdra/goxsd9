@@ -453,10 +453,12 @@
 // to two nested sequences of a default 1/1 group ref followed by an element
 // ref, or a choice followed by one sequence. These keep exact occurrences,
 // ordered resolved targets, source locations, and the inherited base wildcard;
-// refs and base cycles are checked before 0/0 omission. Broader nested
+// pair overlaps with inconsistent types fail XSD3063, proven ambiguity fails
+// XSD3064, and other overlap gets located unsupported attribution diagnostics.
+// Refs and base cycles are checked before 0/0 omission. Broader nested
 // sequences, direct nested groups, wildcards, local declarations, deeper
 // nesting, other owners, and attributes combined with these forms reject.
-// Validation and generation reject the admitted extension.
+// ValidateInstance rejects the admitted extension. GenerateGo also rejects it.
 // Named sequences and their one nested choice retain explicitly typed built-in
 // or named atomic integer/string/token local elements with copied type facts,
 // QName, source location, and exact bounds. Chameleon unprefixed named type
