@@ -3458,7 +3458,7 @@ func directNamedComplexAttributeOwner(parent *syntaxElement) bool {
 		return true
 	}
 	switch model.name.local {
-	case "choice", "group", "sequence":
+	case "all", "choice", "group", "sequence":
 		return true
 	default:
 		return false
