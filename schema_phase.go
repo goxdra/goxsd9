@@ -4046,9 +4046,6 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 	contentSeen := false
 	choiceSeen := false
 	sequenceSeen := false
-	directGroupSeen := false
-	var extraTermLoc Loc
-	termCount := 0
 	for _, node := range element.children {
 		textNode, ok := node.(syntaxText)
 		if ok {
@@ -4075,10 +4072,6 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 			continue
 		}
 		contentSeen = true
-		termCount++
-		if child.name.local != "group" && extraTermLoc.IsZero() {
-			extraTermLoc = child.loc
-		}
 		switch child.name.local {
 		case "element":
 			localCandidate, err := validateLocalElementParticle(child, version, allowElementOccurrences, model, allowNamespacePolicy, ownerOmitted)
@@ -4112,13 +4105,6 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 				if err := stageSchemaCandidateError(&candidate, validateGroupParticleWithOptions(child, version, true)); err != nil {
 					return candidate, err
 				}
-				if termCount > 1 && !directGroupSeen {
-					extraTermLoc = syntaxAttributesByLocal(child, "ref")[0].loc
-				}
-				if directGroupSeen && extraTermLoc.IsZero() {
-					extraTermLoc = child.loc
-				}
-				directGroupSeen = true
 				continue
 			}
 			if inlineExtensionNested && model == "sequence" && child.name.local == "sequence" {
@@ -4169,9 +4155,6 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 			}
 			candidate.considerAt(child.loc, fmt.Sprintf("%s child <%s> is not implemented", model, child.name.local))
 		}
-	}
-	if directGroupSeen && termCount != 1 {
-		candidate.considerAtVersion(extraTermLoc, "inline extension direct group requires the sole outer sequence term", version)
 	}
 	return candidate, nil
 }

@@ -6729,7 +6729,7 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBody(body *schemaComp
 		}
 		particle = resolvedParticle
 	}
-	if err := resolver.rejectInlineDirectGroupAttributes(body, owner, ownerIndex); err != nil {
+	if err := resolver.validateExcludedInlineDirectGroupTarget(body, owner); err != nil {
 		return nil, err
 	}
 	attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version)
@@ -6738,6 +6738,9 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBody(body *schemaComp
 	}
 	base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
 	if err != nil {
+		return nil, err
+	}
+	if err := resolver.rejectInlineDirectGroupExcludedShape(body, owner); err != nil {
 		return nil, err
 	}
 	return &schemaComplexTypeExtensionBodyResult{
@@ -6750,29 +6753,111 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBody(body *schemaComp
 	}, nil
 }
 
-// The excluded inline combination still resolves its group and base first.
-func (resolver *schemaComplexTypeResolver) rejectInlineDirectGroupAttributes(body *schemaComplexTypeExtensionBodyInput, owner schemaComponentRecord, ownerIndex int) error {
-	if owner.element == nil || owner.element.inlineComplexType == nil || len(body.attributeUses) == 0 {
+func (resolver *schemaComplexTypeResolver) validateExcludedInlineDirectGroupTarget(body *schemaComplexTypeExtensionBodyInput, owner schemaComponentRecord) error {
+	if owner.element == nil || owner.element.inlineComplexType == nil {
 		return nil
 	}
 	sequence, ok := body.particle.(*schemaSequenceParticleInput)
-	if !ok || len(sequence.particles) != 1 {
-		return nil
-	}
-	group, ok := sequence.particles[0].(*schemaModelGroupReferenceParticleInput)
 	if !ok {
 		return nil
 	}
-	if group == nil || group.reference == nil {
-		return newSchemaBridgeInvariant(body.extensionLoc, "inline direct-group extension has no reference input")
-	}
-	if _, _, err := resolver.resolveExtensionBase(body.base, ownerIndex); err != nil {
+	group, siblingLoc, err := schemaInlineDirectGroupShape(sequence)
+	if err != nil || group == nil {
 		return err
+	}
+	if siblingLoc.IsZero() && len(body.attributeUses) == 0 {
+		return nil
+	}
+	if group.reference == nil {
+		return newSchemaBridgeInvariant(body.extensionLoc, "excluded inline direct group has no reference input")
+	}
+	target, err := schemaModelGroupReferenceTarget(group, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+	if err != nil {
+		return err
+	}
+	groups := schemaModelGroupResolver{
+		records: resolver.records, byName: resolver.byName, visibleSources: resolver.visibleSources,
+		simpleTypes: resolver.simpleTypes, version: resolver.version,
+		results: make([]schemaModelGroupResult, len(resolver.records)),
+		states:  make([]uint8, len(resolver.records)),
+	}
+	return groups.visit(target, Loc{})
+}
+
+// Excluded inline combinations are refused only after their references resolve.
+func (resolver *schemaComplexTypeResolver) rejectInlineDirectGroupExcludedShape(body *schemaComplexTypeExtensionBodyInput, owner schemaComponentRecord) error {
+	if owner.element == nil || owner.element.inlineComplexType == nil {
+		return nil
+	}
+	sequence, ok := body.particle.(*schemaSequenceParticleInput)
+	if !ok {
+		return nil
+	}
+	group, siblingLoc, err := schemaInlineDirectGroupShape(sequence)
+	if err != nil || group == nil {
+		return err
+	}
+	if !siblingLoc.IsZero() {
+		diagnostic := newSchemaSyntaxUnsupportedForVersion(siblingLoc, "inline extension direct group requires the sole outer sequence term", resolver.version)
+		diagnostic.specRef = schemaComplexParticleExtensionSpecRef(resolver.version)
+		return diagnostic
+	}
+	if len(body.attributeUses) == 0 {
+		return nil
+	}
+	if group.reference == nil {
+		return newSchemaBridgeInvariant(body.extensionLoc, "inline direct-group extension has no reference input")
 	}
 	diagnostic := newSchemaSyntaxUnsupportedForVersion(group.reference.loc, "inline extension direct group with attributes is not implemented", resolver.version)
 	diagnostic.specRef = schemaComplexParticleExtensionSpecRef(resolver.version)
 	diagnostic.related = []Loc{body.attributeUses[0].loc}
 	return diagnostic
+}
+
+func schemaInlineDirectGroupShape(sequence *schemaSequenceParticleInput) (*schemaModelGroupReferenceParticleInput, Loc, error) { //nolint:gocognit // Preserve the lexical sibling location while classifying the one scoped group shape.
+	var firstGroup *schemaModelGroupReferenceParticleInput
+	var firstNonGroup, secondGroup Loc
+	for _, term := range sequence.particles {
+		group, ok := term.(*schemaModelGroupReferenceParticleInput)
+		if ok {
+			if firstGroup == nil {
+				firstGroup = group
+				continue
+			}
+			if secondGroup.IsZero() {
+				secondGroup = group.loc
+			}
+			continue
+		}
+		if firstNonGroup.IsZero() {
+			loc, err := schemaParticleTermInputLoc(term)
+			if err != nil {
+				return nil, Loc{}, err
+			}
+			firstNonGroup = loc
+		}
+	}
+	if firstGroup == nil {
+		return nil, Loc{}, nil
+	}
+	if !firstNonGroup.IsZero() {
+		return firstGroup, firstNonGroup, nil
+	}
+	return firstGroup, secondGroup, nil
+}
+
+func schemaParticleTermInputLoc(term schemaParticleTermInput) (Loc, error) {
+	switch value := term.(type) {
+	case schemaElementParticleInput:
+		return value.loc, nil
+	case schemaWildcardParticleInput:
+		return value.loc, nil
+	case *schemaChoiceParticleInput:
+		return value.loc, nil
+	case *schemaSequenceParticleInput:
+		return value.loc, nil
+	}
+	return Loc{}, newSchemaBridgeInvariant(Loc{}, "inline sequence has an unknown term input")
 }
 
 func (resolver *schemaComplexTypeResolver) resolveGroupedExtensionBody(

@@ -232,7 +232,7 @@ func schemaGroupNonAmbiguousSpecRef(version XSDVersion) string {
 
 // validateSchemaInlineDirectGroupProof checks attribution only for the newly
 // admitted sole direct group term after all named groups have been resolved.
-func validateSchemaInlineDirectGroupProof(records []schemaComponentRecord, byName map[QName][]int, visibleSources map[SourceID][]SourceID, groups []schemaModelGroupResult, version XSDVersion) error { //nolint:gocognit // Narrow post-resolution boundary selects only the admitted owner and term.
+func validateSchemaInlineDirectGroupProof(records []schemaComponentRecord, byName map[QName][]int, visibleSources map[SourceID][]SourceID, groups []schemaModelGroupResult, elements []schemaElementTypeResult, version XSDVersion) error { //nolint:gocognit // Narrow post-resolution boundary selects only the admitted owner and term.
 	for _, record := range records {
 		if record.element == nil || record.element.inlineComplexType == nil {
 			continue
@@ -256,24 +256,27 @@ func validateSchemaInlineDirectGroupProof(records []schemaComponentRecord, byNam
 		if targetIndex >= len(groups) || !groups[targetIndex].present {
 			return newSchemaBridgeInvariant(group.loc, "direct group target has no resolved model")
 		}
-		if err := proveSchemaInlineDirectGroup(group, groups[targetIndex].particle, records, groups, version); err != nil {
+		if err := proveSchemaInlineDirectGroup(sequence, group, groups[targetIndex].particle, records, groups, elements, version); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func proveSchemaInlineDirectGroup(input *schemaModelGroupReferenceParticleInput, target Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, version XSDVersion) error {
+func proveSchemaInlineDirectGroup(sequence *schemaSequenceParticleInput, input *schemaModelGroupReferenceParticleInput, target Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, elements []schemaElementTypeResult, version XSDVersion) error {
 	if target == nil {
 		return nil
 	}
 	proof := schemaInlineGroupProof{
-		input: input, records: records, groups: groups, version: version,
-		indices: make(map[ComponentID]int), memo: make(map[ComponentID]schemaInlineGroupSummary), active: make(map[ComponentID]bool),
+		input: input, records: records, groups: groups, elements: elements, version: version,
+		indices: make(map[ComponentID]int), elementIndices: make(map[ComponentID]int), memo: make(map[ComponentID]schemaInlineGroupSummary), active: make(map[ComponentID]bool),
 	}
 	for index, record := range records {
 		if record.modelGroup != nil {
 			proof.indices[record.id] = index
+		}
+		if record.element != nil {
+			proof.elementIndices[record.id] = index
 		}
 	}
 	summary, err := proof.summarize(target)
@@ -282,6 +285,9 @@ func proveSchemaInlineDirectGroup(input *schemaModelGroupReferenceParticleInput,
 	}
 	if input.occurrences.mapsToParticle() && !input.occurrences.isDefault() && !summary.one {
 		return proof.unsupported(target.Loc(), "repeated direct group requires unimplemented boundary attribution proof")
+	}
+	if input.occurrences.mapsToParticle() && sequence.occurrences.maximum.String() != "0" && sequence.occurrences.maximum.String() != "1" && !summary.one {
+		return proof.unsupported(sequence.loc, "repeated outer sequence requires unimplemented boundary attribution proof")
 	}
 	return nil
 }
@@ -296,14 +302,16 @@ type schemaInlineGroupSummary struct {
 }
 
 type schemaInlineGroupProof struct {
-	input   *schemaModelGroupReferenceParticleInput
-	records []schemaComponentRecord
-	groups  []schemaModelGroupResult
-	version XSDVersion
-	indices map[ComponentID]int
-	memo    map[ComponentID]schemaInlineGroupSummary
-	active  map[ComponentID]bool
-	work    int
+	input          *schemaModelGroupReferenceParticleInput
+	records        []schemaComponentRecord
+	groups         []schemaModelGroupResult
+	elements       []schemaElementTypeResult
+	version        XSDVersion
+	indices        map[ComponentID]int
+	elementIndices map[ComponentID]int
+	memo           map[ComponentID]schemaInlineGroupSummary
+	active         map[ComponentID]bool
+	work           int
 }
 
 const schemaInlineGroupProofWorkLimit = 8192
@@ -425,7 +433,14 @@ func (proof *schemaInlineGroupProof) summarizeChoice(term ChoiceParticle) (schem
 						specRef: schemaGroupNonAmbiguousSpecRef(proof.version), cause: errSchemaInlineDirectGroupAmbiguous,
 					}
 				}
-				if proof.maySubstitute(first, later) {
+				overlap, memberLoc, err := proof.matchOverlap(first, later)
+				if err != nil {
+					return schemaInlineGroupSummary{}, err
+				}
+				if overlap == schemaInlineMatchProven {
+					return schemaInlineGroupSummary{}, proof.ambiguousChoice(later, first, memberLoc)
+				}
+				if overlap == schemaInlineMatchUncertain {
 					return schemaInlineGroupSummary{}, newSchemaInlineDirectGroupAttributionDiagnostic(proof.input, first, later, proof.version)
 				}
 			}
@@ -489,8 +504,14 @@ func (proof *schemaInlineGroupProof) mergeAll(summary *schemaInlineGroupSummary,
 				matched = true
 				continue
 			}
-			if sequence && proof.maySubstitute(first, later) {
-				return newSchemaInlineDirectGroupAttributionDiagnostic(proof.input, first, later, proof.version)
+			if sequence {
+				overlap, _, err := proof.matchOverlap(first, later)
+				if err != nil {
+					return err
+				}
+				if overlap != schemaInlineMatchNone {
+					return newSchemaInlineDirectGroupAttributionDiagnostic(proof.input, first, later, proof.version)
+				}
 			}
 		}
 		if !matched {
@@ -500,8 +521,114 @@ func (proof *schemaInlineGroupProof) mergeAll(summary *schemaInlineGroupSummary,
 	return nil
 }
 
-func (proof *schemaInlineGroupProof) maySubstitute(first, later schemaGroupLeaf) bool {
-	return schemaGroupSubstitutionMayMatch(proof.records, first.name, later.name) || schemaGroupSubstitutionMayMatch(proof.records, later.name, first.name)
+type schemaInlineMatch uint8
+
+const (
+	schemaInlineMatchNone schemaInlineMatch = iota
+	schemaInlineMatchUncertain
+	schemaInlineMatchProven
+)
+
+func (proof *schemaInlineGroupProof) ambiguousChoice(later, first schemaGroupLeaf, member Loc) Diagnostic {
+	related := []Loc{first.loc, proof.input.reference.loc}
+	if !member.IsZero() {
+		related = append(related, member)
+	}
+	return Diagnostic{
+		class: FailureInvalid, code: "XSD3064", loc: later.loc, related: related,
+		message: "choice alternatives compete for the same element",
+		specRef: schemaGroupNonAmbiguousSpecRef(proof.version), cause: errSchemaInlineDirectGroupAmbiguous,
+	}
+}
+
+// matchOverlap scans resolved concrete declarations in discovery order. An
+// affiliation with unproved effective matching remains an explicit boundary.
+func (proof *schemaInlineGroupProof) matchOverlap(first, later schemaGroupLeaf) (schemaInlineMatch, Loc, error) { //nolint:gocognit // Compare concrete resolved members in declaration order with one proof budget.
+	if len(proof.elements) != len(proof.records) {
+		return schemaInlineMatchNone, Loc{}, newSchemaBridgeInvariant(proof.input.loc, "inline group proof has incomplete element results")
+	}
+	var uncertain Loc
+	for index, record := range proof.records {
+		if err := proof.charge(record.loc); err != nil {
+			return schemaInlineMatchNone, Loc{}, err
+		}
+		if record.element == nil || (!first.local && !later.local && proof.elements[index].abstract) {
+			continue
+		}
+		firstMatch, err := proof.matchLeaf(index, first)
+		if err != nil {
+			return schemaInlineMatchNone, Loc{}, err
+		}
+		if firstMatch == schemaInlineMatchNone {
+			continue
+		}
+		laterMatch, err := proof.matchLeaf(index, later)
+		if err != nil {
+			return schemaInlineMatchNone, Loc{}, err
+		}
+		if laterMatch == schemaInlineMatchNone {
+			continue
+		}
+		if first.local || later.local {
+			return schemaInlineMatchUncertain, record.loc, nil
+		}
+		if firstMatch == schemaInlineMatchProven && laterMatch == schemaInlineMatchProven {
+			return schemaInlineMatchProven, record.loc, nil
+		}
+		if uncertain.IsZero() {
+			uncertain = record.loc
+		}
+	}
+	if !uncertain.IsZero() {
+		return schemaInlineMatchUncertain, uncertain, nil
+	}
+	return schemaInlineMatchNone, Loc{}, nil
+}
+
+func (proof *schemaInlineGroupProof) matchLeaf(index int, leaf schemaGroupLeaf) (schemaInlineMatch, error) { //nolint:gocognit // Bounded affiliation traversal distinguishes blocked, certain, and uncertain paths.
+	if leaf.local {
+		if proof.records[index].name == leaf.name {
+			return schemaInlineMatchProven, nil
+		}
+		return schemaInlineMatchNone, nil
+	}
+	type path struct {
+		index     int
+		uncertain bool
+	}
+	pending := []path{{index: index}}
+	result := schemaInlineMatchNone
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if err := proof.charge(proof.records[current.index].loc); err != nil {
+			return schemaInlineMatchNone, err
+		}
+		if proof.records[current.index].name == leaf.name {
+			if !current.uncertain {
+				return schemaInlineMatchProven, nil
+			}
+			result = schemaInlineMatchUncertain
+			continue
+		}
+		affiliations := proof.elements[current.index].substitutionGroup
+		for affiliationIndex := len(affiliations) - 1; affiliationIndex >= 0; affiliationIndex-- {
+			affiliation := affiliations[affiliationIndex]
+			if err := proof.charge(affiliation.loc); err != nil {
+				return schemaInlineMatchNone, err
+			}
+			target, ok := proof.elementIndices[affiliation.targetID]
+			if !ok {
+				return schemaInlineMatchNone, newSchemaBridgeInvariant(affiliation.loc, "resolved substitution target is missing")
+			}
+			if proof.elements[target].block.set&schemaBlockSubstitution != 0 {
+				continue
+			}
+			uncertain := current.uncertain || proof.elements[current.index].declaredType != proof.elements[target].declaredType || proof.elements[target].block.set != 0
+			pending = append(pending, path{index: target, uncertain: uncertain})
+		}
+	}
+	return result, nil
 }
 
 func newSchemaInlineDirectGroupAttributionDiagnostic(input *schemaModelGroupReferenceParticleInput, first, later schemaGroupLeaf, version XSDVersion) Diagnostic {

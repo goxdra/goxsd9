@@ -3494,7 +3494,7 @@ func resolveSchemaBuildResults(
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
-	if err := validateSchemaInlineDirectGroupProof(records, byName, visibleSources, modelGroups, version); err != nil {
+	if err := validateSchemaInlineDirectGroupProof(records, byName, visibleSources, modelGroups, elements, version); err != nil {
 		return schemaBuildResolution{}, err
 	}
 	if err := validateSchemaModelGroupLocalOverlaps(records, modelGroups, version); err != nil {

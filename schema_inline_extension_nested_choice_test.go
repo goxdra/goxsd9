@@ -432,7 +432,7 @@ func TestInlineExtensionSecondNestedChoiceBoundary(t *testing.T) { //nolint:goco
 	}
 }
 
-func TestInlineExtensionChoiceLaterSequenceAndGroupStayExcluded(t *testing.T) {
+func TestInlineExtensionChoiceLaterSequenceAndGroupBoundary(t *testing.T) { //nolint:gocognit // The missing group reference is checked before this excluded sibling shape.
 	choice := `<xs:choice minOccurs="0" maxOccurs="0"><xs:element ref="t:first"/></xs:choice>`
 	for _, profile := range nestedGroupChoiceProfiles {
 		for _, test := range []struct{ name, later, marker string }{
@@ -448,6 +448,12 @@ func TestInlineExtensionChoiceLaterSequenceAndGroupStayExcluded(t *testing.T) {
 				assertZeroSchema(t, schema)
 				diagnostic := requireDiagnostic(t, err)
 				wantLoc := complexContentTestLoc(t, root, test.marker)
+				if test.name == "later group" {
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaModelGroupReferenceUnresolvedCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != schemaModelGroupReferenceSpecRef(profile.factVersion) || len(diagnostic.Related()) != 0 || !errors.Is(err, errSchemaModelGroupReferenceUnresolved) {
+						t.Fatalf("later group reference = %v; related=%v, spec=%q", err, diagnostic.Related(), diagnostic.SpecRef())
+					}
+					return
+				}
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != schemaComplexParticleExtensionSpecRef(profile.factVersion) || len(diagnostic.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("later %s = %v; related=%v, spec=%q", test.name, err, diagnostic.Related(), diagnostic.SpecRef())
 				}
