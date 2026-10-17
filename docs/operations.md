@@ -44,9 +44,11 @@ base for signals/audit/evidence; avoid `origin/main` and merge-base.
 `[text](#fragment)` when the target is a registered managed document. Paths
 resolve from the source directory; fragments may use URL escapes. Plain ATX
 headings (`#` through `######`, at most three leading spaces) get lowercase
-anchors: letters/digits and `_`/`-` remain, whitespace becomes `-`, other
-characters drop, and collisions receive `-1`, `-2`, etc. Fenced/indented code,
-same-line inline code, and HTML comments do not supply headings or links.
+anchors: Unicode letters/digits/marks and `_`/`-` remain; whitespace becomes
+`-`, other characters drop, and collisions receive `-1`, `-2`, etc.
+Fenced/indented code and HTML comments do not supply headings or links.
+Text in same-line inline code contributes to an ATX heading anchor but supplies
+no links.
 Reference links and link titles/angle destinations are not checked. Setext
 headings and HTML IDs do not supply anchors. Other Markdown syntax is outside
 this check. It performs no network lookup.

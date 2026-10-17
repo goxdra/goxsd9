@@ -12,12 +12,13 @@ import (
 func TestDocumentHeadingLinksResolveRelativeAndNormalizedAnchors(t *testing.T) {
 	root := t.TempDir()
 	rules := []documentRule{{path: "README.md"}, {path: "docs/decisions/decision.md"}}
-	writeTestDocument(t, root, "README.md", "# Home\n## Résumé: `Go` & XML!\n## More, Markup! ###\n## Repeat\n## Repeat\n## Repeat-1\n## Repeat\n")
+	writeTestDocument(t, root, "README.md", "# Home\n## Résumé: `Go` & XML!\n## Cafe\u0301 `Code`\n## More, Markup! ###\n## Repeat\n## Repeat\n## Repeat-1\n## Repeat\n")
 	writeTestDocument(t, root, "docs/decisions/decision.md", strings.Join([]string{
 		"[home](../../README.md#home)",
 		"[clean path](../.././README.md#home)",
 		"[normalized](../../README.md#résumé-go--xml)",
 		"[encoded](../../README.md#r%C3%A9sum%C3%A9-go--xml)",
+		"[decomposed and code](../../README.md#cafe%CC%81-code)",
 		"[closing marks](../../README.md#more-markup)",
 		"[duplicate](../../README.md#repeat-1)",
 		"[collision](../../README.md#repeat-2)",
