@@ -518,6 +518,7 @@ func writeTestDocument(t *testing.T, root, path, content string) {
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
 		t.Fatalf("create document directory: %v", err)
 	}
+	// #nosec G703 -- fixture paths are supplied by tests below their temporary roots.
 	if err := os.WriteFile(fullPath, []byte(content), 0o600); err != nil {
 		t.Fatalf("write document: %v", err)
 	}

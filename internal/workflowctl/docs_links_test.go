@@ -1,0 +1,181 @@
+package workflowctl
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestDocumentHeadingLinksResolveRelativeAndNormalizedAnchors(t *testing.T) {
+	root := t.TempDir()
+	rules := []documentRule{{path: "README.md"}, {path: "docs/decisions/decision.md"}}
+	writeTestDocument(t, root, "README.md", "# Home\n## Résumé: `Go` & XML!\n## More, Markup! ###\n## Repeat\n## Repeat\n## Repeat-1\n## Repeat\n")
+	writeTestDocument(t, root, "docs/decisions/decision.md", strings.Join([]string{
+		"[home](../../README.md#home)",
+		"[clean path](../.././README.md#home)",
+		"[normalized](../../README.md#résumé-go--xml)",
+		"[encoded](../../README.md#r%C3%A9sum%C3%A9-go--xml)",
+		"[closing marks](../../README.md#more-markup)",
+		"[duplicate](../../README.md#repeat-1)",
+		"[collision](../../README.md#repeat-2)",
+		"[same](#decision)",
+		"# Decision",
+	}, "\n")+"\n")
+	if err := checkDocumentHeadingLinks(root, rules); err != nil {
+		t.Fatalf("checkDocumentHeadingLinks: %v", err)
+	}
+}
+
+func TestDocumentHeadingLinksReportStaleRenameAndPassRepair(t *testing.T) {
+	root := t.TempDir()
+	rules := []documentRule{{path: "ARCHITECTURE.md"}, {path: "docs/decisions/0006.md"}}
+	writeTestDocument(t, root, "ARCHITECTURE.md", "# Architecture\n## Input and resolution\n")
+	writeTestDocument(t, root, "docs/decisions/0006.md", "# Decision\n\nSee [resolution](../../ARCHITECTURE.md#input-and-resolution).\n")
+	if err := checkDocumentHeadingLinks(root, rules); err != nil {
+		t.Fatalf("original heading: %v", err)
+	}
+	writeTestDocument(t, root, "ARCHITECTURE.md", "# Architecture\n## Resolution\n")
+	err := checkDocumentHeadingLinks(root, rules)
+	for _, want := range []string{"DOCS001", "docs/decisions/0006.md:3", "#input-and-resolution", "ARCHITECTURE.md"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("renamed heading error = %v, want %q", err, want)
+		}
+	}
+	writeTestDocument(t, root, "docs/decisions/0006.md", "# Decision\n\nSee [resolution](../../ARCHITECTURE.md#resolution).\n")
+	if err := checkDocumentHeadingLinks(root, rules); err != nil {
+		t.Fatalf("repaired link: %v", err)
+	}
+}
+
+func TestDocumentHeadingLinksIgnoreCodeAndUnsupportedShapes(t *testing.T) {
+	root := t.TempDir()
+	rules := []documentRule{{path: "README.md"}, {path: "docs/target.md"}}
+	writeTestDocument(t, root, "docs/target.md", strings.Join([]string{
+		"# Target",
+		"Setext heading",
+		"==============",
+		"<a id=\"html-id\"></a>",
+		"```md",
+		"## Fake backtick",
+		"```",
+		"~~~md",
+		"## Fake tilde",
+		"~~~",
+		"<!--",
+		"## Fake comment",
+		"-->",
+		"    ## Fake indent",
+	}, "\n")+"\n")
+	writeTestDocument(t, root, "README.md", strings.Join([]string{
+		"# Source",
+		"`[code](docs/target.md#missing)` [real](docs/target.md#target)",
+		"```md",
+		"[fenced](docs/target.md#missing)",
+		"```",
+		"~~~md",
+		"[fenced](docs/target.md#missing)",
+		"~~~",
+		"<!-- [comment](docs/target.md#missing) -->",
+		"    [indented](docs/target.md#missing)",
+		"![image](docs/target.md#missing)",
+		"[reference][id]",
+		"[id]: docs/target.md#missing",
+		"[title](docs/target.md#missing \"title\")",
+		"[angle](<docs/target.md#missing>)",
+		"[external](https://example.test/docs/target.md#missing)",
+		"[other](docs/other.md#missing)",
+	}, "\n")+"\n")
+	if err := checkDocumentHeadingLinks(root, rules); err != nil {
+		t.Fatalf("excluded syntax: %v", err)
+	}
+	for _, anchor := range []string{"fake-backtick", "fake-tilde", "fake-comment", "fake-indent", "setext-heading", "html-id"} {
+		writeTestDocument(t, root, "README.md", "# Source\n[probe](docs/target.md#"+anchor+")\n")
+		err := checkDocumentHeadingLinks(root, rules)
+		if err == nil || !strings.Contains(err.Error(), "DOCS001 README.md:2") {
+			t.Fatalf("excluded heading %q error = %v", anchor, err)
+		}
+	}
+}
+
+func TestDocumentHeadingLinksErrorOrderAndCause(t *testing.T) {
+	root := t.TempDir()
+	rules := []documentRule{{path: "README.md"}, {path: "docs/target.md"}}
+	writeTestDocument(t, root, "README.md", "# Source\n[second](docs/target.md#second) [first](docs/target.md#first)\n")
+	writeTestDocument(t, root, "docs/target.md", "# Target\n")
+	for attempt := 0; attempt < 3; attempt++ {
+		err := checkDocumentHeadingLinks(root, rules)
+		if err == nil || !strings.Contains(err.Error(), `DOCS001 README.md:2: heading fragment "#second"`) {
+			t.Fatalf("attempt %d: first error = %v", attempt, err)
+		}
+	}
+	writeTestDocument(t, root, "README.md", "# Source\n[malformed](docs/target.md#bad%escape)\n")
+	err := checkDocumentHeadingLinks(root, rules)
+	if err == nil || !strings.Contains(err.Error(), "DOCS002 README.md:2") || !strings.Contains(err.Error(), "#bad%escape") {
+		t.Fatalf("malformed fragment error = %v", err)
+	}
+	if removeErr := os.Remove(filepath.Join(root, "docs", "target.md")); removeErr != nil {
+		t.Fatalf("remove target: %v", removeErr)
+	}
+	err = checkDocumentHeadingLinks(root, rules)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read error = %v, want preserved missing-file cause", err)
+	}
+}
+
+func TestDocumentHeadingLinksCommentMarkerInsideCodeDoesNotHideLink(t *testing.T) {
+	root := t.TempDir()
+	rules := []documentRule{{path: "README.md"}, {path: "docs/target.md"}}
+	writeTestDocument(t, root, "README.md", "# Source\n`<!--` [live](docs/target.md#missing)\n")
+	writeTestDocument(t, root, "docs/target.md", "# Target\n")
+	err := checkDocumentHeadingLinks(root, rules)
+	if err == nil || !strings.Contains(err.Error(), `DOCS001 README.md:2: heading fragment "#missing"`) {
+		t.Fatalf("link after code marker error = %v", err)
+	}
+}
+
+func TestCheckDocsChecksCanonicalAndRejectsStaleDecisionLink(t *testing.T) {
+	root := t.TempDir()
+	runGitTest(t, root, "init", "-b", "main")
+	sourceRoot := filepath.Join("..", "..")
+	for _, rule := range documentRules {
+		// #nosec G304 -- rules are fixed repository-managed document paths.
+		contents, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(rule.path)))
+		if err != nil {
+			t.Fatalf("read fixture %s: %v", rule.path, err)
+		}
+		writeTestDocument(t, root, rule.path, string(contents))
+	}
+	for _, name := range []string{"backlog", "develop", "retro"} {
+		source := filepath.Join(sourceRoot, ".agents", "skills", name, "agents", "openai.yaml")
+		// #nosec G304 -- names are fixed skill fixture paths.
+		contents, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatalf("read skill metadata: %v", err)
+		}
+		writeTestDocument(t, root, filepath.Join(".agents", "skills", name, "agents", "openai.yaml"), string(contents))
+	}
+	application := app{ctx: context.Background()}
+	if err := application.checkDocs(root, false); err != nil {
+		t.Fatalf("canonical docs check: %v", err)
+	}
+	architecture := filepath.Join(root, "ARCHITECTURE.md")
+	// #nosec G304 -- architecture is a fixed path below this test's temporary directory.
+	contents, err := os.ReadFile(architecture)
+	if err != nil {
+		t.Fatalf("read architecture: %v", err)
+	}
+	contents = []byte(strings.Replace(string(contents), "## Resolution\n", "## Renamed resolution\n", 1))
+	// #nosec G703 -- architecture is a fixed path below this test's temporary directory.
+	if writeErr := os.WriteFile(architecture, contents, 0o600); writeErr != nil {
+		t.Fatalf("rename heading: %v", writeErr)
+	}
+	err = application.checkDocs(root, false)
+	for _, want := range []string{"DOCS001", "docs/decisions/0006-vertical-slice-cli.md:319", "#resolution", "ARCHITECTURE.md"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("docs check after rename = %v, want %q", err, want)
+		}
+	}
+}
