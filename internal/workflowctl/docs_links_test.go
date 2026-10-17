@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,6 +135,53 @@ func TestDocumentHeadingLinksCommentMarkerInsideCodeDoesNotHideLink(t *testing.T
 	err := checkDocumentHeadingLinks(root, rules)
 	if err == nil || !strings.Contains(err.Error(), `DOCS001 README.md:2: heading fragment "#missing"`) {
 		t.Fatalf("link after code marker error = %v", err)
+	}
+}
+
+func TestDocumentHeadingLinksCommentClosureBeforeIndentedCode(t *testing.T) {
+	tests := []struct {
+		name     string
+		block    string
+		linkLine int
+	}{
+		{name: "space-indented closer", block: "<!-- comment\n    -->\n", linkLine: 5},
+		{name: "tab-indented closer", block: "<!-- comment\n\t-->\n", linkLine: 5},
+		{name: "unindented closer", block: "<!-- comment\n-->\n", linkLine: 5},
+		{name: "indented continuation then closer", block: "<!-- comment\n    still comment\n-->\n", linkLine: 6},
+		{name: "fence inside comment", block: "<!-- comment\n    ```\n    -->\n", linkLine: 6},
+		{name: "comment markers inside fence", block: "```md\n<!-- comment\n    -->\n```\n", linkLine: 7},
+		{name: "space-indented code opener", block: "    <!-- comment\n", linkLine: 4},
+		{name: "tab-indented code opener", block: "\t<!-- comment\n", linkLine: 4},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			rules := []documentRule{{path: "README.md"}}
+			content := "# Source\n" + test.block + "\n[stale](#missing)\n## Present\n"
+			writeTestDocument(t, root, "README.md", content)
+			err := checkDocumentHeadingLinks(root, rules)
+			want := fmt.Sprintf(`DOCS001 README.md:%d: heading fragment "#missing"`, test.linkLine)
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("stale link error = %v, want %q", err, want)
+			}
+			writeTestDocument(t, root, "README.md", strings.Replace(content, "#missing", "#present", 1))
+			if err := checkDocumentHeadingLinks(root, rules); err != nil {
+				t.Fatalf("repaired link error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDocumentHeadingLinksIndentedCommentCloserRemainsCode(t *testing.T) {
+	for _, closer := range []string{"    -->", "\t-->"} {
+		t.Run(fmt.Sprintf("%q", closer), func(t *testing.T) {
+			root := t.TempDir()
+			content := "# Source\n<!-- comment\n" + closer + " [hidden](#missing)\n[real](#present)\n## Present\n"
+			writeTestDocument(t, root, "README.md", content)
+			if err := checkDocumentHeadingLinks(root, []documentRule{{path: "README.md"}}); err != nil {
+				t.Fatalf("indented closer line supplied a link: %v", err)
+			}
+		})
 	}
 }
 

@@ -98,16 +98,21 @@ func (parser *documentHeadingParser) visibleLine(line string) (string, bool) {
 		}
 		return "", false
 	}
+	if parser.htmlComment {
+		visible := maskDocumentComments(line, &parser.htmlComment)
+		if isIndentedCode(line) {
+			return "", false
+		}
+		return visible, true
+	}
 	if isIndentedCode(line) {
 		return "", false
 	}
-	if !parser.htmlComment {
-		if char, length, ok := openingFence(line); ok {
-			parser.fenceChar = char
-			parser.fenceLength = length
-			_, parser.fenceContext, _ = markdownFencePrefix(line)
-			return "", false
-		}
+	if char, length, ok := openingFence(line); ok {
+		parser.fenceChar = char
+		parser.fenceLength = length
+		_, parser.fenceContext, _ = markdownFencePrefix(line)
+		return "", false
 	}
 	return maskDocumentComments(line, &parser.htmlComment), true
 }
