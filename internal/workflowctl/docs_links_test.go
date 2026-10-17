@@ -185,27 +185,98 @@ func TestDocumentHeadingLinksIndentedCommentCloserRemainsCode(t *testing.T) {
 	}
 }
 
-func TestCheckDocsChecksCanonicalAndRejectsStaleDecisionLink(t *testing.T) {
+func TestDocumentHeadingLinksInlineCodeBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+	}{
+		{name: "literal backslash before closer", line: "`C:\\` [stale](#missing) `tail`"},
+		{name: "literal comment marker and backslash", line: "`<!-- C:\\` [stale](#missing) `tail`"},
+		{name: "equal single runs hide code link", line: "`[hidden](#hidden)` [stale](#missing)"},
+		{name: "equal double runs skip shorter run", line: "``[hidden](#hidden)` more`` [stale](#missing)"},
+		{name: "equal double runs skip longer run", line: "``[hidden](#hidden)``` more`` [stale](#missing)"},
+		{name: "escaped opener odd slash", line: "\\`[stale](#missing)`"},
+		{name: "opener even slashes", line: "\\\\`[hidden](#hidden)` [stale](#missing)"},
+		{name: "unmatched opener remains text", line: "`[stale](#missing)"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertDocumentHeadingLinkRepair(t, "# Source\n"+test.line+"\n## Present\n", 2)
+		})
+	}
+}
+
+func TestDocumentHeadingLinksFenceBoundaries(t *testing.T) {
+	tests := []struct {
+		name  string
+		block string
+	}{
+		{name: "backtick info", block: "```md\n[hidden](#hidden)\n## Fake\n```\n"},
+		{name: "tilde info with backticks", block: "~~~ md```literal\n[hidden](#hidden)\n## Fake\n~~~\n"},
+		{name: "longer closer", block: "```md\n[hidden](#hidden)\n## Fake\n````\n"},
+		{name: "short closer stays content", block: "````md\n[hidden](#hidden)\n## Fake\n```\n[hidden2](#hidden2)\n````\n"},
+		{name: "wrong-character closer stays content", block: "```md\n[hidden](#hidden)\n## Fake\n~~~\n[hidden2](#hidden2)\n```\n"},
+		{name: "trailing-text closer stays content", block: "```md\n[hidden](#hidden)\n## Fake\n``` trailing\n[hidden2](#hidden2)\n```\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			content := "# Source\n" + test.block + "[stale](#missing)\n## Present\n"
+			linkLine := 2 + strings.Count(test.block, "\n")
+			assertDocumentHeadingLinkRepair(t, content, linkLine)
+			root := t.TempDir()
+			writeTestDocument(t, root, "README.md", strings.Replace(content, "[stale](#missing)", "[probe](#fake)", 1))
+			err := checkDocumentHeadingLinks(root, []documentRule{{path: "README.md"}})
+			if err == nil || !strings.Contains(err.Error(), fmt.Sprintf(`DOCS001 README.md:%d: heading fragment "#fake"`, linkLine)) {
+				t.Fatalf("fenced heading error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDocumentHeadingLinksRejectInvalidBacktickFenceInfo(t *testing.T) {
+	for _, opener := range []string{"```literal```", "```<!--```"} {
+		t.Run(opener, func(t *testing.T) {
+			assertDocumentHeadingLinkRepair(t, "# Source\n"+opener+"\n[stale](#missing)\n## Present\n", 3)
+		})
+	}
+}
+
+func TestDocumentHeadingLinksUnclosedValidFence(t *testing.T) {
+	for _, opener := range []string{"```md", "~~~ md```literal"} {
+		t.Run(opener, func(t *testing.T) {
+			root := t.TempDir()
+			rules := []documentRule{{path: "README.md"}, {path: "docs/source.md"}}
+			writeTestDocument(t, root, "README.md", "# Source\n"+opener+"\n[hidden](#missing)\n## Fake\n")
+			writeTestDocument(t, root, "docs/source.md", "[probe](../README.md#fake)\n")
+			err := checkDocumentHeadingLinks(root, rules)
+			if err == nil || !strings.Contains(err.Error(), `DOCS001 docs/source.md:1: heading fragment "#fake"`) {
+				t.Fatalf("unclosed fence heading error = %v", err)
+			}
+		})
+	}
+}
+
+func assertDocumentHeadingLinkRepair(t *testing.T, content string, linkLine int) {
+	t.Helper()
 	root := t.TempDir()
-	runGitTest(t, root, "init", "-b", "main")
-	sourceRoot := filepath.Join("..", "..")
-	for _, rule := range documentRules {
-		// #nosec G304 -- rules are fixed repository-managed document paths.
-		contents, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(rule.path)))
-		if err != nil {
-			t.Fatalf("read fixture %s: %v", rule.path, err)
-		}
-		writeTestDocument(t, root, rule.path, string(contents))
+	rules := []documentRule{{path: "README.md"}}
+	writeTestDocument(t, root, "README.md", content)
+	err := checkDocumentHeadingLinks(root, rules)
+	want := fmt.Sprintf(`DOCS001 README.md:%d: heading fragment "#missing"`, linkLine)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("stale link error = %v, want %q", err, want)
 	}
-	for _, name := range []string{"backlog", "develop", "retro"} {
-		source := filepath.Join(sourceRoot, ".agents", "skills", name, "agents", "openai.yaml")
-		// #nosec G304 -- names are fixed skill fixture paths.
-		contents, err := os.ReadFile(source)
-		if err != nil {
-			t.Fatalf("read skill metadata: %v", err)
-		}
-		writeTestDocument(t, root, filepath.Join(".agents", "skills", name, "agents", "openai.yaml"), string(contents))
+	if strings.Count(content, "[stale](#missing)") != 1 {
+		t.Fatalf("fixture has %d stale links, want 1", strings.Count(content, "[stale](#missing)"))
 	}
+	writeTestDocument(t, root, "README.md", strings.Replace(content, "[stale](#missing)", "[stale](#present)", 1))
+	if err := checkDocumentHeadingLinks(root, rules); err != nil {
+		t.Fatalf("repaired link error = %v", err)
+	}
+}
+
+func TestCheckDocsChecksCanonicalAndRejectsStaleDecisionLink(t *testing.T) {
+	root := newManagedDocsCheckFixture(t)
 	application := app{ctx: context.Background()}
 	if err := application.checkDocs(root, false); err != nil {
 		t.Fatalf("canonical docs check: %v", err)
@@ -227,4 +298,62 @@ func TestCheckDocsChecksCanonicalAndRejectsStaleDecisionLink(t *testing.T) {
 			t.Fatalf("docs check after rename = %v, want %q", err, want)
 		}
 	}
+}
+
+func TestCheckDocsReportsInlineBoundaryFailures(t *testing.T) {
+	tests := []struct {
+		name     string
+		addition string
+		linkLine int
+	}{
+		{name: "backtick fence info", addition: "\n```literal```\n[stale](#missing)\n## Present\n", linkLine: 34},
+		{name: "literal slash in code span", addition: "\n`C:\\` [stale](#missing) `tail`\n## Present\n", linkLine: 33},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := newManagedDocsCheckFixture(t)
+			path := filepath.Join(root, "docs", "decisions", "0001-foundations.md")
+			// #nosec G304 -- path is a fixed managed document below the temporary fixture root.
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read fixture: %v", err)
+			}
+			writeTestDocument(t, root, "docs/decisions/0001-foundations.md", string(data)+test.addition)
+			application := app{ctx: context.Background()}
+			err = application.checkDocs(root, false)
+			want := fmt.Sprintf(`DOCS001 docs/decisions/0001-foundations.md:%d: heading fragment "#missing"`, test.linkLine)
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("docs check error = %v, want %q", err, want)
+			}
+			writeTestDocument(t, root, "docs/decisions/0001-foundations.md", strings.Replace(string(data)+test.addition, "[stale](#missing)", "[stale](#present)", 1))
+			if err := application.checkDocs(root, false); err != nil {
+				t.Fatalf("repaired docs check: %v", err)
+			}
+		})
+	}
+}
+
+func newManagedDocsCheckFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	runGitTest(t, root, "init", "-b", "main")
+	sourceRoot := filepath.Join("..", "..")
+	for _, rule := range documentRules {
+		// #nosec G304 -- rules are fixed repository-managed document paths.
+		contents, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(rule.path)))
+		if err != nil {
+			t.Fatalf("read fixture %s: %v", rule.path, err)
+		}
+		writeTestDocument(t, root, rule.path, string(contents))
+	}
+	for _, name := range []string{"backlog", "develop", "retro"} {
+		source := filepath.Join(sourceRoot, ".agents", "skills", name, "agents", "openai.yaml")
+		// #nosec G304 -- names are fixed skill fixture paths.
+		contents, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatalf("read skill metadata: %v", err)
+		}
+		writeTestDocument(t, root, filepath.Join(".agents", "skills", name, "agents", "openai.yaml"), string(contents))
+	}
+	return root
 }

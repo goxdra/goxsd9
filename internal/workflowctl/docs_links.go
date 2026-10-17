@@ -108,13 +108,25 @@ func (parser *documentHeadingParser) visibleLine(line string) (string, bool) {
 	if isIndentedCode(line) {
 		return "", false
 	}
-	if char, length, ok := openingFence(line); ok {
+	if char, length, ok := documentOpeningFence(line); ok {
 		parser.fenceChar = char
 		parser.fenceLength = length
 		_, parser.fenceContext, _ = markdownFencePrefix(line)
 		return "", false
 	}
 	return maskDocumentComments(line, &parser.htmlComment), true
+}
+
+func documentOpeningFence(line string) (byte, int, bool) {
+	char, length, ok := openingFence(line)
+	if !ok || char != '`' {
+		return char, length, ok
+	}
+	offset, _, ok := markdownFencePrefix(line)
+	if !ok || strings.ContainsRune(line[offset+length:], '`') {
+		return 0, 0, false
+	}
+	return char, length, true
 }
 
 func (parser *documentHeadingParser) addHeading(heading string) {
@@ -250,7 +262,7 @@ func maskDocumentCodeSpans(line string) string {
 
 func documentCodeSpanEnd(line string, start, length int) int {
 	for candidate := start; candidate < len(line); candidate++ {
-		if line[candidate] != '`' || documentEscaped(line, candidate) {
+		if line[candidate] != '`' {
 			continue
 		}
 		after := documentBacktickRunEnd(line, candidate)
