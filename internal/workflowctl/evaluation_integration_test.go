@@ -1373,7 +1373,7 @@ func TestCurrentStateReviewAuditMismatchVariantsRejectBeforeChallengeMutation(t 
 		curator  curatorResult
 		want     string
 	}{
-		{name: "omitted", triggers: nil, curator: noCuratorResult("evaluated-head"), want: "exact current PR diff"},
+		{name: "omitted", triggers: nil, curator: noCuratorResult("evaluated-head"), want: "currentStateReviewTriggers must be JSON arrays"},
 		{name: "stale", triggers: []string{"old.go"}, curator: testPassingCurator("evaluated-head"), want: "exact current PR diff"},
 		{name: "forged workflow path", triggers: []string{"internal/workflowctl/forged.go"}, curator: testPassingCurator("evaluated-head"), want: "classifiable"},
 		{name: "mismatched", triggers: []string{"other.go"}, curator: testPassingCurator("evaluated-head"), want: "exact current PR diff"},
@@ -1401,7 +1401,7 @@ func TestCurrentStateReviewAuditMismatchRejectsEvidenceUpdate(t *testing.T) {
 		curator  curatorResult
 		want     string
 	}{
-		{name: "update omitted", triggers: nil, curator: noCuratorResult("evaluated-head"), want: "exact current PR diff"},
+		{name: "update omitted", triggers: nil, curator: noCuratorResult("evaluated-head"), want: "currentStateReviewTriggers must be JSON arrays"},
 		{name: "update stale", triggers: []string{"old.go"}, curator: testPassingCurator("evaluated-head"), want: "exact current PR diff"},
 		{name: "update forged", triggers: []string{"internal/workflowctl/forged.go"}, curator: testPassingCurator("evaluated-head"), want: "classifiable"},
 	}
