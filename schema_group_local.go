@@ -263,73 +263,245 @@ func validateSchemaInlineDirectGroupProof(records []schemaComponentRecord, byNam
 	return nil
 }
 
-func proveSchemaInlineDirectGroup(input *schemaModelGroupReferenceParticleInput, target Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, version XSDVersion) error { //nolint:gocognit // Compare target leaves in lexical order with substitution visibility.
+func proveSchemaInlineDirectGroup(input *schemaModelGroupReferenceParticleInput, target Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, version XSDVersion) error {
 	if target == nil {
 		return nil
 	}
-	// The target graph was already checked for cycles. Mark every target as
-	// local-bearing so the leaf walk visits repeated references separately.
-	visitEveryReference := make(map[ComponentID]bool)
-	for _, record := range records {
+	proof := schemaInlineGroupProof{
+		input: input, records: records, groups: groups, version: version,
+		indices: make(map[ComponentID]int), memo: make(map[ComponentID]schemaInlineGroupSummary), active: make(map[ComponentID]bool),
+	}
+	for index, record := range records {
 		if record.modelGroup != nil {
-			visitEveryReference[record.id] = true
+			proof.indices[record.id] = index
 		}
 	}
-	var leaves []schemaGroupLeaf
-	if err := walkSchemaGroupLeaves(target, records, groups, Loc{}, visitEveryReference, make(map[ComponentID]bool), func(leaf schemaGroupLeaf) error {
-		leaves = append(leaves, leaf)
+	summary, err := proof.summarize(target)
+	if err != nil {
+		return err
+	}
+	if input.occurrences.mapsToParticle() && !input.occurrences.isDefault() && !summary.one {
+		return proof.unsupported(target.Loc(), "repeated direct group requires unimplemented boundary attribution proof")
+	}
+	return nil
+}
+
+// These summaries live only for this proof. Keeping one summary per named group
+// bounds shared reference DAGs without changing the opaque public particles.
+type schemaInlineGroupSummary struct {
+	first    []schemaGroupLeaf
+	all      []schemaGroupLeaf
+	nullable bool
+	one      bool
+}
+
+type schemaInlineGroupProof struct {
+	input   *schemaModelGroupReferenceParticleInput
+	records []schemaComponentRecord
+	groups  []schemaModelGroupResult
+	version XSDVersion
+	indices map[ComponentID]int
+	memo    map[ComponentID]schemaInlineGroupSummary
+	active  map[ComponentID]bool
+	work    int
+}
+
+const schemaInlineGroupProofWorkLimit = 8192
+
+func (proof *schemaInlineGroupProof) charge(loc Loc) error {
+	proof.work++
+	if proof.work <= schemaInlineGroupProofWorkLimit {
 		return nil
-	}); err != nil {
-		return err
 	}
-	if err := validateSchemaInlineDirectGroupChoiceOverlap(input, target, records, groups, visitEveryReference, version); err != nil {
-		return err
+	return proof.unsupported(loc, "direct group attribution proof exceeds the supported work bound")
+}
+
+func (proof *schemaInlineGroupProof) unsupported(loc Loc, message string) error {
+	diagnostic := newSchemaSyntaxUnsupportedForVersion(proof.input.reference.loc, message, proof.version)
+	if !loc.IsZero() && loc != proof.input.reference.loc {
+		diagnostic.related = []Loc{loc}
 	}
-	for laterIndex, later := range leaves {
-		for _, first := range leaves[:laterIndex] {
+	diagnostic.specRef = schemaGroupNonAmbiguousSpecRef(proof.version)
+	return diagnostic
+}
+
+func (proof *schemaInlineGroupProof) summarize(particle Particle) (schemaInlineGroupSummary, error) {
+	if err := proof.charge(particle.Loc()); err != nil {
+		return schemaInlineGroupSummary{}, err
+	}
+	switch term := particle.(type) {
+	case ElementParticle:
+		if term.facts == nil {
+			return schemaInlineGroupSummary{}, newSchemaBridgeInvariant(Loc{}, "model-group local element has no facts")
+		}
+		leaf := schemaGroupLeaf{name: term.Name(), declaredType: term.DeclaredType(), loc: term.Loc(), local: true}
+		return schemaInlineGroupSummary{first: []schemaGroupLeaf{leaf}, all: []schemaGroupLeaf{leaf}, nullable: term.Occurrences().Minimum().Sign() == 0, one: term.Occurrences().IsDefault()}, nil
+	case ElementReferenceParticle:
+		if term.facts == nil {
+			return schemaInlineGroupSummary{}, newSchemaBridgeInvariant(Loc{}, "model-group element reference has no facts")
+		}
+		index := schemaGroupRecordByID(proof.records, term.TargetID())
+		if index < 0 || proof.records[index].element == nil {
+			return schemaInlineGroupSummary{}, newSchemaBridgeInvariant(term.RefLoc(), "model-group element reference target has no element input")
+		}
+		leaf := schemaGroupLeaf{name: term.Ref(), declaredType: proof.records[index].element.declaredType, loc: term.RefLoc(), reference: true}
+		return schemaInlineGroupSummary{first: []schemaGroupLeaf{leaf}, all: []schemaGroupLeaf{leaf}, nullable: term.Occurrences().Minimum().Sign() == 0, one: term.Occurrences().IsDefault()}, nil
+	case ModelGroupReferenceParticle:
+		return proof.summarizeReference(term)
+	case ChoiceParticle:
+		return proof.summarizeChoice(term)
+	case SequenceParticle:
+		return proof.summarizeSequence(term)
+	}
+	return schemaInlineGroupSummary{}, newSchemaBridgeInvariant(particle.Loc(), "model-group has an unknown resolved particle")
+}
+
+func (proof *schemaInlineGroupProof) summarizeReference(term ModelGroupReferenceParticle) (schemaInlineGroupSummary, error) {
+	index, ok := proof.indices[term.TargetID()]
+	if !ok || !proof.groups[index].present || proof.groups[index].particle == nil {
+		return schemaInlineGroupSummary{}, newSchemaBridgeInvariant(term.RefLoc(), "model-group reference target has no particle")
+	}
+	summary, cached := proof.memo[term.TargetID()]
+	if !cached {
+		if proof.active[term.TargetID()] {
+			return schemaInlineGroupSummary{}, newSchemaBridgeInvariant(term.RefLoc(), "resolved model-group graph contains a cycle")
+		}
+		proof.active[term.TargetID()] = true
+		var err error
+		summary, err = proof.summarize(proof.groups[index].particle)
+		delete(proof.active, term.TargetID())
+		if err != nil {
+			return schemaInlineGroupSummary{}, err
+		}
+		proof.memo[term.TargetID()] = summary
+	}
+	if !term.Occurrences().IsDefault() && !summary.one {
+		return schemaInlineGroupSummary{}, proof.unsupported(term.RefLoc(), "repeated model-group reference requires unimplemented boundary attribution proof")
+	}
+	first, err := proof.leavesAt(summary.first, term.RefLoc())
+	if err != nil {
+		return schemaInlineGroupSummary{}, err
+	}
+	all, err := proof.leavesAt(summary.all, term.RefLoc())
+	if err != nil {
+		return schemaInlineGroupSummary{}, err
+	}
+	return schemaInlineGroupSummary{
+		first: first, all: all,
+		nullable: term.Occurrences().Minimum().Sign() == 0 || summary.nullable,
+		one:      term.Occurrences().IsDefault() && summary.one,
+	}, nil
+}
+
+func (proof *schemaInlineGroupProof) leavesAt(leaves []schemaGroupLeaf, loc Loc) ([]schemaGroupLeaf, error) {
+	if len(leaves) > schemaInlineGroupProofWorkLimit-proof.work {
+		return nil, proof.unsupported(loc, "direct group attribution proof exceeds the supported work bound")
+	}
+	proof.work += len(leaves)
+	copyLeaves := make([]schemaGroupLeaf, len(leaves))
+	copy(copyLeaves, leaves)
+	for index := range copyLeaves {
+		copyLeaves[index].loc = loc
+	}
+	return copyLeaves, nil
+}
+
+func (proof *schemaInlineGroupProof) summarizeChoice(term ChoiceParticle) (schemaInlineGroupSummary, error) { //nolint:gocognit // Ordered alternative checks distinguish proven FIRST competition from consistency.
+	summary := schemaInlineGroupSummary{one: len(term.Alternatives()) > 0}
+	for _, alternative := range term.Alternatives() {
+		child, err := proof.summarize(alternative)
+		if err != nil {
+			return schemaInlineGroupSummary{}, err
+		}
+		for _, later := range child.first {
+			for _, first := range summary.first {
+				if err := proof.charge(later.loc); err != nil {
+					return schemaInlineGroupSummary{}, err
+				}
+				if first.name == later.name {
+					return schemaInlineGroupSummary{}, Diagnostic{
+						class: FailureInvalid, code: "XSD3064", loc: later.loc, related: []Loc{first.loc, proof.input.reference.loc},
+						message: "choice alternatives compete for the same element",
+						specRef: schemaGroupNonAmbiguousSpecRef(proof.version), cause: errSchemaInlineDirectGroupAmbiguous,
+					}
+				}
+				if proof.maySubstitute(first, later) {
+					return schemaInlineGroupSummary{}, newSchemaInlineDirectGroupAttributionDiagnostic(proof.input, first, later, proof.version)
+				}
+			}
+		}
+		summary.first = append(summary.first, child.first...)
+		if err := proof.mergeAll(&summary, child.all, false); err != nil {
+			return schemaInlineGroupSummary{}, err
+		}
+		summary.nullable = summary.nullable || child.nullable
+		summary.one = summary.one && child.one
+	}
+	if !term.Occurrences().IsDefault() && !summary.one {
+		return schemaInlineGroupSummary{}, proof.unsupported(term.Loc(), "repeated choice requires unimplemented boundary attribution proof")
+	}
+	summary.nullable = summary.nullable || term.Occurrences().Minimum().Sign() == 0
+	summary.one = summary.one && term.Occurrences().IsDefault()
+	return summary, nil
+}
+
+func (proof *schemaInlineGroupProof) summarizeSequence(term SequenceParticle) (schemaInlineGroupSummary, error) {
+	summary := schemaInlineGroupSummary{nullable: true, one: len(term.Particles()) == 1}
+	for _, childParticle := range term.Particles() {
+		child, err := proof.summarize(childParticle)
+		if err != nil {
+			return schemaInlineGroupSummary{}, err
+		}
+		if summary.nullable {
+			summary.first = append(summary.first, child.first...)
+		}
+		if err := proof.mergeAll(&summary, child.all, true); err != nil {
+			return schemaInlineGroupSummary{}, err
+		}
+		summary.nullable = summary.nullable && child.nullable
+		summary.one = summary.one && child.one
+	}
+	if !term.Occurrences().IsDefault() && !summary.one {
+		return schemaInlineGroupSummary{}, proof.unsupported(term.Loc(), "repeated sequence requires unimplemented boundary attribution proof")
+	}
+	summary.nullable = summary.nullable || term.Occurrences().Minimum().Sign() == 0
+	summary.one = summary.one && term.Occurrences().IsDefault()
+	return summary, nil
+}
+
+func (proof *schemaInlineGroupProof) mergeAll(summary *schemaInlineGroupSummary, leaves []schemaGroupLeaf, sequence bool) error { //nolint:gocognit // Preserve the distinct consistency and attribution exits while merging ordered leaves.
+	for _, later := range leaves {
+		matched := false
+		for _, first := range summary.all {
+			if err := proof.charge(later.loc); err != nil {
+				return err
+			}
 			if first.name == later.name {
 				if !first.declaredType.IsZero() && !later.declaredType.IsZero() && first.declaredType != later.declaredType {
-					return newSchemaGroupElementConsistencyDiagnostic(later, first, version)
+					return newSchemaGroupElementConsistencyDiagnostic(later, first, proof.version)
 				}
-				return newSchemaInlineDirectGroupAttributionDiagnostic(input, first, later, version)
+				if first.declaredType.IsZero() || later.declaredType.IsZero() {
+					return newSchemaInlineDirectGroupAttributionDiagnostic(proof.input, first, later, proof.version)
+				}
+				if sequence {
+					return newSchemaInlineDirectGroupAttributionDiagnostic(proof.input, first, later, proof.version)
+				}
+				matched = true
+				continue
 			}
-			if schemaGroupSubstitutionMayMatch(records, first.name, later.name) || schemaGroupSubstitutionMayMatch(records, later.name, first.name) {
-				return newSchemaInlineDirectGroupAttributionDiagnostic(input, first, later, version)
+			if sequence && proof.maySubstitute(first, later) {
+				return newSchemaInlineDirectGroupAttributionDiagnostic(proof.input, first, later, proof.version)
 			}
+		}
+		if !matched {
+			summary.all = append(summary.all, later)
 		}
 	}
 	return nil
 }
 
-func validateSchemaInlineDirectGroupChoiceOverlap(input *schemaModelGroupReferenceParticleInput, target Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, visitEveryReference map[ComponentID]bool, version XSDVersion) error {
-	choice, ok := target.(ChoiceParticle)
-	if !ok {
-		return nil
-	}
-	var prior []schemaGroupLeaf
-	for _, alternative := range choice.Alternatives() {
-		var current []schemaGroupLeaf
-		if err := walkSchemaGroupLeaves(alternative, records, groups, Loc{}, visitEveryReference, make(map[ComponentID]bool), func(leaf schemaGroupLeaf) error {
-			current = append(current, leaf)
-			return nil
-		}); err != nil {
-			return err
-		}
-		for _, later := range current {
-			for _, first := range prior {
-				if first.name != later.name {
-					continue
-				}
-				return Diagnostic{
-					class: FailureInvalid, code: "XSD3064", loc: later.loc, related: []Loc{first.loc, input.reference.loc},
-					message: "choice alternatives compete for the same element",
-					specRef: schemaGroupNonAmbiguousSpecRef(version), cause: errSchemaInlineDirectGroupAmbiguous,
-				}
-			}
-		}
-		prior = append(prior, current...)
-	}
-	return nil
+func (proof *schemaInlineGroupProof) maySubstitute(first, later schemaGroupLeaf) bool {
+	return schemaGroupSubstitutionMayMatch(proof.records, first.name, later.name) || schemaGroupSubstitutionMayMatch(proof.records, later.name, first.name)
 }
 
 func newSchemaInlineDirectGroupAttributionDiagnostic(input *schemaModelGroupReferenceParticleInput, first, later schemaGroupLeaf, version XSDVersion) Diagnostic {

@@ -3176,7 +3176,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			if complexContent && element.name.local == "extension" && child.name.local == "sequence" {
 				particleErr = validateSupportedSequenceParticle(child, version)
-				if globalElementInline && !namedOwner && !sequenceDirectGroupWithAttributes {
+				if globalElementInline && !namedOwner {
 					particleErr = validateInlineExtensionSequenceParticle(child, version)
 				}
 			}
@@ -3222,7 +3222,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
 			}
-			if inlineSpecialTerm && child.name.local == "attribute" {
+			if inlineSpecialTerm && child.name.local == "attribute" && !sequenceDirectGroupWithAttributes {
 				candidate.considerAtVersion(child.loc, "inline extension group or nested term with attributes is not implemented", version)
 			}
 		case "anyAttribute":

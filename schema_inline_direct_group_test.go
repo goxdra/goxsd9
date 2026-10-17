@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -238,21 +239,30 @@ func TestInlineDirectGroupCycleBeforeZeroOmission(t *testing.T) {
 
 func TestInlineDirectGroupInvisibleTarget(t *testing.T) {
 	for _, profile := range nestedGroupChoiceProfiles {
-		t.Run(profile.name, func(t *testing.T) {
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:inline-direct-group" xmlns:o="urn:other" targetNamespace="urn:inline-direct-group" version="` + profile.version + `"><xs:include schemaLocation="child.xsd"/><xs:complexType name="Base"/><xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:group ref="o:Target" minOccurs="0" maxOccurs="0"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType></xs:element></xs:schema>`
-			other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:group name="Target"><xs:sequence/></xs:group></xs:schema>`
-			fixtures := map[string]discoveryFixture{
-				"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:inline-direct-group"><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`},
-				"other.xsd": {id: "other.xsd", contents: other},
+		for _, withAttribute := range []bool{false, true} {
+			name := profile.name + "/plain"
+			if withAttribute {
+				name = profile.name + "/attribute"
 			}
-			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
-			assertZeroSchema(t, schema)
-			d := requireDiagnostic(t, err)
-			wantRelated := []Loc{complexContentTestSourceLoc(t, "other.xsd", other, `<xs:group name="Target"`)}
-			if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaModelGroupReferenceNamespaceCode || d.Loc() != complexContentTestLoc(t, root, `ref="o:Target"`) || d.SpecRef() != schemaModelGroupReferenceImportSpecRef(profile.factVersion) || !reflect.DeepEqual(d.Related(), wantRelated) || !errors.Is(err, errSchemaModelGroupReferenceNamespace) {
-				t.Fatalf("invisible target = %v related=%v", err, d.Related())
-			}
-		})
+			t.Run(name, func(t *testing.T) {
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:inline-direct-group" xmlns:o="urn:other" targetNamespace="urn:inline-direct-group" version="` + profile.version + `"><xs:include schemaLocation="child.xsd"/><xs:complexType name="Base"/><xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:group ref="o:Target" minOccurs="0" maxOccurs="0"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType></xs:element></xs:schema>`
+				if withAttribute {
+					root = strings.Replace(root, `</xs:sequence></xs:extension>`, `</xs:sequence><xs:attribute name="flag" type="xs:boolean"/></xs:extension>`, 1)
+				}
+				other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:group name="Target"><xs:sequence/></xs:group></xs:schema>`
+				fixtures := map[string]discoveryFixture{
+					"child.xsd": {id: "child.xsd", contents: `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:inline-direct-group"><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`},
+					"other.xsd": {id: "other.xsd", contents: other},
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, profile.policy)
+				assertZeroSchema(t, schema)
+				d := requireDiagnostic(t, err)
+				wantRelated := []Loc{complexContentTestSourceLoc(t, "other.xsd", other, `<xs:group name="Target"`)}
+				if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaModelGroupReferenceNamespaceCode || d.Loc() != complexContentTestLoc(t, root, `ref="o:Target"`) || d.SpecRef() != schemaModelGroupReferenceImportSpecRef(profile.factVersion) || !reflect.DeepEqual(d.Related(), wantRelated) || !errors.Is(err, errSchemaModelGroupReferenceNamespace) {
+					t.Fatalf("invisible target = %v related=%v", err, d.Related())
+				}
+			})
+		}
 	}
 }
 
@@ -269,5 +279,112 @@ func TestInlineDirectGroupNonemptyBaseExcludedAfterReference(t *testing.T) {
 				t.Fatalf("nonempty base = %v related=%v", err, d.Related())
 			}
 		})
+	}
+}
+
+func TestInlineDirectGroupChoiceSharedSuffix(t *testing.T) {
+	for _, profile := range nestedGroupChoiceProfiles {
+		t.Run(profile.name, func(t *testing.T) {
+			target := `<xs:choice><xs:group ref="t:G1"/><xs:group ref="t:G2"/></xs:choice>`
+			root := inlineDirectGroupSchema(profile.version, `<xs:group ref="t:Target"/>`, target)
+			root = strings.Replace(root, `</xs:schema>`, `<xs:group name="G1"><xs:sequence><xs:element ref="t:a"/><xs:element ref="t:b"/></xs:sequence></xs:group><xs:group name="G2"><xs:sequence><xs:element ref="t:c"/><xs:element ref="t:b"/></xs:sequence></xs:group><xs:element name="c" type="xs:integer"/></xs:schema>`, 1)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := inlineExtensionChoiceOwner(t, schema)
+			outer, ok := owner.Particle().(SequenceParticle)
+			if !ok || len(outer.Particles()) != 1 {
+				t.Fatalf("outer = %v", owner.Particle())
+			}
+			group, ok := outer.Particles()[0].(ModelGroupReferenceParticle)
+			if !ok || group.Ref() != mustTestQName(t, "urn:inline-direct-group", "Target") || group.RefLoc() != complexContentTestLoc(t, root, `ref="t:Target"`) {
+				t.Fatalf("group = %v", outer.Particles()[0])
+			}
+			if len(schema.FindKind(ComponentKindModelGroupDefinition, mustTestQName(t, "urn:inline-direct-group", "Target"))) != 1 {
+				t.Fatal("named groups lost from public schema")
+			}
+		})
+	}
+}
+
+func TestInlineDirectGroupChoiceSharedFirstInvalid(t *testing.T) {
+	for _, profile := range nestedGroupChoiceProfiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := inlineDirectGroupSchema(profile.version, `<xs:group ref="t:Target"/>`, `<xs:choice><xs:group ref="t:G1"/><xs:group ref="t:G2"/></xs:choice>`)
+			root = strings.Replace(root, `</xs:schema>`, `<xs:group name="G1"><xs:sequence><xs:element ref="t:a"/><xs:element ref="t:b"/></xs:sequence></xs:group><xs:group name="G2"><xs:sequence><xs:element ref="t:a"/><xs:element ref="t:b"/></xs:sequence></xs:group></xs:schema>`, 1)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			assertZeroSchema(t, schema)
+			d := requireDiagnostic(t, err)
+			wantRelated := []Loc{complexContentTestLoc(t, root, `ref="t:G1"`), complexContentTestLoc(t, root, `ref="t:Target"`)}
+			if d.Class() != FailureInvalid || d.Code() != "XSD3064" || d.Loc() != complexContentTestLoc(t, root, `ref="t:G2"`) || d.SpecRef() != schemaGroupNonAmbiguousSpecRef(profile.factVersion) || !reflect.DeepEqual(d.Related(), wantRelated) || !errors.Is(err, errSchemaInlineDirectGroupAmbiguous) {
+				t.Fatalf("shared first = %v related=%v", err, d.Related())
+			}
+		})
+	}
+}
+
+func TestInlineDirectGroupSharedReferenceDAGBounded(t *testing.T) {
+	for _, profile := range nestedGroupChoiceProfiles {
+		t.Run(profile.name, func(t *testing.T) {
+			root := inlineDirectGroupSchema(profile.version, `<xs:group ref="t:Target"/>`, `<xs:sequence><xs:group ref="t:G0"/></xs:sequence>`)
+			var definitions strings.Builder
+			for index := 0; index < 40; index++ {
+				_, err := io.WriteString(&definitions, `<xs:group name="G`+strconv.Itoa(index)+`"><xs:sequence><xs:group ref="t:G`+strconv.Itoa(index+1)+`"/><xs:group ref="t:G`+strconv.Itoa(index+1)+`"/></xs:sequence></xs:group>`)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := io.WriteString(&definitions, `<xs:group name="G40"><xs:sequence><xs:element ref="t:a"/></xs:sequence></xs:group>`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root = strings.Replace(root, `</xs:schema>`, definitions.String()+`</xs:schema>`, 1)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			assertZeroSchema(t, schema)
+			d := requireDiagnostic(t, err)
+			if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != complexContentTestLoc(t, root, `ref="t:Target"`) || d.SpecRef() != schemaGroupNonAmbiguousSpecRef(profile.factVersion) || len(d.Related()) != 2 || !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("shared DAG = %v related=%v", err, d.Related())
+			}
+		})
+	}
+}
+
+func TestInlineDirectGroupAttributeReferencePrecedence(t *testing.T) { //nolint:gocognit // Each excluded-use exit proves the reference gate before refusal.
+	attribute := `<xs:attribute name="flag" type="xs:boolean"/>`
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, test := range []struct {
+			name, use, marker, code, spec string
+			class                         FailureClass
+			cause                         error
+			related                       []string
+		}{
+			{"valid", `<xs:group ref="t:Target"/>`, `ref="t:Target"`, UnsupportedSchemaSyntaxCode, schemaComplexParticleExtensionSpecRef(profile.factVersion), FailureUnsupported, ErrUnsupported, []string{attribute}},
+			{"valid zero", `<xs:group ref="t:Target" minOccurs="0" maxOccurs="0"/>`, `ref="t:Target"`, UnsupportedSchemaSyntaxCode, schemaComplexParticleExtensionSpecRef(profile.factVersion), FailureUnsupported, ErrUnsupported, []string{attribute}},
+			{"missing", `<xs:group ref="t:Missing"/>`, `ref="t:Missing"`, diagnosticSchemaModelGroupReferenceUnresolvedCode, schemaModelGroupReferenceSpecRef(profile.factVersion), FailureInvalid, errSchemaModelGroupReferenceUnresolved, nil},
+			{"missing zero", `<xs:group ref="t:Missing" minOccurs="0" maxOccurs="0"/>`, `ref="t:Missing"`, diagnosticSchemaModelGroupReferenceUnresolvedCode, schemaModelGroupReferenceSpecRef(profile.factVersion), FailureInvalid, errSchemaModelGroupReferenceUnresolved, nil},
+			{"wrong kind", `<xs:group ref="t:a"/>`, `ref="t:a"`, diagnosticSchemaModelGroupReferenceWrongKindCode, schemaModelGroupReferenceSpecRef(profile.factVersion), FailureInvalid, errSchemaModelGroupReferenceWrongKind, []string{`<xs:element name="a"`}},
+			{"wrong kind zero", `<xs:group ref="t:a" minOccurs="0" maxOccurs="0"/>`, `ref="t:a"`, diagnosticSchemaModelGroupReferenceWrongKindCode, schemaModelGroupReferenceSpecRef(profile.factVersion), FailureInvalid, errSchemaModelGroupReferenceWrongKind, []string{`<xs:element name="a"`}},
+			{"malformed occurrence", `<xs:group ref="t:Target" minOccurs="bad"/>`, `minOccurs="bad"`, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.factVersion), FailureInvalid, nil, nil},
+			{"reversed occurrence", `<xs:group ref="t:Target" minOccurs="2" maxOccurs="1"/>`, `<xs:group ref="t:Target"`, invalidSchemaCompositionCode, schemaParticleCorrectSpecRef(profile.factVersion), FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum, []string{`minOccurs="2"`, `maxOccurs="1"`}},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := inlineDirectGroupSchema(profile.version, test.use, `<xs:sequence/>`)
+				root = strings.Replace(root, `</xs:sequence></xs:extension>`, `</xs:sequence>`+attribute+`</xs:extension>`, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				d := requireDiagnostic(t, err)
+				var wantRelated []Loc
+				for _, marker := range test.related {
+					wantRelated = append(wantRelated, complexContentTestLoc(t, root, marker))
+				}
+				if d.Class() != test.class || d.Code() != test.code || d.Loc() != complexContentTestLoc(t, root, test.marker) || d.SpecRef() != test.spec || !reflect.DeepEqual(d.Related(), wantRelated) || (test.cause != nil && !errors.Is(err, test.cause)) {
+					t.Fatalf("attribute reference gate = %v related=%v; want %s %s at %s related=%v", err, d.Related(), test.class, test.code, test.marker, wantRelated)
+				}
+				if test.name == "malformed occurrence" && errors.Unwrap(d) == nil {
+					t.Fatal("malformed occurrence lost cause")
+				}
+			})
+		}
 	}
 }

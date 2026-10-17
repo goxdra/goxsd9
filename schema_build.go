@@ -6701,46 +6701,78 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 		}
 		return &schemaComplexTypeEmptyBodyResult{}, nil
 	case *schemaComplexTypeExtensionBodyInput:
-		if body == nil {
-			return nil, newSchemaBridgeInvariant(owner.loc, "extension complex type body is nil")
-		}
-		var particle Particle
-		if body.particle != nil {
-			resolvedParticle, particleErr := resolveSchemaComplexTypeParticle(
-				body.particle,
-				owner,
-				resolver.records,
-				resolver.byName,
-				resolver.visibleSources,
-				resolver.simpleTypes,
-				resolver.version,
-			)
-			if particleErr != nil {
-				return nil, particleErr
-			}
-			particle = resolvedParticle
-		}
-		attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version)
-		if err != nil {
-			return nil, reframeSchemaSimpleTypeBuildError(resolver.records, resolver.byName, err, resolver.version)
-		}
-		base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
-		if err != nil {
-			return nil, err
-		}
-		return &schemaComplexTypeExtensionBodyResult{
-			complexContentLoc: body.complexContentLoc,
-			extensionLoc:      body.extensionLoc,
-			base:              base,
-			particle:          particle,
-			attributeUses:     attributeUses,
-			anyAttribute:      anyAttribute,
-		}, nil
+		return resolver.resolveExtensionBody(body, owner, ownerIndex)
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		return resolver.resolveGroupedExtensionBody(body, owner, ownerIndex)
 	default:
 		return nil, newSchemaBridgeInvariant(owner.loc, "complex type body has an unknown input variant")
 	}
+}
+
+func (resolver *schemaComplexTypeResolver) resolveExtensionBody(body *schemaComplexTypeExtensionBodyInput, owner schemaComponentRecord, ownerIndex int) (schemaComplexTypeBodyResult, error) {
+	if body == nil {
+		return nil, newSchemaBridgeInvariant(owner.loc, "extension complex type body is nil")
+	}
+	var particle Particle
+	if body.particle != nil {
+		resolvedParticle, err := resolveSchemaComplexTypeParticle(
+			body.particle,
+			owner,
+			resolver.records,
+			resolver.byName,
+			resolver.visibleSources,
+			resolver.simpleTypes,
+			resolver.version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		particle = resolvedParticle
+	}
+	if err := resolver.rejectInlineDirectGroupAttributes(body, owner, ownerIndex); err != nil {
+		return nil, err
+	}
+	attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version)
+	if err != nil {
+		return nil, reframeSchemaSimpleTypeBuildError(resolver.records, resolver.byName, err, resolver.version)
+	}
+	base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
+	if err != nil {
+		return nil, err
+	}
+	return &schemaComplexTypeExtensionBodyResult{
+		complexContentLoc: body.complexContentLoc,
+		extensionLoc:      body.extensionLoc,
+		base:              base,
+		particle:          particle,
+		attributeUses:     attributeUses,
+		anyAttribute:      anyAttribute,
+	}, nil
+}
+
+// The excluded inline combination still resolves its group and base first.
+func (resolver *schemaComplexTypeResolver) rejectInlineDirectGroupAttributes(body *schemaComplexTypeExtensionBodyInput, owner schemaComponentRecord, ownerIndex int) error {
+	if owner.element == nil || owner.element.inlineComplexType == nil || len(body.attributeUses) == 0 {
+		return nil
+	}
+	sequence, ok := body.particle.(*schemaSequenceParticleInput)
+	if !ok || len(sequence.particles) != 1 {
+		return nil
+	}
+	group, ok := sequence.particles[0].(*schemaModelGroupReferenceParticleInput)
+	if !ok {
+		return nil
+	}
+	if group == nil || group.reference == nil {
+		return newSchemaBridgeInvariant(body.extensionLoc, "inline direct-group extension has no reference input")
+	}
+	if _, _, err := resolver.resolveExtensionBase(body.base, ownerIndex); err != nil {
+		return err
+	}
+	diagnostic := newSchemaSyntaxUnsupportedForVersion(group.reference.loc, "inline extension direct group with attributes is not implemented", resolver.version)
+	diagnostic.specRef = schemaComplexParticleExtensionSpecRef(resolver.version)
+	diagnostic.related = []Loc{body.attributeUses[0].loc}
+	return diagnostic
 }
 
 func (resolver *schemaComplexTypeResolver) resolveGroupedExtensionBody(

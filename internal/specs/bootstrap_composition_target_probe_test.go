@@ -287,7 +287,7 @@ func TestPinnedCompositionFullArtifactFirstBlocker(t *testing.T) {
 	}
 	actual := observeBootstrapProbe(t, entry, goxsd9.Strict11)
 	want := bootstrapProbeRows[2].expected
-	if !reflect.DeepEqual(actual, want) || actual.diagnostic.line != 238 || actual.diagnostic.column != 23 {
-		t.Fatalf("full pinned artifact first blocker = %+v, want line 238 column 23, XSD3003", actual)
+	if !reflect.DeepEqual(actual, want) || actual.diagnostic.line != 240 || actual.diagnostic.column != 15 {
+		t.Fatalf("full pinned artifact first blocker = %+v, want line 240 column 15, XSD3003", actual)
 	}
 }
