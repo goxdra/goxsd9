@@ -58,15 +58,15 @@ Named attribute-free simpleContent extensions query built-in/supported named eff
 Direct and extension particles model selected integer-family locals; named
 direct models add sign restrictions. Built-in/named integer validates;
 broader derivatives and extensions remain query-only.
-Syntax/policy/occurrences precede mapping; refs precede omission.
+Syntax/policy/occurrences precede mapping.
 Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
 Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
 Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Anonymous global-element `complexContent/extension` over supported named empty-content bases (`##other`/`lax` `anyType` included) admits ref-only choice, nested sequence with default `1/1` group ref then element ref, or both choice-first; exact bounds/order/targets/`Loc`s persist with inherited wildcard.
-Other owners, broader nesting, direct groups, wildcards, locals, and combined attributes stay unsupported.
+Global-element inline extensions over supported empty named bases (`##other`/`lax` `anyType`): sole outer-sequence group ref (exact bounds); ref-only nested choice; nested sequence (default-1/1 group ref→global element ref); or choice before sequence. Post-resolution attribution.
+Direct-group form rejects siblings, deeper nesting, content wildcards, locals, and attributes.
 Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
-wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
+wildcard/`all` reject. Cycles XSD3062. Named group-only consumers: `RefLoc`; inline validation: instance root, generation first unsupported component.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
 `0/0` omits; anonymous complex members/consumers reject.

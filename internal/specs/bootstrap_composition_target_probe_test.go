@@ -113,7 +113,7 @@ func compositionPolicies() []struct {
 
 //nolint:gocognit // Every repeated failure asserts its public code, location, cause, and nil schema together.
 func assertCompositionFailure(t *testing.T, id, source string, policy goxsd9.LanguagePolicy,
-	class goxsd9.FailureClass, code, marker, specRef, cause string, relatedMarkers ...string,
+	code, marker, specRef, cause string, relatedMarkers ...string,
 ) {
 	t.Helper()
 	wantRelated := make([]goxsd9.Loc, 0, len(relatedMarkers))
@@ -127,18 +127,14 @@ func assertCompositionFailure(t *testing.T, id, source string, policy goxsd9.Lan
 			t.Fatalf("attempt %d returned partial/successful schema: %v, %d components", attempt, err, len(schema.Components()))
 		}
 		diagnostic, ok := firstBootstrapProbeDiagnostic(err)
-		if !ok || diagnostic.Class() != class || diagnostic.Code() != code ||
+		if !ok || diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != code ||
 			diagnostic.Loc() != inlineProbeLoc(t, id, source, marker) ||
 			diagnostic.SpecRef() != specRef || !slices.Equal(diagnostic.Related(), wantRelated) {
-			t.Fatalf("attempt %d diagnostic = %v, class=%s code=%s loc=%s related=%v spec=%s; want %s/%s at %q, related %v, spec %s", attempt, err, diagnostic.Class(), diagnostic.Code(), diagnostic.Loc(), diagnostic.Related(), diagnostic.SpecRef(), class, code, marker, wantRelated, specRef)
+			t.Fatalf("attempt %d diagnostic = %v, class=%s code=%s loc=%s related=%v spec=%s; want invalid/%s at %q, related %v, spec %s", attempt, err, diagnostic.Class(), diagnostic.Code(), diagnostic.Loc(), diagnostic.Related(), diagnostic.SpecRef(), code, marker, wantRelated, specRef)
 		}
 		gotCause := errors.Unwrap(diagnostic)
 		if cause == "" && gotCause != nil || cause != "" && (gotCause == nil || gotCause.Error() != cause) {
 			t.Fatalf("attempt %d cause = %v, want %q", attempt, gotCause, cause)
-		}
-		if class == goxsd9.FailureUnsupported &&
-			(diagnostic.Feature() != goxsd9.FeatureSchemaSyntax || !errors.Is(err, goxsd9.ErrUnsupported)) {
-			t.Fatalf("attempt %d unsupported marker = %v", attempt, err)
 		}
 		if attempt == 0 {
 			first = bootstrapProbeParserObservation(err)
@@ -157,6 +153,10 @@ func TestPinnedCompositionTargetAndUseBoundary(t *testing.T) { //nolint:gocognit
 	wrongKind := `<xs:element name="composition" type="xs:integer"/>`
 	for _, policy := range compositionPolicies() {
 		t.Run(policy.name, func(t *testing.T) {
+			modelGroupSpec := "#sec-src-model_group"
+			if policy.specPrefix == "xsd10" {
+				modelGroupSpec = "#src-model_group"
+			}
 			for _, shape := range []struct{ name, group string }{
 				{"actual-five-target", group},
 				{"one-target-control", oneTarget},
@@ -166,9 +166,16 @@ func TestPinnedCompositionTargetAndUseBoundary(t *testing.T) { //nolint:gocognit
 				t.Run("inline-"+shape.name, func(t *testing.T) {
 					id := "xsd11-composition-inline-" + policy.name + "-" + shape.name
 					source := compositionInlineSource(shape.group, use)
-					assertCompositionFailure(t, id, source, policy.value, goxsd9.FailureUnsupported,
-						goxsd9.UnsupportedSchemaSyntaxCode, `ref="xs:composition"`,
-						policy.specPrefix+"-structures#cos-particle-extend", "")
+					switch shape.name {
+					case "actual-five-target", "one-target-control":
+						inlineProbeAssertDirectGroup(t, id, source, policy.value, "composition", `ref="xs:composition"`, "0/unbounded")
+					case "missing-target":
+						assertCompositionFailure(t, id, source, policy.value,
+							"XSD3047", `ref="xs:composition"`, policy.specPrefix+"-structures"+modelGroupSpec, "model-group reference is unresolved")
+					case "malformed-target-member":
+						assertCompositionFailure(t, id, source, policy.value,
+							"XSD3024", `ref="xs:missing"`, policy.specPrefix+"-structures#src-resolve", "element reference is unresolved")
+					}
 				})
 			}
 
@@ -202,10 +209,6 @@ func TestPinnedCompositionTargetAndUseBoundary(t *testing.T) { //nolint:gocognit
 				t.Fatalf("one-target control member = %T", controlSequence.Particles()[0])
 			}
 
-			modelGroupSpec := "#sec-src-model_group"
-			if policy.specPrefix == "xsd10" {
-				modelGroupSpec = "#src-model_group"
-			}
 			for _, exit := range []struct {
 				name, group, code, marker, spec, cause, related string
 			}{
@@ -217,11 +220,11 @@ func TestPinnedCompositionTargetAndUseBoundary(t *testing.T) { //nolint:gocognit
 					exitID := id + "-" + exit.name
 					exitSource := compositionNamedGroupSource(exit.group, use)
 					if exit.related == "" {
-						assertCompositionFailure(t, exitID, exitSource, policy.value, goxsd9.FailureInvalid,
+						assertCompositionFailure(t, exitID, exitSource, policy.value,
 							exit.code, exit.marker, policy.specPrefix+"-structures"+exit.spec, exit.cause)
 						return
 					}
-					assertCompositionFailure(t, exitID, exitSource, policy.value, goxsd9.FailureInvalid,
+					assertCompositionFailure(t, exitID, exitSource, policy.value,
 						exit.code, exit.marker, policy.specPrefix+"-structures"+exit.spec, exit.cause, exit.related)
 				})
 			}
@@ -284,7 +287,7 @@ func TestPinnedCompositionFullArtifactFirstBlocker(t *testing.T) {
 	}
 	actual := observeBootstrapProbe(t, entry, goxsd9.Strict11)
 	want := bootstrapProbeRows[2].expected
-	if !reflect.DeepEqual(actual, want) || actual.diagnostic.line != 238 || actual.diagnostic.column != 23 {
-		t.Fatalf("full pinned artifact first blocker = %+v, want line 238 column 23, XSD3003", actual)
+	if !reflect.DeepEqual(actual, want) || actual.diagnostic.line != 240 || actual.diagnostic.column != 15 {
+		t.Fatalf("full pinned artifact first blocker = %+v, want line 240 column 15, XSD3003", actual)
 	}
 }

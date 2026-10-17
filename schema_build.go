@@ -1991,6 +1991,18 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 					sequence.particles = append(sequence.particles, nested)
 					continue
 				}
+				if child.name.local == "group" {
+					groupOccurrences, occurrenceErr := schemaParticleOccurrenceRange(child, version)
+					if occurrenceErr != nil {
+						return nil, occurrenceErr
+					}
+					group, groupErr := schemaModelGroupReferenceParticleInputFromElementWithFacts(child, groupOccurrences, facts)
+					if groupErr != nil {
+						return nil, groupErr
+					}
+					sequence.particles = append(sequence.particles, group)
+					continue
+				}
 				input, particleErr := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
 				if particleErr != nil {
 					return nil, particleErr
@@ -6689,46 +6701,163 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 		}
 		return &schemaComplexTypeEmptyBodyResult{}, nil
 	case *schemaComplexTypeExtensionBodyInput:
-		if body == nil {
-			return nil, newSchemaBridgeInvariant(owner.loc, "extension complex type body is nil")
-		}
-		var particle Particle
-		if body.particle != nil {
-			resolvedParticle, particleErr := resolveSchemaComplexTypeParticle(
-				body.particle,
-				owner,
-				resolver.records,
-				resolver.byName,
-				resolver.visibleSources,
-				resolver.simpleTypes,
-				resolver.version,
-			)
-			if particleErr != nil {
-				return nil, particleErr
-			}
-			particle = resolvedParticle
-		}
-		attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version)
-		if err != nil {
-			return nil, reframeSchemaSimpleTypeBuildError(resolver.records, resolver.byName, err, resolver.version)
-		}
-		base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
-		if err != nil {
-			return nil, err
-		}
-		return &schemaComplexTypeExtensionBodyResult{
-			complexContentLoc: body.complexContentLoc,
-			extensionLoc:      body.extensionLoc,
-			base:              base,
-			particle:          particle,
-			attributeUses:     attributeUses,
-			anyAttribute:      anyAttribute,
-		}, nil
+		return resolver.resolveExtensionBody(body, owner, ownerIndex)
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		return resolver.resolveGroupedExtensionBody(body, owner, ownerIndex)
 	default:
 		return nil, newSchemaBridgeInvariant(owner.loc, "complex type body has an unknown input variant")
 	}
+}
+
+func (resolver *schemaComplexTypeResolver) resolveExtensionBody(body *schemaComplexTypeExtensionBodyInput, owner schemaComponentRecord, ownerIndex int) (schemaComplexTypeBodyResult, error) {
+	if body == nil {
+		return nil, newSchemaBridgeInvariant(owner.loc, "extension complex type body is nil")
+	}
+	var particle Particle
+	if body.particle != nil {
+		resolvedParticle, err := resolveSchemaComplexTypeParticle(
+			body.particle,
+			owner,
+			resolver.records,
+			resolver.byName,
+			resolver.visibleSources,
+			resolver.simpleTypes,
+			resolver.version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		particle = resolvedParticle
+	}
+	if err := resolver.validateExcludedInlineDirectGroupTarget(body, owner); err != nil {
+		return nil, err
+	}
+	attributeUses, err := resolveSchemaAttributeUses(body.attributeUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version)
+	if err != nil {
+		return nil, reframeSchemaSimpleTypeBuildError(resolver.records, resolver.byName, err, resolver.version)
+	}
+	base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex)
+	if err != nil {
+		return nil, err
+	}
+	if err := resolver.rejectInlineDirectGroupExcludedShape(body, owner); err != nil {
+		return nil, err
+	}
+	return &schemaComplexTypeExtensionBodyResult{
+		complexContentLoc: body.complexContentLoc,
+		extensionLoc:      body.extensionLoc,
+		base:              base,
+		particle:          particle,
+		attributeUses:     attributeUses,
+		anyAttribute:      anyAttribute,
+	}, nil
+}
+
+func (resolver *schemaComplexTypeResolver) validateExcludedInlineDirectGroupTarget(body *schemaComplexTypeExtensionBodyInput, owner schemaComponentRecord) error {
+	if owner.element == nil || owner.element.inlineComplexType == nil {
+		return nil
+	}
+	sequence, ok := body.particle.(*schemaSequenceParticleInput)
+	if !ok {
+		return nil
+	}
+	group, siblingLoc, err := schemaInlineDirectGroupShape(sequence)
+	if err != nil || group == nil {
+		return err
+	}
+	if siblingLoc.IsZero() && len(body.attributeUses) == 0 {
+		return nil
+	}
+	if group.reference == nil {
+		return newSchemaBridgeInvariant(body.extensionLoc, "excluded inline direct group has no reference input")
+	}
+	target, err := schemaModelGroupReferenceTarget(group, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+	if err != nil {
+		return err
+	}
+	groups := schemaModelGroupResolver{
+		records: resolver.records, byName: resolver.byName, visibleSources: resolver.visibleSources,
+		simpleTypes: resolver.simpleTypes, version: resolver.version,
+		results: make([]schemaModelGroupResult, len(resolver.records)),
+		states:  make([]uint8, len(resolver.records)),
+	}
+	return groups.visit(target, Loc{})
+}
+
+// Excluded inline combinations are refused only after their references resolve.
+func (resolver *schemaComplexTypeResolver) rejectInlineDirectGroupExcludedShape(body *schemaComplexTypeExtensionBodyInput, owner schemaComponentRecord) error {
+	if owner.element == nil || owner.element.inlineComplexType == nil {
+		return nil
+	}
+	sequence, ok := body.particle.(*schemaSequenceParticleInput)
+	if !ok {
+		return nil
+	}
+	group, siblingLoc, err := schemaInlineDirectGroupShape(sequence)
+	if err != nil || group == nil {
+		return err
+	}
+	if !siblingLoc.IsZero() {
+		diagnostic := newSchemaSyntaxUnsupportedForVersion(siblingLoc, "inline extension direct group requires the sole outer sequence term", resolver.version)
+		diagnostic.specRef = schemaComplexParticleExtensionSpecRef(resolver.version)
+		return diagnostic
+	}
+	if len(body.attributeUses) == 0 {
+		return nil
+	}
+	if group.reference == nil {
+		return newSchemaBridgeInvariant(body.extensionLoc, "inline direct-group extension has no reference input")
+	}
+	diagnostic := newSchemaSyntaxUnsupportedForVersion(group.reference.loc, "inline extension direct group with attributes is not implemented", resolver.version)
+	diagnostic.specRef = schemaComplexParticleExtensionSpecRef(resolver.version)
+	diagnostic.related = []Loc{body.attributeUses[0].loc}
+	return diagnostic
+}
+
+func schemaInlineDirectGroupShape(sequence *schemaSequenceParticleInput) (*schemaModelGroupReferenceParticleInput, Loc, error) { //nolint:gocognit // Preserve the lexical sibling location while classifying the one scoped group shape.
+	var firstGroup *schemaModelGroupReferenceParticleInput
+	var firstNonGroup, secondGroup Loc
+	for _, term := range sequence.particles {
+		group, ok := term.(*schemaModelGroupReferenceParticleInput)
+		if ok {
+			if firstGroup == nil {
+				firstGroup = group
+				continue
+			}
+			if secondGroup.IsZero() {
+				secondGroup = group.loc
+			}
+			continue
+		}
+		if firstNonGroup.IsZero() {
+			loc, err := schemaParticleTermInputLoc(term)
+			if err != nil {
+				return nil, Loc{}, err
+			}
+			firstNonGroup = loc
+		}
+	}
+	if firstGroup == nil {
+		return nil, Loc{}, nil
+	}
+	if !firstNonGroup.IsZero() {
+		return firstGroup, firstNonGroup, nil
+	}
+	return firstGroup, secondGroup, nil
+}
+
+func schemaParticleTermInputLoc(term schemaParticleTermInput) (Loc, error) {
+	switch value := term.(type) {
+	case schemaElementParticleInput:
+		return value.loc, nil
+	case schemaWildcardParticleInput:
+		return value.loc, nil
+	case *schemaChoiceParticleInput:
+		return value.loc, nil
+	case *schemaSequenceParticleInput:
+		return value.loc, nil
+	}
+	return Loc{}, newSchemaBridgeInvariant(Loc{}, "inline sequence has an unknown term input")
 }
 
 func (resolver *schemaComplexTypeResolver) resolveGroupedExtensionBody(
@@ -8885,6 +9014,16 @@ func resolveSchemaSequenceParticle(
 ) (Particle, error) {
 	particles := make([]Particle, 0, len(input.particles))
 	for _, termInput := range input.particles {
+		if group, ok := termInput.(*schemaModelGroupReferenceParticleInput); ok {
+			particle, err := resolveSchemaModelGroupReferenceParticle(group, owner, records, byName, visibleSources, version)
+			if err != nil {
+				return nil, err
+			}
+			if particle != nil && group.occurrences.mapsToParticle() {
+				particles = append(particles, particle)
+			}
+			continue
+		}
 		if choice, ok := termInput.(*schemaChoiceParticleInput); ok {
 			if choice == nil {
 				return nil, newSchemaBridgeInvariant(input.loc, "sequence has a nil nested choice input")
