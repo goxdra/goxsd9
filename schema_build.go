@@ -63,6 +63,7 @@ const (
 	diagnosticSchemaAttributeUseIDDuplicateCode      = "XSD3061"
 	diagnosticSchemaModelGroupReferenceCycleCode     = "XSD3062"
 	diagnosticSchemaGroupElementConsistencyCode      = "XSD3063"
+	diagnosticSchemaInlineExtensionPairAmbiguousCode = "XSD3064"
 )
 
 const (
@@ -153,6 +154,7 @@ var (
 	errSchemaElementReferenceNamespace           = errors.New("element reference namespace is not imported")
 	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
 	errSchemaGroupElementConsistency             = errors.New("named model-group element declarations are inconsistent")
+	errSchemaInlineExtensionPairAmbiguous        = errors.New("inline extension nested sequences have ambiguous element attribution")
 	errSchemaAllMemberDuplicate                  = errors.New("all particle member has a duplicate expanded name")
 	errSchemaAllMemberScalar                     = errors.New("all particle member has an unsupported scalar type")
 	errSchemaUnsignedLong10FacetLexical          = errors.New("XSD 1.0 unsignedLong facet has a signed lexical value")
