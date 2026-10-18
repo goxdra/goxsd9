@@ -70,14 +70,14 @@ wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
 `0/0` omits; anonymous complex members/consumers reject.
-AttributeUse retains ordered IDs/`Loc`s; extensions resolve models→uses→base.
-`0/0`/prohibited omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
-Named empty/all/choice/sequence/group/grouped/sequence-extension omit `inheritable=false/0` in Compatibility/Strict11;
-Strict10, true/1, refs, and other owners reject.
+AttributeUse retains ordered IDs/`Loc`s; grouped/direct-sequence complexContent extensions resolve models→uses→base.
+`0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
+Named empty/all/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;
+Strict10, true/1, refs, other owners reject.
 Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName` and `xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID per owner.
-Built-in `xs:language`/`xs:anyURI` query on named empty/choice/sequence;
-built-in/named `xs:token`/`xs:NMTOKEN` on named empty.
+Named empty/choice/sequence: built-in `xs:language`/`xs:anyURI`;
+named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
 Named empty/choice/sequence: built-in/named `xs:long` with bounds.
 Inline/ref/value/other owners and consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
