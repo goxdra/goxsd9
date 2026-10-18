@@ -31,6 +31,7 @@ func TestIDLocalAttributeUsesPreserveFactsAcrossPoliciesAndOwners(t *testing.T) 
 		{"empty", `<xs:attribute name="id" type="xs:ID" use="required"/>`},
 		{"choice", `<xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:attribute name="id" type="xs:ID" use="required"/>`},
 		{"sequence", `<xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:attribute name="id" type="xs:ID" use="required"/>`},
+		{"all", `<xs:all><xs:element name="value" type="xs:integer"/></xs:all><xs:attribute name="id" type="xs:ID" use="required"/>`},
 		{"grouped extension", `<xs:complexContent><xs:extension base="r:Base"><xs:group ref="r:Fields" minOccurs="0" maxOccurs="0"/><xs:attribute name="id" type="xs:ID" use="required"/></xs:extension></xs:complexContent>`},
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
@@ -370,7 +371,6 @@ func TestIDLocalAttributeUseExclusionsStayLocated(t *testing.T) {
 		{"inline default ID", `<xs:complexType name="Record"><xs:attribute name="id" default="a"><xs:simpleType><xs:restriction base="xs:ID"/></xs:simpleType></xs:attribute></xs:complexType>`, ``, `default="a"`, errSchemaAttributeUseUnsupported, ``, true},
 		{"inline fixed ID", `<xs:complexType name="Record"><xs:attribute name="id" fixed="a"><xs:simpleType><xs:restriction base="xs:ID"/></xs:simpleType></xs:attribute></xs:complexType>`, ``, `fixed="a"`, errSchemaAttributeUseUnsupported, ``, true},
 		{"global ref ID", `<xs:complexType name="Record"><xs:attribute ref="r:id"/></xs:complexType>`, `<xs:attribute name="id" type="xs:ID"/>`, `ref="r:id"`, errSchemaAttributeReferenceUnsupported, `<xs:attribute name="id"`, true},
-		{"direct all ID", `<xs:complexType name="Record"><xs:all><xs:element name="value" type="xs:integer"/></xs:all><xs:attribute name="id" type="xs:ID"/></xs:complexType>`, ``, `type="xs:ID"`, errSchemaAttributeUseUnsupported, ``, false},
 		{"direct group ID", `<xs:complexType name="Record"><xs:group ref="r:Fields"/><xs:attribute name="id" type="xs:ID"/></xs:complexType>`, `<xs:group name="Fields"><xs:choice><xs:element ref="r:value"/></xs:choice></xs:group><xs:element name="value" type="xs:integer"/>`, `type="xs:ID"`, errSchemaAttributeUseUnsupported, ``, false},
 		{"simpleContent ID", `<xs:complexType name="Record"><xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="id" type="xs:ID"/></xs:extension></xs:simpleContent></xs:complexType>`, ``, `type="xs:ID"`, errSchemaAttributeUseUnsupported, ``, false},
 		{"inline complex ID", `<xs:element name="root"><xs:complexType><xs:attribute name="id" type="xs:ID"/></xs:complexType></xs:element>`, ``, `type="xs:ID"`, errSchemaAttributeUseUnsupported, ``, false},
@@ -415,6 +415,7 @@ func TestIDAttributeUseConsumersRejectWithNoOutput(t *testing.T) {
 		{"empty", `<xs:attribute name="id" type="xs:ID"/>`, `<root xmlns="urn:root" id="a"/>`},
 		{"choice", `<xs:choice><xs:element name="value" type="xs:integer"/></xs:choice><xs:attribute name="id" type="xs:ID"/>`, `<root xmlns="urn:root" id="a"><value>1</value></root>`},
 		{"sequence", `<xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence><xs:attribute name="id" type="xs:ID"/>`, `<root xmlns="urn:root" id="a"><value>1</value></root>`},
+		{"all", `<xs:all><xs:element name="value" type="xs:integer"/></xs:all><xs:attribute name="id" type="xs:ID"/>`, `<root xmlns="urn:root" id="a"><value>1</value></root>`},
 	} {
 		t.Run(shape.name, func(t *testing.T) {
 			root := idUseRoot(`<xs:complexType name="Record">`+shape.body+`</xs:complexType><xs:element name="root" type="r:Record"/>`, ``)
