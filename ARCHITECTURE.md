@@ -62,8 +62,8 @@ Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
 Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
 Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Anonymous global-element `complexContent/extension` over supported named empty-content bases (`##other`/`lax` `anyType` included) admits ref-only choice, nested sequence with default `1/1` group ref then element ref, or both choice-first; exact bounds/order/targets/`Loc`s persist with inherited wildcard.
-Other owners, broader nesting, direct groups, wildcards, locals, and combined attributes reject.
+Anonymous empty-base extensions admit ref-only choice, group-ref then element-ref nested sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
+Broader nesting, direct groups, wildcards, locals, and nested attributes reject.
 Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
@@ -78,6 +78,7 @@ Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs
 `xs:NCName`/`xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID/owner.
 Named empty/choice/sequence: built-in `xs:language`/`xs:anyURI`;
 named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
+Anonymous empty-base ref-sequence extensions admit built-in `xs:token`/`xs:anyURI` local declarations; consumers reject.
 Named empty/direct choice/direct sequence: built-in/supported named effective atomic `xs:long`.
 Named empty: built-in/supported named atomic `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; copied facets.
 Inline/ref/value/other owners/consumers reject.

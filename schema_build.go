@@ -7067,7 +7067,7 @@ func resolveSchemaAttributeUseType(
 	if err := rejectSchemaExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaNamedDirectLocalLongAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalBoundedIntegerAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaAnonymousSequenceExtensionTokenAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedDirectLocalLongAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalBoundedIntegerAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -7272,6 +7272,42 @@ func schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference schemaSimp
 	}
 	_, ok := owner.complexType.body.(*schemaComplexTypeAttributeOnlyBodyInput)
 	return ok
+}
+
+func schemaAnonymousSequenceExtensionTokenAnyURIAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+	if !schemaAnonymousSequenceExtensionTokenAnyURITypeSupported(reference) || owner.element == nil || owner.element.inlineComplexType == nil || owner.complexType != nil {
+		return false
+	}
+	body, ok := owner.element.inlineComplexType.body.(*schemaComplexTypeExtensionBodyInput)
+	if !ok || body == nil {
+		return false
+	}
+	sequence, ok := body.particle.(*schemaSequenceParticleInput)
+	if !ok || sequence == nil || len(sequence.particles) == 0 {
+		return false
+	}
+	for _, term := range sequence.particles {
+		child, ok := term.(schemaElementParticleInput)
+		if !ok || child.reference == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func schemaAnonymousSequenceExtensionTokenAnyURITypeSupported(reference schemaSimpleTypeReferenceComponent) bool {
+	if reference.kind != SimpleTypeReferenceBuiltin || reference.variety != SimpleTypeVarietyAtomicRestriction {
+		return false
+	}
+	if reference.atomicKind == schemaSimpleTypeAtomicToken {
+		_, ok := reference.facets.(schemaStringFacetVariant)
+		return ok
+	}
+	if reference.atomicKind == schemaSimpleTypeAtomicAnyURI {
+		_, ok := reference.facets.(schemaAtomicFacetVariant)
+		return ok
+	}
+	return false
 }
 
 func schemaNamedDirectLocalLongAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {

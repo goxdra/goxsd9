@@ -355,8 +355,12 @@
 // generation remain unsupported.
 // Named empty owners also admit built-in and named effective atomic xs:token
 // and xs:NMTOKEN local declarations, retaining copied whitespace and
-// enumeration facts. Inline/list/union types, refs, values, other owners, and
-// consumers remain unsupported for these uses.
+// enumeration facts. Global-element inline complexContent extensions over
+// supported named empty bases also admit built-in xs:token and xs:anyURI local
+// declarations when the direct sequence contains only global element refs.
+// Their lexical use order, anonymous owner, base, and built-in facts persist;
+// consumers reject. Inline/list/union types, attribute refs, and values remain
+// unsupported for these uses.
 // Named empty and direct choice/sequence owners also admit built-in and named
 // effective atomic xs:long local declarations with copied exact bounds and type
 // provenance under every policy. Inline varieties, refs, values, other owners,
