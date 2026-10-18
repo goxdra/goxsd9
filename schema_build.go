@@ -7217,7 +7217,22 @@ func schemaDirectLocalIDAttributeTypeSupported(reference schemaSimpleTypeReferen
 		return false
 	}
 	_, ok := reference.facets.(schemaAtomicFacetVariant)
-	return ok && schemaNamedLocalAtomicAttributeOwnerSupported(owner)
+	return ok && schemaNamedLocalIDAttributeOwnerSupported(owner)
+}
+
+func schemaNamedLocalIDAttributeOwnerSupported(owner schemaComponentRecord) bool {
+	if schemaNamedLocalAtomicAttributeOwnerSupported(owner) {
+		return true
+	}
+	if owner.complexType == nil {
+		return false
+	}
+	body, ok := owner.complexType.body.(*schemaComplexTypeDirectBodyInput)
+	if !ok || body == nil {
+		return false
+	}
+	_, all := body.particle.(*schemaAllParticleInput)
+	return all
 }
 
 func schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {

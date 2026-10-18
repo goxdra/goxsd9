@@ -10,7 +10,7 @@ Resolvers receive namespace URNs/lexical locations; the library opens no resourc
 `ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
 `ParseSchemaWithPolicy` selects policy. Queries/walks are deterministic.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named owners query NCName/`xs:normalizedString` facets. Named empty/choice/sequence query built-in `xs:language`/`xs:anyURI` and built-in/named effective `xs:long` attributes. Named empty also query built-in/named `xs:token`/`xs:NMTOKEN`. Attribute-free simpleContent extensions query `xs:normalizedString`/`xs:token`/`xs:NMTOKEN` bases. Consumers reject; enumerated NCName list/union members reject.
+Named empty/choice/sequence/grouped/sequence-extension owners query NCName/`xs:normalizedString` facets. Named empty/choice/sequence query built-in `xs:language`/`xs:anyURI` and built-in/named effective `xs:long` attributes. Named empty also query built-in/named `xs:token`/`xs:NMTOKEN`. Attribute-free simpleContent extensions query `xs:normalizedString`/`xs:token`/`xs:NMTOKEN` bases. Consumers reject; enumerated NCName list/union members reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -19,7 +19,7 @@ precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`/`xs:unsignedLong`:
 built-ins use `StrictInteger`; named use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Named owners query ordered facet-free `xs:ID` uses; inline grouped/sequence extensions query selected atomic uses. Consumers reject. Empty `block` overrides named empty complexes and untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals (including direct `xs:all`) and untyped globals; local refs and `ValidateInstance`/`GenerateGo` reject.
+Named empty/choice/sequence/all and grouped/sequence-extension owners query ordered facet-free `xs:ID` uses; inline grouped/sequence extensions query selected atomic uses. Consumers reject. Empty `block` overrides named empty complexes and untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals (including direct `xs:all`) and untyped globals; local refs and `ValidateInstance`/`GenerateGo` reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Direct choices/sequences and bounded extensions expose built-in/named long locals;
