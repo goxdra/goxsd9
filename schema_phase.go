@@ -3210,7 +3210,8 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			attributesSeen = true
 			admitFalseInheritable := namedOwner && (groupExtension || sequenceExtension) ||
 				globalElementInline && !namedOwner && groupExtension ||
-				globalElementInline && !namedOwner && sequenceExtension && !inlineNestedTerm
+				globalElementInline && !namedOwner && sequenceExtension && !inlineNestedTerm ||
+				!complexContent && element.name.local == "extension"
 			childErr := validateLocalAttribute(child, version, admitFalseInheritable)
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)

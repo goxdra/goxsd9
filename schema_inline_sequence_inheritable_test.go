@@ -358,7 +358,7 @@ func anonymousDirectInheritableSchema(model, use string) string {
 //nolint:gocognit // Pair each direct owner and spelling with omission and a valid excluded use.
 func TestAnonymousDirectFalseInheritableDependencyPrecedence(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
-		for _, model := range []struct{ name, text string }{{"empty", ""}, {"sequence", `<xs:sequence><xs:element ref="t:target"/></xs:sequence>`}} {
+		for _, model := range []struct{ name, text string }{{"empty", ""}, {"choice", `<xs:choice><xs:element ref="t:target"/></xs:choice>`}, {"sequence", `<xs:sequence><xs:element ref="t:target"/></xs:sequence>`}} {
 			for _, value := range []string{"false", "0", " &#x9;false&#xA; ", " &#xA;0&#x9; "} {
 				t.Run(string(policy)+"/"+model.name+"/"+value, func(t *testing.T) {
 					use := `<xs:attribute name="a" type="t:Missing" inheritable="` + value + `"/>`
@@ -386,6 +386,7 @@ func TestAnonymousDirectFalseInheritableSiblingExits(t *testing.T) {
 			cause                                         error
 		}{
 			{"particle before use", `<xs:sequence><xs:element ref="t:Missing"/></xs:sequence>`, `<xs:attribute name="a" type="xs:boolean"/>`, `ref="t:Missing"`, "", diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(XSDVersion11), FailureInvalid, errSchemaElementReferenceUnresolved},
+			{"choice particle before use", `<xs:choice><xs:element ref="t:Missing"/></xs:choice>`, `<xs:attribute name="a" type="xs:boolean"/>`, `ref="t:Missing"`, "", diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(XSDVersion11), FailureInvalid, errSchemaElementReferenceUnresolved},
 			{"prohibited type", "", `<xs:attribute name="a" type="t:Missing" use="prohibited"/>`, `type="t:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeTypeUnresolved},
 			{"wrong kind type", "", `<xs:attribute name="a" type="t:Fields"/>`, `type="t:Fields"`, `<xs:group name="Fields"`, diagnosticSchemaAttributeTypeWrongKindCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeTypeWrongKind},
 			{"unsupported ID", "", `<xs:attribute name="a" type="xs:ID"/>`, `type="xs:ID"`, "", UnsupportedSchemaSyntaxCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureUnsupported, errSchemaAttributeUseUnsupported},

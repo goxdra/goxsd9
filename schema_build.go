@@ -2182,7 +2182,7 @@ func schemaSimpleContentInputFromElement(element *syntaxElement, facts schemaDoc
 	if err != nil {
 		return nil, err
 	}
-	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version, false)
+	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version, true)
 	if err != nil {
 		return nil, err
 	}
