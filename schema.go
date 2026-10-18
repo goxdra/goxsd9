@@ -3090,16 +3090,17 @@ type schemaAttributeComponent struct {
 }
 
 type schemaAttributeUseInput struct {
-	loc          Loc
-	name         QName
-	nameLoc      Loc
-	formLoc      Loc
-	reference    *schemaAttributeReferenceInput
-	declaredType QName
-	typeLoc      Loc
-	inlineSimple *schemaSimpleTypeInput
-	use          AttributeUseKind
-	useLoc       Loc
+	loc                         Loc
+	name                        QName
+	nameLoc                     Loc
+	formLoc                     Loc
+	reference                   *schemaAttributeReferenceInput
+	declaredType                QName
+	typeLoc                     Loc
+	inlineSimple                *schemaSimpleTypeInput
+	use                         AttributeUseKind
+	useLoc                      Loc
+	deferredFalseInheritableLoc Loc
 }
 
 type schemaAttributeReferenceInput struct {

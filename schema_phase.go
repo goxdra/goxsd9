@@ -2771,7 +2771,8 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			attributesSeen = true
 			childErr := validateAttributeGroupReference(child)
 			if child.name.local == "attribute" {
-				childErr = schemaInvalidWithSpecRef(validateLocalAttribute(child, version, directNamedComplexAttributeOwner(parent)), schemaAttributeUseSpecRef(version))
+				admitFalseInheritable := directNamedComplexAttributeOwner(parent) || globalElementInline && len(syntaxAttributesByLocal(parent, "name")) == 0
+				childErr = schemaInvalidWithSpecRef(validateLocalAttribute(child, version, admitFalseInheritable), schemaAttributeUseSpecRef(version))
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
@@ -3207,7 +3208,11 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return compositionDiagnostic(child.loc, element.name.local+" attributes must precede anyAttribute and assert")
 			}
 			attributesSeen = true
-			childErr := validateLocalAttribute(child, version, namedOwner && (groupExtension || sequenceExtension))
+			admitFalseInheritable := namedOwner && (groupExtension || sequenceExtension) ||
+				globalElementInline && !namedOwner && groupExtension ||
+				globalElementInline && !namedOwner && sequenceExtension && !inlineNestedTerm ||
+				!complexContent && element.name.local == "extension"
+			childErr := validateLocalAttribute(child, version, admitFalseInheritable)
 			if child.name.local == "attributeGroup" {
 				childErr = validateAttributeGroupReference(child)
 			}
