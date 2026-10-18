@@ -333,7 +333,6 @@ func TestSchemaShortExcludedShapes(t *testing.T) {
 			name, body, needle string
 		}{
 			{name: "local inline", body: `<xs:complexType name="T"><xs:choice><xs:element name="v"><xs:simpleType><xs:restriction base="xs:short"/></xs:simpleType></xs:element></xs:choice></xs:complexType>`, needle: `<xs:simpleType>`},
-			{name: "local attribute", body: `<xs:complexType name="T"><xs:attribute name="v" type="xs:short"/></xs:complexType>`, needle: `type="xs:short"`},
 			{name: "simple content", body: `<xs:complexType name="T"><xs:simpleContent><xs:extension base="xs:short"/></xs:simpleContent></xs:complexType>`, needle: `base="xs:short"`},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {

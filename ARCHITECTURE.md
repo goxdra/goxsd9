@@ -78,8 +78,9 @@ Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs
 `xs:NCName` and `xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID per owner.
 Named empty/choice/sequence: built-in `xs:language`/`xs:anyURI`;
 named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
-Named empty/choice/sequence: built-in/named `xs:long` with bounds.
-Inline/ref/value/other owners and consumers reject.
+Empty/choice/sequence: built-in/named `xs:long`.
+Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; copied facets.
+Inline/ref/value/other owners/consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

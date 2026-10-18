@@ -361,6 +361,10 @@
 // effective atomic xs:long local declarations with copied exact bounds and type
 // provenance under every policy. Inline varieties, refs, values, other owners,
 // and consumers reject.
+// Named empty owners also admit built-in and supported named effective atomic
+// xs:short, xs:int, xs:byte, and xs:unsignedLong local declarations with exact
+// bounds, digits, enumeration, and type provenance. Inline/list/union, refs,
+// values, other owners, validation, and generation remain unsupported.
 // A named global complex type with an empty body also admits an effective-empty
 // block under Compatibility, Strict10, and Strict11. An explicit empty or
 // XML-whitespace-only block overrides even blockDefault="#all"; the empty set
