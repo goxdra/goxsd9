@@ -54,7 +54,7 @@ Bounded empty-base extensions/`xs:anyType` restrictions retain refs, IDs/`Loc`s,
 and `##other`/`lax` wildcards.
 Grouped/sequence extensions admit named/global-element inline owners; anonymous identity persists, excluding ID/inheritable/list/union uses.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
-Named attribute-free simpleContent extensions query built-in/supported named effective atomic `xs:token`/`xs:NMTOKEN` bases; restrictions remain unsupported.
+Named attribute-free simpleContent extensions query built-in/supported named effective atomic `xs:normalizedString`/`xs:token`/`xs:NMTOKEN` bases; restrictions remain unsupported.
 Direct and extension particles model selected integer-family locals; named
 direct models add sign restrictions. Built-in/named integer validates;
 broader derivatives and extensions remain query-only.
