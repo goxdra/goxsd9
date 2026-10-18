@@ -350,13 +350,17 @@
 // named effective xs:ID local uses for queries.
 // Named empty, direct choice, and direct sequence complex owners admit built-in
 // xs:language and xs:anyURI local declarations as ordered query-only AttributeUse
-// facts under every language policy. Named and inline restrictions of those types,
-// attribute refs, local default/fixed values, other owner shapes, validation, and
-// generation remain unsupported.
+// facts under every language policy. Named and inline restrictions, attribute
+// refs, local default/fixed values, and owners beyond these named cases and the
+// anonymous ref-sequence extension below remain unsupported; consumers reject.
 // Named empty owners also admit built-in and named effective atomic xs:token
 // and xs:NMTOKEN local declarations, retaining copied whitespace and
-// enumeration facts. Inline/list/union types, refs, values, other owners, and
-// consumers remain unsupported for these uses.
+// enumeration facts. Global-element inline complexContent extensions over
+// supported named empty bases also admit built-in xs:token and xs:anyURI local
+// declarations when the direct sequence contains only global element refs.
+// Their lexical use order, anonymous owner, base, and built-in facts persist;
+// consumers reject. Inline/list/union types, attribute refs, and values remain
+// unsupported for these uses.
 // Named empty and direct choice/sequence owners also admit built-in and named
 // effective atomic xs:long local declarations with copied exact bounds and type
 // provenance under every policy. Inline varieties, refs, values, other owners,
