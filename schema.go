@@ -3497,6 +3497,9 @@ func resolveSchemaBuildResults(
 	if err := validateSchemaModelGroupLocalOverlaps(records, modelGroups, version); err != nil {
 		return schemaBuildResolution{}, err
 	}
+	if err := validateInlineExtensionSequencePairOverlaps(records, complexTypes, modelGroups, version); err != nil {
+		return schemaBuildResolution{}, err
+	}
 	return schemaBuildResolution{
 		simpleTypes:  simpleTypes,
 		attributes:   attributes,
