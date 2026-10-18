@@ -76,9 +76,10 @@ Named empty/all/choice/sequence/group/grouped/sequence-extension owners omit `in
 Strict10, true/1, refs, and other owners reject.
 Named empty/choice/sequence/grouped/extension owners query facet-free `xs:ID`
 (Strict10: one), built-in/named `xs:NCName` and `xs:normalizedString` locals.
-Named empty owners query built-in `xs:language`/`xs:anyURI` and built-in/named
-atomic `xs:token`/`xs:NMTOKEN`/effective `xs:long`, copying facets/bounds. Inline/ref/value and other-owner
-forms reject. `ValidateInstance`/`GenerateGo` reject these uses.
+Named empty owners query `xs:language`/`xs:anyURI` and built-in/named
+`xs:token`/`xs:NMTOKEN`. Named empty/choice/sequence owners query built-in/named
+atomic `xs:long` with copied bounds. Inline/ref/value/other-owner forms and
+consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

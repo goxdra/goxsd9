@@ -7064,7 +7064,7 @@ func resolveSchemaAttributeUseType(
 	if err := rejectSchemaExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedEmptyLocalLanguageAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalLongAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedEmptyLocalLanguageAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaNamedDirectLocalLongAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -7253,7 +7253,7 @@ func schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference schemaSimp
 	return ok
 }
 
-func schemaNamedEmptyLocalLongAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+func schemaNamedDirectLocalLongAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
 	if reference.kind != SimpleTypeReferenceBuiltin && reference.kind != SimpleTypeReferenceNamed {
 		return false
 	}
@@ -7268,8 +7268,19 @@ func schemaNamedEmptyLocalLongAttributeTypeSupported(reference schemaSimpleTypeR
 	default:
 		return false
 	}
-	_, ok := owner.complexType.body.(*schemaComplexTypeAttributeOnlyBodyInput)
-	return ok
+	switch body := owner.complexType.body.(type) {
+	case *schemaComplexTypeAttributeOnlyBodyInput:
+		return true
+	case *schemaComplexTypeDirectBodyInput:
+		if body == nil {
+			return false
+		}
+		switch body.particle.(type) {
+		case *schemaChoiceParticleInput, *schemaSequenceParticleInput:
+			return true
+		}
+	}
+	return false
 }
 
 func schemaNamedLocalNCNameAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
