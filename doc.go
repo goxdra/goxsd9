@@ -409,10 +409,10 @@
 // value/default/fixed semantics and attributeGroup expansion remain unsupported.
 // Compatibility/Strict11 admit inheritable=false/0 as omission on named local
 // declarations in direct named empty/all/choice/sequence/group complex types and
-// named grouped or direct-sequence extensions. Strict10 rejects it; true/1 and explicit inheritable
-// on ref uses reject.
-// Anonymous inline, simpleContent, and
-// attributeGroup owners remain excluded from this admission.
+// named grouped or direct-sequence extensions, and supported name-bearing
+// non-ID locals of anonymous global-element inline direct-sequence extensions.
+// Strict10 rejects it; true/1 and explicit inheritable on ref uses reject.
+// Other anonymous inline, simpleContent, and attributeGroup owners remain excluded.
 // Validation supports local precisionDecimal atomic and bounded
 // variety uses on direct empty-content roots and direct sequences of global
 // element references to inline or named complex targets or named local complex
