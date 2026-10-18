@@ -302,6 +302,178 @@ func TestInlineSequenceFalseInheritableExcludedControls(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Compare each grouped dependency exit against omission across policies and spellings.
+func TestAnonymousGroupedFalseInheritableDependencyPrecedence(t *testing.T) {
+	spellings := []struct{ name, value string }{
+		{"false", "false"}, {"zero", "0"}, {"padded false", " &#x9;false&#xA; "}, {"padded zero", " &#xA;0&#x9; "},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, spelling := range spellings {
+			for _, tc := range []struct {
+				name, use, group, base, extra, marker, related, code, spec string
+				class                                                      FailureClass
+				cause                                                      error
+			}{
+				{"missing group", `<xs:attribute name="a" type="xs:boolean"/>`, "Missing", "Base", "", `ref="t:Missing"`, "", diagnosticSchemaModelGroupReferenceUnresolvedCode, schemaModelGroupReferenceSpecRef(XSDVersion11), FailureInvalid, errSchemaModelGroupReferenceUnresolved},
+				{"wrong kind group", `<xs:attribute name="a" type="xs:boolean"/>`, "global", "Base", "", `ref="t:global"`, `<xs:attribute name="global"`, diagnosticSchemaModelGroupReferenceWrongKindCode, schemaModelGroupReferenceSpecRef(XSDVersion11), FailureInvalid, errSchemaModelGroupReferenceWrongKind},
+				{"missing type", `<xs:attribute name="a" type="t:Missing"/>`, "Fields", "Base", "", `type="t:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeTypeUnresolved},
+				{"prohibited missing type", `<xs:attribute name="a" type="t:Missing" use="prohibited"/>`, "Fields", "Base", "", `type="t:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeTypeUnresolved},
+				{"wrong kind type", `<xs:attribute name="a" type="t:Base"/>`, "Fields", "Base", "", `type="t:Base"`, `<xs:complexType name="Base"`, diagnosticSchemaAttributeTypeWrongKindCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeTypeWrongKind},
+				{"duplicate use", `<xs:attribute name="a" type="xs:boolean"/><xs:attribute name="a" type="xs:integer"/>`, "Fields", "Base", "", `<xs:attribute name="a" type="xs:integer"`, `<xs:attribute name="a" type="xs:boolean"`, diagnosticSchemaAttributeUseDuplicateCode, schemaAttributeUseSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeUseDuplicate},
+				{"missing base", `<xs:attribute name="a" type="xs:boolean"/>`, "Fields", "Missing", "", `base="t:Missing"`, "", invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(XSDVersion11), FailureInvalid, errSchemaComplexTypeBaseUnresolved},
+				{"wrong kind base", `<xs:attribute name="a" type="xs:boolean"/>`, "Fields", "Fields", "", `base="t:Fields"`, `<xs:group name="Fields"`, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(XSDVersion11), FailureInvalid, errSchemaComplexTypeBaseWrongKind},
+				{"nonempty base", `<xs:attribute name="a" type="xs:boolean"/>`, "Fields", "Base", `<xs:sequence><xs:element name="inBase" type="xs:integer"/></xs:sequence>`, `base="t:Base"`, `<xs:sequence><xs:element name="inBase"`, UnsupportedSchemaSyntaxCode, schemaComplexTypeExtensionSpecRef(XSDVersion11), FailureUnsupported, errSchemaComplexTypeBaseNonEmpty},
+			} {
+				t.Run(string(policy)+"/"+spelling.name+"/"+tc.name, func(t *testing.T) {
+					use := strings.Replace(tc.use, `/>`, ` inheritable="`+spelling.value+`"/>`, 1)
+					root := anonymousGroupedExtensionSchema("1.0", "", use)
+					root = strings.Replace(root, `ref="t:Fields"`, `ref="t:`+tc.group+`"`, 1)
+					root = strings.Replace(root, `base="t:Base"`, `base="t:`+tc.base+`"`, 1)
+					if tc.extra != "" {
+						root = strings.Replace(root, `<xs:complexType name="Base"/>`, `<xs:complexType name="Base">`+tc.extra+`</xs:complexType>`, 1)
+					}
+					for _, candidate := range []string{root, strings.Replace(root, ` inheritable="`+spelling.value+`"`, "", 1)} {
+						if tc.name == "nonempty base" {
+							assertInlineInheritableDiagnostic(t, candidate, policy, tc.marker, tc.class, tc.code, tc.spec, tc.cause, `<xs:complexType name="Base"`, tc.related)
+							continue
+						}
+						if tc.related == "" {
+							assertInlineInheritableDiagnostic(t, candidate, policy, tc.marker, tc.class, tc.code, tc.spec, tc.cause)
+							continue
+						}
+						assertInlineInheritableDiagnostic(t, candidate, policy, tc.marker, tc.class, tc.code, tc.spec, tc.cause, tc.related)
+					}
+				})
+			}
+		}
+	}
+}
+
+func anonymousDirectInheritableSchema(model, use string) string {
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">` +
+		`<xs:element name="root"><xs:complexType>` + model + use + `</xs:complexType></xs:element>` +
+		`<xs:element name="target" type="xs:integer"/><xs:group name="Fields"><xs:sequence/></xs:group></xs:schema>`
+}
+
+//nolint:gocognit // Pair each direct owner and spelling with omission and a valid excluded use.
+func TestAnonymousDirectFalseInheritableDependencyPrecedence(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, model := range []struct{ name, text string }{{"empty", ""}, {"sequence", `<xs:sequence><xs:element ref="t:target"/></xs:sequence>`}} {
+			for _, value := range []string{"false", "0", " &#x9;false&#xA; ", " &#xA;0&#x9; "} {
+				t.Run(string(policy)+"/"+model.name+"/"+value, func(t *testing.T) {
+					use := `<xs:attribute name="a" type="t:Missing" inheritable="` + value + `"/>`
+					root := anonymousDirectInheritableSchema(model.text, use)
+					for _, candidate := range []string{root, strings.Replace(root, ` inheritable="`+value+`"`, "", 1)} {
+						assertInlineInheritableDiagnostic(t, candidate, policy, `type="t:Missing"`, FailureInvalid, diagnosticSchemaAttributeTypeUnresolvedCode, schemaAttributeTypeSpecRef(XSDVersion11), errSchemaAttributeTypeUnresolved)
+					}
+					valid := strings.Replace(root, `t:Missing`, `xs:boolean`, 1)
+					assertInlineInheritableDiagnostic(t, valid, policy, `inheritable="`+value+`"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, "xsd11-structures#cSchemaDocument", ErrUnsupported)
+					without := strings.Replace(valid, ` inheritable="`+value+`"`, "", 1)
+					if _, err := discoverTestSchemaWithPolicy(t, without, nil, policy); err != nil {
+						t.Fatalf("direct owner without inheritable: %v", err)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestAnonymousDirectFalseInheritableSiblingExits(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, tc := range []struct {
+			name, model, use, marker, related, code, spec string
+			class                                         FailureClass
+			cause                                         error
+		}{
+			{"particle before use", `<xs:sequence><xs:element ref="t:Missing"/></xs:sequence>`, `<xs:attribute name="a" type="xs:boolean"/>`, `ref="t:Missing"`, "", diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(XSDVersion11), FailureInvalid, errSchemaElementReferenceUnresolved},
+			{"prohibited type", "", `<xs:attribute name="a" type="t:Missing" use="prohibited"/>`, `type="t:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeTypeUnresolved},
+			{"wrong kind type", "", `<xs:attribute name="a" type="t:Fields"/>`, `type="t:Fields"`, `<xs:group name="Fields"`, diagnosticSchemaAttributeTypeWrongKindCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeTypeWrongKind},
+			{"unsupported ID", "", `<xs:attribute name="a" type="xs:ID"/>`, `type="xs:ID"`, "", UnsupportedSchemaSyntaxCode, schemaAttributeTypeSpecRef(XSDVersion11), FailureUnsupported, errSchemaAttributeUseUnsupported},
+			{"duplicate use", "", `<xs:attribute name="a" type="xs:boolean"/><xs:attribute name="a" type="xs:integer"/>`, `<xs:attribute name="a" type="xs:integer"`, `<xs:attribute name="a" type="xs:boolean"`, diagnosticSchemaAttributeUseDuplicateCode, schemaAttributeUseSpecRef(XSDVersion11), FailureInvalid, errSchemaAttributeUseDuplicate},
+		} {
+			t.Run(string(policy)+"/"+tc.name, func(t *testing.T) {
+				root := anonymousDirectInheritableSchema(tc.model, strings.Replace(tc.use, `/>`, ` inheritable="0"/>`, 1))
+				for _, candidate := range []string{root, strings.Replace(root, ` inheritable="0"`, "", 1)} {
+					if tc.related == "" {
+						assertInlineInheritableDiagnostic(t, candidate, policy, tc.marker, tc.class, tc.code, tc.spec, tc.cause)
+						continue
+					}
+					assertInlineInheritableDiagnostic(t, candidate, policy, tc.marker, tc.class, tc.code, tc.spec, tc.cause, tc.related)
+				}
+			})
+		}
+		root := anonymousDirectInheritableSchema(`<xs:all/>`, `<xs:attribute name="a" type="xs:boolean" inheritable="false"/>`)
+		for _, candidate := range []string{root, strings.Replace(root, ` inheritable="false"`, "", 1)} {
+			assertInlineInheritableDiagnostic(t, candidate, policy, `<xs:all/>`, FailureUnsupported, UnsupportedSchemaSyntaxCode, "xsd10-structures#schema-document", ErrUnsupported)
+		}
+	}
+}
+
+func TestAnonymousGroupedFalseInheritableValidOwnerRefusal(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, value := range []string{"false", "0", " &#x9;false&#xA; ", " &#xA;0&#x9; "} {
+			for _, use := range []string{`<xs:attribute name="a" type="xs:boolean" inheritable="` + value + `"/>`, `<xs:attribute name="a" type="xs:boolean" use="prohibited" inheritable="` + value + `"/>`} {
+				root := anonymousGroupedExtensionSchema("1.0", "", use)
+				assertInlineInheritableDiagnostic(t, root, policy, `inheritable="`+value+`"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaComplexTypeExtensionSpecRef(XSDVersion11), ErrUnsupported)
+				without := strings.Replace(root, ` inheritable="`+value+`"`, "", 1)
+				if _, err := discoverTestSchemaWithPolicy(t, without, nil, policy); err != nil {
+					t.Fatalf("owner without inheritable: %v", err)
+				}
+			}
+		}
+	}
+}
+
+func TestAnonymousGroupedFalseInheritableGraphExits(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:b="urn:base" targetNamespace="urn:root" version="1.1"><xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/><xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="b:Base"><xs:group ref="t:Fields"/><xs:attribute name="a" type="xs:boolean" inheritable="false"/></xs:extension></xs:complexContent></xs:complexType></xs:element><xs:group name="Fields"><xs:sequence/></xs:group></xs:schema>`
+		bridge := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge" version="1.1"><xs:import namespace="urn:base" schemaLocation="base.xsd"/></xs:schema>`
+		base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:base" version="1.1"><xs:complexType name="Base"/></xs:schema>`
+		for _, candidate := range []string{root, strings.Replace(root, ` inheritable="false"`, "", 1)} {
+			schema, err := discoverTestSchemaWithPolicy(t, candidate, map[string]discoveryFixture{
+				"bridge.xsd": {id: "bridge.xsd", contents: bridge}, "base.xsd": {id: "base.xsd", contents: base},
+			}, policy)
+			assertZeroSchema(t, schema)
+			d := requireDiagnostic(t, err)
+			if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != complexContentTestLoc(t, candidate, `base="b:Base"`) ||
+				d.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) || !errors.Is(err, errSchemaComplexTypeBaseUnresolved) ||
+				!reflect.DeepEqual(d.Related(), []Loc{complexContentTestSourceLoc(t, "base.xsd", base, `<xs:complexType name="Base"`)}) {
+				t.Fatalf("hidden base = %v related=%v", err, d.Related())
+			}
+		}
+		cycle := anonymousGroupedExtensionSchema("1.1", "", `<xs:attribute name="a" type="xs:boolean" inheritable="0"/>`)
+		cycle = strings.Replace(cycle, `<xs:complexType name="Base"/>`, `<xs:complexType name="Base"><xs:complexContent><xs:extension base="t:Other"/></xs:complexContent></xs:complexType><xs:complexType name="Other"><xs:complexContent><xs:extension base="t:Base"/></xs:complexContent></xs:complexType>`, 1)
+		for _, candidate := range []string{cycle, strings.Replace(cycle, ` inheritable="0"`, "", 1)} {
+			assertInlineInheritableDiagnostic(t, candidate, policy, `base="t:Base"/></xs:complexContent></xs:complexType>`, FailureInvalid, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(XSDVersion11), errSchemaComplexTypeBaseCycle, `base="t:Other"`)
+		}
+	}
+}
+
+func TestAnonymousGroupedInheritableSyntaxPrecedence(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, value := range []string{"true", "1"} {
+			root := anonymousGroupedExtensionSchema("1.0", "", `<xs:attribute name="a" type="t:Missing" inheritable="`+value+`"/>`)
+			assertInlineInheritableDiagnostic(t, root, policy, `inheritable="`+value+`"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaComplexTypeExtensionSpecRef(XSDVersion11), ErrUnsupported)
+		}
+		root := anonymousGroupedExtensionSchema("1.0", "", `<xs:attribute ref="t:missing" inheritable="false"/>`)
+		assertInlineInheritableDiagnostic(t, root, policy, `inheritable="false"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaComplexTypeExtensionSpecRef(XSDVersion11), ErrUnsupported)
+	}
+	root := anonymousGroupedExtensionSchema("1.1", "", `<xs:attribute name="a" type="t:Missing" inheritable="0"/>`)
+	assertInlineInheritableDiagnostic(t, root, Strict10, `inheritable="0"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, "xsd11-structures#cSchemaDocument", errLanguagePolicyMismatch)
+}
+
+func TestAnonymousNestedFalseInheritableStructuralPrecedence(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, value := range []string{"false", "0"} {
+			use := `<xs:attribute name="a" type="t:Missing" inheritable="` + value + `"/>`
+			root := inlineSequenceAttributeSchema("1.0", "", `<xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence>`, use, "")
+			for _, candidate := range []string{root, strings.Replace(root, ` inheritable="`+value+`"`, "", 1)} {
+				assertInlineInheritableDiagnostic(t, candidate, policy, `<xs:element name="v"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaComplexParticleExtensionSpecRef(XSDVersion11), ErrUnsupported)
+			}
+		}
+	}
+}
+
 func TestInlineSequenceFalseInheritableGraphFailureExits(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:b="urn:base" targetNamespace="urn:root" version="1.1"><xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/><xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="b:Base"><xs:sequence/><xs:attribute name="flag" type="xs:boolean" inheritable="false"/></xs:extension></xs:complexContent></xs:complexType></xs:element></xs:schema>`

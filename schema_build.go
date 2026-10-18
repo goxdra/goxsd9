@@ -1777,7 +1777,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	complexContent := schemaComplexContentChild(element)
 	if complexContent != nil {
 		if schemaComplexContentExtensionChild(complexContent) != nil {
-			input, inputErr := schemaComplexTypeExtensionInput(complexContent, facts, version, block)
+			input, inputErr := schemaComplexTypeExtensionInput(complexContent, facts, version, block, len(syntaxAttributesByLocal(element, "name")) == 0)
 			if inputErr != nil {
 				return nil, inputErr
 			}
@@ -1789,7 +1789,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 		}
 		return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 	}
-	attributeUses, err := schemaAttributeUseInputsFromChildren(element, facts, version)
+	attributeUses, err := schemaAttributeUseInputsFromChildren(element, facts, version, len(syntaxAttributesByLocal(element, "name")) == 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1920,7 +1920,7 @@ func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block sche
 }
 
 //nolint:gocognit,funlen // Keep direct extension particle and use conversion in source order.
-func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
+func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy, anonymousOwner bool) (*schemaComplexTypeInput, error) {
 	extension := schemaComplexContentExtensionChild(complexContent)
 	if extension == nil {
 		return nil, newSchemaBridgeInvariant(complexContent.loc, "supported complexContent has no extension child")
@@ -2003,9 +2003,9 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 		}
 	}
 	if model != nil && model.name.local == "group" {
-		return schemaGroupedComplexTypeExtensionInput(complexContent, extension, model, particle, facts, version, block, base, baseAttributes[0].loc)
+		return schemaGroupedComplexTypeExtensionInput(complexContent, extension, model, particle, facts, version, block, base, baseAttributes[0].loc, anonymousOwner)
 	}
-	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version)
+	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version, false)
 	if err != nil {
 		return nil, err
 	}
@@ -2097,8 +2097,9 @@ func schemaGroupedComplexTypeExtensionInput(
 	block schemaBlockPolicy,
 	base QName,
 	baseLoc Loc,
+	anonymousOwner bool,
 ) (*schemaComplexTypeInput, error) {
-	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version)
+	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version, anonymousOwner)
 	if err != nil {
 		return nil, err
 	}
@@ -2181,7 +2182,7 @@ func schemaSimpleContentInputFromElement(element *syntaxElement, facts schemaDoc
 	if err != nil {
 		return nil, err
 	}
-	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version)
+	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version, false)
 	if err != nil {
 		return nil, err
 	}
@@ -2200,7 +2201,7 @@ func schemaSimpleContentInputFromElement(element *syntaxElement, facts schemaDoc
 	}, nil
 }
 
-func schemaAttributeUseInputsFromChildren(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) ([]schemaAttributeUseInput, error) {
+func schemaAttributeUseInputsFromChildren(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, deferFalseInheritable bool) ([]schemaAttributeUseInput, error) {
 	if element == nil {
 		return nil, newSchemaBridgeInvariant(Loc{}, "collect attribute uses from a nil element")
 	}
@@ -2210,7 +2211,7 @@ func schemaAttributeUseInputsFromChildren(element *syntaxElement, facts schemaDo
 		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "attribute" {
 			continue
 		}
-		input, err := schemaAttributeUseInputFromElement(child, facts, version)
+		input, err := schemaAttributeUseInputFromElement(child, facts, version, deferFalseInheritable)
 		if err != nil {
 			return nil, err
 		}
@@ -2219,7 +2220,7 @@ func schemaAttributeUseInputsFromChildren(element *syntaxElement, facts schemaDo
 	return inputs, nil
 }
 
-func schemaAttributeUseInputFromElement(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion) (schemaAttributeUseInput, error) {
+func schemaAttributeUseInputFromElement(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, deferFalseInheritable bool) (schemaAttributeUseInput, error) {
 	if element == nil {
 		return schemaAttributeUseInput{}, newSchemaBridgeInvariant(Loc{}, "construct attribute use input from a nil element")
 	}
@@ -2238,6 +2239,18 @@ func schemaAttributeUseInputFromElement(element *syntaxElement, facts schemaDocu
 	}
 	input.name = name
 	input.nameLoc = nameLoc
+	if deferFalseInheritable {
+		inheritable := syntaxAttributesByLocal(element, "inheritable")
+		if len(inheritable) == 1 {
+			value, valueErr := ParseStrictBooleanFor(version, inheritable[0].value, inheritable[0].loc)
+			if valueErr != nil {
+				return schemaAttributeUseInput{}, valueErr
+			}
+			if !value.value {
+				input.deferredFalseInheritableLoc = inheritable[0].loc
+			}
+		}
+	}
 	formAttributes := syntaxAttributesByLocal(element, "form")
 	if len(formAttributes) == 1 {
 		input.formLoc = formAttributes[0].loc
@@ -6639,6 +6652,16 @@ func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	body, err := resolver.resolveBody(input.body, index)
 	if err != nil {
 		return err
+	}
+	for _, use := range schemaComplexTypeAttributeUseInputs(input.body) {
+		if use.deferredFalseInheritableLoc.IsZero() {
+			continue
+		}
+		diagnostic := newSchemaSyntaxUnsupportedForVersion(use.deferredFalseInheritableLoc, "local attribute inheritable is not implemented", resolver.version)
+		if _, grouped := input.body.(*schemaComplexTypeGroupedExtensionBodyInput); grouped {
+			diagnostic.specRef = schemaComplexTypeExtensionSpecRef(resolver.version)
+		}
+		return diagnostic
 	}
 	resolver.stack = resolver.stack[:len(resolver.stack)-1]
 	resolver.state[index] = 2

@@ -2771,7 +2771,8 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			attributesSeen = true
 			childErr := validateAttributeGroupReference(child)
 			if child.name.local == "attribute" {
-				childErr = schemaInvalidWithSpecRef(validateLocalAttribute(child, version, directNamedComplexAttributeOwner(parent)), schemaAttributeUseSpecRef(version))
+				admitFalseInheritable := directNamedComplexAttributeOwner(parent) || globalElementInline && len(syntaxAttributesByLocal(parent, "name")) == 0
+				childErr = schemaInvalidWithSpecRef(validateLocalAttribute(child, version, admitFalseInheritable), schemaAttributeUseSpecRef(version))
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
 				return childErr
@@ -3208,6 +3209,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			attributesSeen = true
 			admitFalseInheritable := namedOwner && (groupExtension || sequenceExtension) ||
+				globalElementInline && !namedOwner && groupExtension ||
 				globalElementInline && !namedOwner && sequenceExtension && !inlineNestedTerm
 			childErr := validateLocalAttribute(child, version, admitFalseInheritable)
 			if child.name.local == "attributeGroup" {
