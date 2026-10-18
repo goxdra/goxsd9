@@ -6837,10 +6837,13 @@ func (resolver *schemaComplexTypeResolver) resolveSchemaComplexTypeSimpleContent
 	if err != nil {
 		return nil, err
 	}
-	if extension.typeReference.atomicKind == schemaSimpleTypeAtomicToken || extension.typeReference.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
+	if extension.typeReference.atomicKind == schemaSimpleTypeAtomicToken || extension.typeReference.atomicKind == schemaSimpleTypeAtomicNMTOKEN || extension.typeReference.atomicKind == schemaSimpleTypeAtomicNormalizedString {
 		baseKind := "token"
 		if extension.typeReference.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
 			baseKind = "NMTOKEN"
+		}
+		if extension.typeReference.atomicKind == schemaSimpleTypeAtomicNormalizedString {
+			baseKind = "normalizedString"
 		}
 		if owner.kind != ComponentKindComplexTypeDefinition || owner.complexType == nil {
 			return nil, unsupportedSchemaSimpleContentBase(
@@ -6906,7 +6909,7 @@ func (resolver *schemaComplexTypeResolver) resolveSimpleContentExtension(body *s
 	if finalErr := resolver.rejectExtensionFinal(base, body.base.name, body.base.loc); finalErr != nil {
 		return schemaSimpleContentExtension{}, finalErr
 	}
-	if targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicToken && targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicNMTOKEN {
+	if targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicToken && targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicNMTOKEN && targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicNormalizedString {
 		return schemaSimpleContentExtension{}, err
 	}
 	return schemaSimpleContentExtension{}, unsupportedSchemaSimpleContentBase(
@@ -7409,6 +7412,7 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 	}
 	switch reference.atomicKind {
 	case schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicToken,
 		schemaSimpleTypeAtomicNMTOKEN,
 		schemaSimpleTypeAtomicInteger,
@@ -7416,7 +7420,6 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return true
 	case schemaSimpleTypeAtomicUnknown,
-		schemaSimpleTypeAtomicNormalizedString,
 		schemaSimpleTypeAtomicInt,
 		schemaSimpleTypeAtomicShort,
 		schemaSimpleTypeAtomicByte,
@@ -7471,7 +7474,7 @@ func resolveSchemaSimpleContentExtension(
 			fmt.Errorf("%w: %q", errSchemaSimpleContentBaseUnsupported, input.base.name),
 		)
 	}
-	if base.atomicKind == schemaSimpleTypeAtomicToken || base.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
+	if base.atomicKind == schemaSimpleTypeAtomicToken || base.atomicKind == schemaSimpleTypeAtomicNMTOKEN || base.atomicKind == schemaSimpleTypeAtomicNormalizedString {
 		finalErr := simpleTypes.resolver.rejectSchemaSimpleTypeFinal(base, schemaSimpleTypeFinalExtension, "simpleContent extension base", input.base.loc, version)
 		if finalErr != nil {
 			var diagnostic Diagnostic

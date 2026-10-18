@@ -395,7 +395,7 @@
 // Supported scalar extensions retain base, type, and ordered-use locations with
 // a nil particle. Boolean/string/integer/decimal bases work under every policy;
 // precisionDecimal requires Compatibility/Strict11. Named attribute-free owners
-// also query built-in or supported named effective atomic xs:token/xs:NMTOKEN
+// also query built-in or supported named effective atomic xs:normalizedString/xs:token/xs:NMTOKEN
 // with copied facets and base identity; ValidateInstance and GenerateGo reject
 // those uses. Local
 // value/default/fixed semantics and attributeGroup expansion remain unsupported.
