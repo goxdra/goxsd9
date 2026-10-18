@@ -361,6 +361,10 @@
 // effective atomic xs:long local declarations with copied exact bounds and type
 // provenance under every policy. Inline varieties, refs, values, other owners,
 // and consumers reject.
+// Named empty owners also admit built-in and supported named effective atomic
+// xs:short, xs:int, xs:byte, and xs:unsignedLong local declarations with exact
+// bounds, digits, enumeration, and type provenance. Inline/list/union, refs,
+// values, other owners, validation, and generation remain unsupported.
 // A named global complex type with an empty body also admits an effective-empty
 // block under Compatibility, Strict10, and Strict11. An explicit empty or
 // XML-whitespace-only block overrides even blockDefault="#all"; the empty set
@@ -378,8 +382,7 @@
 // named/inline lists with atomic precisionDecimal items and two-member unions
 // of precisionDecimal then negativeInteger are admitted. Direct-sequence
 // and anonymous grouped extensions admit only existing atomic local-use types.
-// Other local varieties
-// and explicit xs:int remain unsupported. Strict10 rejects
+// Other local varieties remain unsupported. Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
 // and effective use. Explicit form or attributeFormDefault selects qualified or
 // unqualified local names; XSD 1.1 local targetNamespace selects a namespace only

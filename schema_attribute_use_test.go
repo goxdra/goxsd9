@@ -217,7 +217,7 @@ func TestSchemaBridgeBuildsAttributeOnlyAndSimpleContentBodies(t *testing.T) {
 }
 
 //nolint:gocognit // Keep the cross-policy local/reference diagnostic matrix together.
-func TestSchemaBridgeRejectsUnsignedLongAttributeUsesAcrossPolicies(t *testing.T) {
+func TestSchemaBridgeRejectsExcludedUnsignedLongAttributeUsesAcrossPolicies(t *testing.T) {
 	for _, profile := range unsignedLongPolicyProfiles() {
 		for _, test := range []struct {
 			name    string
@@ -227,21 +227,9 @@ func TestSchemaBridgeRejectsUnsignedLongAttributeUsesAcrossPolicies(t *testing.T
 			causes  []error
 		}{
 			{
-				name:    "local built-in",
-				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Record"><xs:attribute name="value" type="xs:unsignedLong"/></xs:complexType></xs:schema>`,
-				primary: `type="xs:unsignedLong"`,
-				causes:  []error{ErrUnsupported, errSchemaAttributeTypeUnsupported, errSchemaAttributeUseUnsupported},
-			},
-			{
 				name:    "local anonymous-inline",
 				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Record"><xs:attribute name="value"><xs:simpleType><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:attribute></xs:complexType></xs:schema>`,
 				primary: `<xs:simpleType>`,
-				causes:  []error{ErrUnsupported, errSchemaAttributeTypeUnsupported, errSchemaAttributeUseUnsupported},
-			},
-			{
-				name:    "local named-effective",
-				root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:root" targetNamespace="urn:root"><xs:complexType name="Record"><xs:attribute name="value" type="r:UnsignedLong"/></xs:complexType><xs:simpleType name="UnsignedLong"><xs:restriction base="xs:unsignedLong"/></xs:simpleType></xs:schema>`,
-				primary: `type="r:UnsignedLong"`,
 				causes:  []error{ErrUnsupported, errSchemaAttributeTypeUnsupported, errSchemaAttributeUseUnsupported},
 			},
 			{

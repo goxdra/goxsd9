@@ -63,23 +63,24 @@ Named direct choice/sequence and named-group sequence/nested-choice locals map m
 Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
 Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
 Anonymous global-element `complexContent/extension` over supported named empty-content bases (`##other`/`lax` `anyType` included) admits ref-only choice, nested sequence with default `1/1` group ref then element ref, or both choice-first; exact bounds/order/targets/`Loc`s persist with inherited wildcard.
-Other owners, broader nesting, direct groups, wildcards, locals, and combined attributes stay unsupported.
+Other owners, broader nesting, direct groups, wildcards, locals, and combined attributes reject.
 Type conflicts: XSD3063; ambiguity rejects with related `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
 `0/0` omits; anonymous complex members/consumers reject.
-AttributeUse retains ordered IDs/`Loc`s; grouped/direct-sequence complexContent extensions resolve models→uses→base.
-`0/0`/prohibited uses omit; chameleon adopts; XSD 1.1 `targetNamespace` must match.
-Named empty/all/choice/sequence/group/grouped/sequence-extension owners omit `inheritable=false/0` in Compatibility/Strict11;
+AttributeUse orders IDs/`Loc`s; grouped/direct-sequence extensions resolve models→uses→base.
+`0/0`/prohibited omit; chameleon adopts; 1.1 `targetNamespace` must match.
+Named empty/all/choice/sequence/group/grouped/sequence-extension omit `inheritable=false/0` in Compatibility/Strict11;
 Strict10, true/1, refs, other owners reject.
 Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
-`xs:NCName` and `xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID per owner.
+`xs:NCName`/`xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID/owner.
 Named empty/choice/sequence: built-in `xs:language`/`xs:anyURI`;
 named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
-Named empty/choice/sequence: built-in/named `xs:long` with bounds.
-Inline/ref/value/other owners and consumers reject.
+Named empty/direct choice/direct sequence: built-in/supported named effective atomic `xs:long`.
+Named empty: built-in/supported named atomic `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; copied facets.
+Inline/ref/value/other owners/consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

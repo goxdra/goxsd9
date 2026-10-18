@@ -7067,7 +7067,7 @@ func resolveSchemaAttributeUseType(
 	if err := rejectSchemaExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaNamedDirectLocalLongAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaNamedDirectLocalLongAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalBoundedIntegerAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -7302,6 +7302,25 @@ func schemaNamedDirectLocalLongAttributeTypeSupported(reference schemaSimpleType
 		}
 	}
 	return false
+}
+
+func schemaNamedEmptyLocalBoundedIntegerAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+	if reference.kind != SimpleTypeReferenceBuiltin && reference.kind != SimpleTypeReferenceNamed {
+		return false
+	}
+	if reference.variety != SimpleTypeVarietyAtomicRestriction || owner.complexType == nil {
+		return false
+	}
+	if reference.atomicKind != schemaSimpleTypeAtomicShort && reference.atomicKind != schemaSimpleTypeAtomicInt && reference.atomicKind != schemaSimpleTypeAtomicByte && reference.atomicKind != schemaSimpleTypeAtomicUnsignedLong {
+		return false
+	}
+	switch reference.facets.(type) {
+	case schemaDigitFacetVariant, schemaIntegerFacetVariant:
+	default:
+		return false
+	}
+	_, ok := owner.complexType.body.(*schemaComplexTypeAttributeOnlyBodyInput)
+	return ok
 }
 
 func schemaNamedLocalNCNameAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
