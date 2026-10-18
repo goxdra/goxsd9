@@ -382,8 +382,7 @@
 // named/inline lists with atomic precisionDecimal items and two-member unions
 // of precisionDecimal then negativeInteger are admitted. Direct-sequence
 // and anonymous grouped extensions admit only existing atomic local-use types.
-// Other local varieties
-// and explicit xs:int remain unsupported. Strict10 rejects
+// Other local varieties remain unsupported. Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
 // and effective use. Explicit form or attributeFormDefault selects qualified or
 // unqualified local names; XSD 1.1 local targetNamespace selects a namespace only
