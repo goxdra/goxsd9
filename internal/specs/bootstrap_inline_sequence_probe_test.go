@@ -415,7 +415,6 @@ func TestPinnedXSD10InlineSequenceOwnerAndGroupUseGates(t *testing.T) {
 		name, start, end, term, marker string
 	}{
 		{"named-owner", namedStart, namedEnd, parts.sequence, `minOccurs="0"`},
-		{"direct-group-ref", anonymousStart, anonymousEnd, `<xs:group ref="xs:schemaTop"/>`, `ref="xs:schemaTop"`},
 	} {
 		t.Run(check.name, func(t *testing.T) {
 			id := "xsd10-inline-sequence-" + check.name
@@ -426,6 +425,10 @@ func TestPinnedXSD10InlineSequenceOwnerAndGroupUseGates(t *testing.T) {
 				"xsd10-structures#cos-particle-extend", "", nil)
 		})
 	}
+	id := "xsd10-inline-sequence-direct-group-ref"
+	source := inlineProbeSchema(edition, inlineProbeXSDNamespace, anonymousStart, `<xs:group ref="xs:schemaTop"/>`, anonymousEnd,
+		parts.schemaTop+parts.redefinable+inlineSequenceStubElements())
+	inlineProbeAssertDirectGroup(t, id, source, goxsd9.Strict10, "schemaTop", `ref="xs:schemaTop"`, "1/1")
 }
 
 func TestPinnedXSD10InlineSequenceAlternateExits(t *testing.T) {
