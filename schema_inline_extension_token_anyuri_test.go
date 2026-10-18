@@ -193,6 +193,7 @@ func TestInlineExtensionTokenAnyURIPublicFacts(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Both built-ins retain wildcard provenance after particle and use omission.
 func TestInlineExtensionTokenAnyURIInheritedWildcardAndOmission(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		for _, kind := range []string{"token", "anyURI"} {
