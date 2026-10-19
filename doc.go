@@ -485,10 +485,12 @@
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
 // target members. Direct model-group references retain `RefLoc`/`TargetID`; their
 // consumer gates use the group RefLoc and reject them.
-// Named and inline complexContent restrictions also expose a completed named
-// empty-content base with zero effective attribute uses and a proved explicit
-// wildcard subset. The base reference retains its ID, QName, and source Loc;
-// validation and generation reject these restriction bodies.
+// Named and global-element inline complexContent restrictions expose a completed named
+// base with nil effective particle and zero effective attribute uses. Derived
+// wildcards need explicit namespace and processContents: namespace must be a
+// subset and process equal or stronger than the base. The base reference retains
+// its ID, QName, and source Loc. Richer derived particles, uses, and group refs
+// remain schema-unsupported; validation and generation reject these bodies.
 // Grouped extensions add
 // one opaque direct group reference and ordered local AttributeUse facts over a
 // supported named empty base. They resolve the group before the uses and base;

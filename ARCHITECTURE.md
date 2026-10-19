@@ -1,9 +1,5 @@
 # Architecture
 
-## Boundaries
-
-Immutable models feed validation/generation.
-
 ## Pipeline
 
 ```mermaid
@@ -18,8 +14,7 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Identities intern before resolution; slices order walks/output.
-Phases never backpatch.
+Identities intern before resolution; slices order walks/output; no backpatching.
 
 ## Resolution
 
@@ -34,36 +29,38 @@ type Resolver interface {
 ```
 
 Sources retain opaque identity/context; resolvers own locations.
-Discovery is sequential FIFO; resolver calls are sequential.
+Discovery and resolver calls are sequential FIFO.
 `Loc`: one-based lines, Unicode code-point columns.
 
 ## Diagnostics
 
-Invalid/unsupported/resolution/internal diagnostics retain code, primary/related
-`Loc`, spec reference, cause; errors prevent `Schema`. Unsupported
-features have stable IDs.
+Diagnostics retain class/code, primary/related `Loc`, spec reference, cause;
+errors prevent `Schema`.
 
 ## Schema model
 
-Immutable components; ordered walks. Elements retain identity
+Elements retain identity
 constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
-Empty-base extensions and wildcard-only restrictions publish IDs, locations,
-and wildcards. Named restrictions require resolved empty, use-free bases,
-compatible wildcards, and no final/cycle block; consumers reject.
+Empty-base extensions and named/global-inline restrictions retain IDs, `Loc`s, wildcards.
+Restrictions require completed named bases with nil particle/zero uses and
+explicit derived `namespace`/`processContents`. Namespace must be subset,
+processing equal/stronger. Missing/broader/weaker wildcards or final/cycles
+invalidate; richer particles/uses/group refs and nonempty/used bases remain
+unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union, grouped/nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free simpleContent extensions query selected atomic bases; restrictions reject.
-Direct and extension particles model selected integer-family locals; named
-direct models add sign restrictions. Built-in/named integer validates;
-broader derivatives and extensions remain query-only.
+Direct/extension particles model selected integer-family locals; named direct
+adds sign restrictions. Built-in/named integers validate; other derivatives/
+extensions remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
 Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
 Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Anonymous empty-base extensions admit ref-only choice, group-ref then element-ref nested sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
+Anonymous empty-base extensions admit ref-only choice, nested group-ref/element-ref sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
 Broader nesting, direct groups, wildcards, locals, and nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
@@ -98,7 +95,10 @@ refs query-only. Inline defaults/fixed fail at value `Loc`;
 invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
-Complexes retain derivation and wildcard provenance. Empty named bodies and untyped globals admit empty `block` overrides; nonempty forms/consumers reject.
+Complexes retain abstract/final/block provenance, groups/extensions/wildcards.
+Empty named bodies lack particle/occurrence; they and untyped globals admit
+empty `block` overriding defaults. Named block `Loc` persists; untyped
+view/block facts are absent; nonempty block policies/consumers reject.
 `xs:any`: positive sets, 1.1 strict/lax/skip `notNamespace`, chameleons, `0/0`. Compatibility/Strict11 direct strict `notQName` retains source-ordered normalized tokens (duplicates), bindings/`Loc`, sorted unique expanded names; conflicts before omission; other placements/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
@@ -124,7 +124,7 @@ rejects it before publication. Lists split XML whitespace; unions preserve
 member order. Bounded variety sequences accept selected typed/anonymous locals
 and refs. Outer occurrences default; child ranges are exact. Default direct-choice
 refs to unconstrained Boolean/integer/decimal globals validate; constrained
-targets relate `Loc`. Exact supported types are in [the contract](doc.go).
+targets relate `Loc`.
 SimpleContent accepts built-in string with selected precisionDecimal attributes
 or built-in/named effective precisionDecimal; named effective string excludes.
 Inline roots validate selected sequences (including bounded list/union), attributes,
