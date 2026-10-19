@@ -51,8 +51,9 @@ The pinned XSD schema-for-schemas and datatypes artifacts in
 [`specs/manifest.json`](../../specs/manifest.json) contain the motivating
 grammar. Full-artifact outcomes remain in
 [`bootstrap_probe_test.go`](../../internal/specs/bootstrap_probe_test.go);
-the copied final-use fragment's admission, exclusions, and located diagnostics
-are tested in
+the copied datatype declarations are exercised through a synthetic grouped
+owner and local `final` use, with admission, exclusions, and located diagnostics
+tested in
 [`bootstrap_simple_derivation_set_probe_test.go`](../../internal/specs/bootstrap_simple_derivation_set_probe_test.go).
 This boundary makes no `xs:ID` lexical, value, or uniqueness claim.
 
@@ -105,7 +106,7 @@ ordered inline union members, first an `xs:token` restriction enumerating
 `substitution`, `extension`, `restriction`, `list`, `union` enumerations. The
 item restricts those values to `list`, `union`, `restriction` in the pinned
 XSD 1.0 slice and additionally `extension` in the XSD 1.1 slice. The parser
-publishes the copied identities, references, facets, order, and locations;
+publishes identities, references, facets, order, and lexical locations;
 this fragment slice does not claim support for either full schema-for-schemas.
 The local attribute name is separate from simple-type `final` controls. For
 this type, local inline simple types, attribute references, required uses,
