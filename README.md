@@ -8,7 +8,7 @@ and no partial schemas.
 `NewResolvedSource`/`ParseSchema`/`Resolver` handle includes/imports.
 Resolvers receive URNs/lexical locations; parsing opens no resources.
 `ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
-`ParseSchemaWithPolicy` selects policy. Queries/walks are deterministic.
+`ParseSchemaWithPolicy` selects policy. Queries/walks deterministic.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
 Named empty/choice/sequence/grouped/sequence-extension owners query NCName/`xs:normalizedString` facets. Named empty/choice/sequence: built-in `xs:language`/`xs:anyURI`; built-in/named `xs:long` attributes. Named empty: built-in/named `xs:token`/`xs:NMTOKEN`; built-in/supported named effective atomic `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes. Attribute-free simpleContent queries `xs:normalizedString`/`xs:token`/`xs:NMTOKEN` bases. Consumers reject; enumerated NCName list/union members reject.
 
@@ -26,7 +26,7 @@ Direct choices/sequences/bounded extensions expose built-in/named long locals;
 extension choices exclude attributes.
 Anonymous empty-base extensions query ref-only choices and nested group-ref/element-ref sequences, alone or combined. Bounds/order/`Loc`s/wildcards persist; deeper nesting/attributes reject.
 Anonymous empty-base ref-sequence extensions query built-in `xs:token`/`xs:anyURI` locals; consumers reject.
-Named/global-inline wildcard-only restrictions over empty, use-free named bases query; validation/generation reject.
+Named/global-inline wildcard-only restrictions query empty/use-free named bases with ##any/##other/positive-set wildcard subsets; validation/generation reject.
 Named-group sequences/nested choices query atomic integer/string/token locals; consumers reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
@@ -61,7 +61,7 @@ go tool workflowctl doctor
 go tool workflowctl check
 ```
 
-Links: [plan](PLAN.md), [issues](https://github.com/goxdra/goxsd9/issues),
+[plan](PLAN.md), [issues](https://github.com/goxdra/goxsd9/issues),
 [roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [rules](AGENTS.md).
 
 ## License

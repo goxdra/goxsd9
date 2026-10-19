@@ -12,22 +12,31 @@ func namedRestrictionBase() string {
 	return `<xs:complexType name="Base"><xs:complexContent><xs:restriction base="xs:anyType"><xs:anyAttribute namespace="##other" processContents="lax"/></xs:restriction></xs:complexContent></xs:complexType>`
 }
 
+func namedRestrictionPositiveSetBase() string {
+	return `<xs:complexType name="Base"><xs:sequence minOccurs="0" maxOccurs="0"><xs:element name="omitted" type="xs:integer"/></xs:sequence><xs:anyAttribute namespace="##targetNamespace urn:outside" processContents="strict"/></xs:complexType>`
+}
+
 //nolint:gocognit // Each public consumer is checked independently for each admitted owner shape.
 func TestNamedWildcardRestrictionConsumersRemainUnsupported(t *testing.T) {
 	for _, profile := range namedRestrictionProfiles() {
-		for _, shape := range []struct{ name, body string }{
-			{"named type", `<xs:element name="root" type="t:Derived"/>` + namedRestrictionOwner("t:Base", namedRestrictionWildcard("##other", "lax"))},
-			{"inline type", `<xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base">` + namedRestrictionWildcard("##other", "lax") + `</xs:restriction></xs:complexContent></xs:complexType></xs:element>`},
+		for _, shape := range []struct {
+			name, body, base string
+			inline           bool
+		}{
+			{"named type", `<xs:element name="root" type="t:Derived"/>` + namedRestrictionOwner("t:Base", namedRestrictionWildcard("##other", "lax")), namedRestrictionBase(), false},
+			{"inline type", `<xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base">` + namedRestrictionWildcard("##other", "lax") + `</xs:restriction></xs:complexContent></xs:complexType></xs:element>`, namedRestrictionBase(), true},
+			{"named positive-set base", `<xs:element name="root" type="t:Derived"/>` + namedRestrictionOwner("t:Base", namedRestrictionWildcard("urn:outside", "strict")), namedRestrictionPositiveSetBase(), false},
+			{"inline positive-set base", `<xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base">` + namedRestrictionWildcard("urn:outside", "strict") + `</xs:restriction></xs:complexContent></xs:complexType></xs:element>`, namedRestrictionPositiveSetBase(), true},
 		} {
 			t.Run(profile.name+"/"+shape.name, func(t *testing.T) {
-				root := namedRestrictionSchema(string(profile.version), "urn:n", shape.body+namedRestrictionBase())
+				root := namedRestrictionSchema(string(profile.version), "urn:n", shape.body+shape.base)
 				factVersion := profile.version
 				if profile.policy == Compatibility {
 					factVersion = XSDVersion11
 				}
 				declarationLoc := complexContentTestLoc(t, root, `<xs:element name="root"`)
 				definitionLoc := complexContentTestLoc(t, root, `<xs:complexType`)
-				if shape.name == "named type" {
+				if !shape.inline {
 					definitionLoc = complexContentTestLoc(t, root, `<xs:complexType name="Derived"`)
 				}
 				contentLoc := complexContentTestLoc(t, root, `<xs:complexContent>`)
@@ -38,7 +47,7 @@ func TestNamedWildcardRestrictionConsumersRemainUnsupported(t *testing.T) {
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
-				if shape.name == "inline type" {
+				if shape.inline {
 					components := schema.Components()
 					declaration, ok := components[0].ElementDeclaration()
 					if !ok {
@@ -76,7 +85,7 @@ func TestNamedWildcardRestrictionConsumersRemainUnsupported(t *testing.T) {
 				wantGenerationRelated := []Loc{definitionLoc, contentLoc, restrictionLoc, baseLoc, wildcardLoc}
 				wantGenerationSpec := codegenDirectSequenceSpecReference(factVersion, codegenDirectSequenceParticlesReference)
 				wantGenerationPrimary := definitionLoc
-				if shape.name == "inline type" {
+				if shape.inline {
 					wantGenerationRelated = []Loc{definitionLoc, restrictionLoc, baseLoc, wildcardLoc}
 					wantGenerationSpec = schemaElementTypeSpecRef(factVersion)
 					wantGenerationPrimary = declarationLoc
@@ -222,6 +231,152 @@ func TestNamedWildcardRestrictionSubsetAndEffectiveEmptyBase(t *testing.T) { //n
 					}
 				}
 			})
+		}
+	}
+}
+
+//nolint:gocognit // Both owner shapes and policy versions exercise the same public subset boundary.
+func TestNamedWildcardRestrictionPositiveSetBaseSubset(t *testing.T) {
+	for _, profile := range namedRestrictionProfiles() {
+		for _, shape := range []string{"named", "inline"} {
+			for _, derivedNamespace := range []string{"urn:outside", "urn:n"} {
+				t.Run(profile.name+"/"+shape+"/"+derivedNamespace, func(t *testing.T) {
+					wildcard := namedRestrictionWildcard(derivedNamespace, "strict")
+					owner := namedRestrictionOwner("t:Base", wildcard)
+					if shape == "inline" {
+						owner = `<xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base">` + wildcard + `</xs:restriction></xs:complexContent></xs:complexType></xs:element>`
+					}
+					root := namedRestrictionSchema(string(profile.version), "urn:n", owner+namedRestrictionPositiveSetBase())
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err != nil {
+						t.Fatalf("positive namespace-set subset: %v", err)
+					}
+					components := schema.Components()
+					derived, ok := components[0].ComplexType()
+					if shape == "inline" {
+						declaration, found := components[0].ElementDeclaration()
+						if !found {
+							t.Fatal("global inline owner has no declaration")
+						}
+						derived, ok = declaration.InlineComplexType()
+					}
+					if !ok || derived.Particle() != nil || len(derived.AttributeUses()) != 0 {
+						t.Fatalf("restriction body = %v/%v", derived, ok)
+					}
+					reference, hasReference := derived.BaseReference()
+					id, hasID := reference.ComponentID()
+					if !hasReference || !hasID || id != components[1].ID() || reference.Loc() != complexContentTestLoc(t, root, `base="t:Base"`) {
+						t.Fatalf("base reference = %v/%v", reference, hasReference)
+					}
+					base, found := components[1].ComplexType()
+					baseWildcard, hasBaseWildcard := base.AnyAttribute()
+					if !found || base.Particle() != nil || !hasBaseWildcard ||
+						!reflect.DeepEqual(baseWildcard.NamespaceConstraint().Namespaces(), []string{"urn:n", "urn:outside"}) ||
+						baseWildcard.NamespaceLoc() != complexContentTestLoc(t, root, `namespace="##targetNamespace urn:outside"`) ||
+						baseWildcard.ProcessContents() != "strict" ||
+						baseWildcard.ProcessContentsLoc() != namedRestrictionLastLoc(t, root, `processContents="strict"`) {
+						t.Fatalf("effective base/wildcard = %v/%v", base, baseWildcard)
+					}
+					baseNamespaces := baseWildcard.NamespaceConstraint().Namespaces()
+					baseNamespaces[0] = "mutated"
+					if !reflect.DeepEqual(baseWildcard.NamespaceConstraint().Namespaces(), []string{"urn:n", "urn:outside"}) {
+						t.Fatal("base wildcard namespace set aliases schema")
+					}
+					derivedWildcard, hasWildcard := derived.AnyAttribute()
+					if !hasWildcard || derivedWildcard.Namespace() != derivedNamespace ||
+						derivedWildcard.NamespaceLoc() != complexContentTestLoc(t, root, `namespace="`+derivedNamespace+`"`) ||
+						derivedWildcard.ProcessContentsLoc() != complexContentTestLoc(t, root, `processContents="strict"`) ||
+						!reflect.DeepEqual(derivedWildcard.NamespaceConstraint().Namespaces(), []string{derivedNamespace}) {
+						t.Fatalf("derived wildcard = %v/%v", derivedWildcard, hasWildcard)
+					}
+				})
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Every policy and owner shape must reject a provably broader set with the same located cause.
+func TestNamedWildcardRestrictionPositiveSetBaseBroader(t *testing.T) {
+	for _, profile := range namedRestrictionProfiles() {
+		for _, shape := range []string{"named", "inline"} {
+			t.Run(profile.name+"/"+shape, func(t *testing.T) {
+				wildcard := namedRestrictionWildcard("urn:outside urn:extra", "strict")
+				owner := namedRestrictionOwner("t:Base", wildcard)
+				if shape == "inline" {
+					owner = `<xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base">` + wildcard + `</xs:restriction></xs:complexContent></xs:complexType></xs:element>`
+				}
+				root := namedRestrictionSchema(string(profile.version), "urn:n", owner+namedRestrictionPositiveSetBase())
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err == nil {
+					t.Fatal("broader positive namespace set parsed")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				version := profile.version
+				if profile.policy == Compatibility {
+					version = XSDVersion11
+				}
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
+					diagnostic.Loc() != complexContentTestLoc(t, root, `namespace="urn:outside urn:extra"`) ||
+					!reflect.DeepEqual(diagnostic.Related(), []Loc{namedRestrictionLastLoc(t, root, `namespace="##targetNamespace urn:outside"`)}) ||
+					diagnostic.SpecRef() != schemaComplexTypeDerivationSpecRef(version) ||
+					!errors.Is(err, errSchemaComplexTypeWildcardRestriction) {
+					t.Fatalf("broader positive-set diagnostic = %v", err)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Syntax and completed grouped-base exclusions have separate public diagnostics.
+func TestNamedWildcardRestrictionOtherBaseShapeExclusions(t *testing.T) {
+	grouped := namedRestrictionBase() +
+		`<xs:group name="Fields"><xs:sequence/></xs:group>` +
+		`<xs:complexType name="Middle"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"/><xs:attribute name="unused" type="xs:boolean" use="prohibited"/></xs:extension></xs:complexContent></xs:complexType>`
+	for _, profile := range namedRestrictionProfiles() {
+		for _, shape := range []string{"named", "inline"} {
+			for _, tc := range []struct {
+				name, base, wildcard, declarations string
+			}{
+				{"absent derived wildcard", "t:Base", "", namedRestrictionBase()},
+				{"grouped base", "t:Middle", namedRestrictionWildcard("##other", "lax"), grouped},
+			} {
+				t.Run(profile.name+"/"+shape+"/"+tc.name, func(t *testing.T) {
+					owner := namedRestrictionOwner(tc.base, tc.wildcard)
+					if shape == "inline" {
+						owner = `<xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="` + tc.base + `">` + tc.wildcard + `</xs:restriction></xs:complexContent></xs:complexType></xs:element>`
+					}
+					root := namedRestrictionSchema(string(profile.version), "urn:n", owner+tc.declarations)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					if err == nil {
+						t.Fatalf("%s parsed", tc.name)
+					}
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+						!errors.Is(err, ErrUnsupported) {
+						t.Fatalf("unsupported exclusion diagnostic = %v", err)
+					}
+					if tc.name == "absent derived wildcard" {
+						if diagnostic.Loc() != complexContentTestLoc(t, root, `<xs:restriction base="`+tc.base+`"`) ||
+							len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaSyntaxSpecRefForVersion(XSDVersion10) ||
+							diagnostic.Unwrap() != nil {
+							t.Fatalf("missing-derived diagnostic = %v", err)
+						}
+						return
+					}
+					version := profile.version
+					if profile.policy == Compatibility {
+						version = XSDVersion11
+					}
+					if diagnostic.Loc() != complexContentTestLoc(t, root, `base="t:Middle"`) ||
+						!reflect.DeepEqual(diagnostic.Related(), []Loc{complexContentTestLoc(t, root, `<xs:complexType name="Middle"`)}) ||
+						diagnostic.SpecRef() != schemaComplexTypeDerivationSpecRef(version) ||
+						!errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+						t.Fatalf("grouped-base diagnostic = %v", err)
+					}
+				})
+			}
 		}
 	}
 }

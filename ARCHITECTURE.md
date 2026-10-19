@@ -29,7 +29,7 @@ type Resolver interface {
 ```
 
 Sources retain opaque identity/context; resolvers own locations.
-Discovery and resolver calls are sequential FIFO.
+FIFO discovery; sequential resolver calls.
 `Loc`: one-based lines, Unicode code-point columns.
 
 ## Diagnostics
@@ -39,17 +39,19 @@ errors prevent `Schema`.
 
 ## Schema model
 
-Elements retain identity
-constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
+Elements retain identity constraints, XPath, namespace scopes, `Loc`s, keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
 Empty-base extensions and named/global-inline restrictions retain IDs, `Loc`s, wildcards.
-Restrictions require completed named bases with nil particle/zero uses and
-explicit derived `namespace`/`processContents`. Namespace must be subset,
-processing equal/stronger. Missing/broader/weaker wildcards or final/cycles
-invalidate; richer particles/uses/group refs and nonempty/used bases remain
-unsupported. Consumers reject.
+Restrictions require completed named empty/attribute-only/direct/extension/
+restriction bases with nil particle/zero uses; grouped/simple-content bases
+unsupported. Derived `namespace`/`processContents` must be explicit: namespace
+subset of ##any/##other/positive-set base, process equal/stronger.
+`notNamespace`/`notQName` unsupported. Absent base wildcard invalid at derived
+wildcard; absent derived wildcard unsupported at restriction. Broader/weaker
+wildcards, final, cycles invalidate; richer derived particles/uses/group refs
+and nonempty/used bases remain unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union, grouped/nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free simpleContent extensions query selected atomic bases; restrictions reject.
@@ -58,10 +60,10 @@ adds sign restrictions. Built-in/named integers validate; other derivatives/
 extensions remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
-Compatibility/Strict11 admit; Strict10 rejects; absent/mismatched owners or form/ref conflicts invalidate. [Contract](doc.go).
+Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate. [Contract](doc.go).
 Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
 Anonymous empty-base extensions admit ref-only choice, nested group-ref/element-ref sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
-Broader nesting, direct groups, wildcards, locals, and nested attributes reject.
+Broader nesting/direct groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
@@ -127,18 +129,18 @@ refs to unconstrained Boolean/integer/decimal globals validate; constrained
 targets relate `Loc`.
 SimpleContent accepts built-in string with selected precisionDecimal attributes
 or built-in/named effective precisionDecimal; named effective string excludes.
-Inline roots validate selected sequences (including bounded list/union), attributes,
-simpleContent; inline complex-content extensions reject even after 0/0/prohibited omission.
+Inline roots validate selected sequences (bounded list/union), attributes,
+simpleContent; inline complex-content extensions reject after 0/0/prohibited omission.
 Mixed-content validation is unsupported; `GenerateGo` rejects inline complex roots.
 Nonzero `xs:any` is query-only. Identity-constrained roots reject at instance-use `Loc`,
-relating first constraint. QName globals/refs reject validation/generation with
-located diagnostics. Structure precedes facets; first failure retains instance/
+relating first constraint. QName globals/refs reject validation/generation.
+Structure precedes facets; first failure retains instance/
 schema `Loc`s. Occurrence and scalar failures differ. `xsi:schemaLocation` never
 resolves. Other byte/short/int/long/unsignedLong validation uses reject.
 
 Generation covers selected named/inline scalars, default Boolean/integer/decimal
-choices and sequences, and all-token choices. Other locals, attributes, and
-reference targets reject; see [the contract](doc.go).
+choices/sequences, all-token choices. Other locals/attributes/reference targets
+reject; see [contract](doc.go).
 No-view globals, admitted `abstract=true`/`nillable=true` globals, identity constraints yield `GOXSD9029`, nil output.
 Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
 integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.

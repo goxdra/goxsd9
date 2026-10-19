@@ -7046,6 +7046,9 @@ func restrictionWildcardNamespaceSubset(derived, base schemaWildcardNamespaceCon
 	if base.lexical == "##any" {
 		return true
 	}
+	if base.variety == WildcardNamespaceConstraintEnumeration {
+		return restrictionWildcardPositiveSetSubset(derived, base)
+	}
 	if base.lexical != "##other" {
 		return false
 	}
@@ -7057,6 +7060,19 @@ func restrictionWildcardNamespaceSubset(derived, base schemaWildcardNamespaceCon
 	}
 	for _, namespace := range derived.namespaces {
 		if namespace == "" || namespace == baseNamespace {
+			return false
+		}
+	}
+	return true
+}
+
+func restrictionWildcardPositiveSetSubset(derived, base schemaWildcardNamespaceConstraint) bool {
+	if derived.variety != WildcardNamespaceConstraintEnumeration {
+		return false
+	}
+	for _, namespace := range derived.namespaces {
+		index := sort.SearchStrings(base.namespaces, namespace)
+		if index == len(base.namespaces) || base.namespaces[index] != namespace {
 			return false
 		}
 	}
