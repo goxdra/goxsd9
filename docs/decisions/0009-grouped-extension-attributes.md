@@ -49,8 +49,11 @@ model retains lexical and provenance order.
 
 The pinned XSD schema-for-schemas and datatypes artifacts in
 [`specs/manifest.json`](../../specs/manifest.json) contain the motivating
-grammar. Executable outcomes remain in
-[`bootstrap_probe_test.go`](../../internal/specs/bootstrap_probe_test.go).
+grammar. Full-artifact outcomes remain in
+[`bootstrap_probe_test.go`](../../internal/specs/bootstrap_probe_test.go);
+the copied final-use fragment's admission, exclusions, and located diagnostics
+are tested in
+[`bootstrap_simple_derivation_set_probe_test.go`](../../internal/specs/bootstrap_simple_derivation_set_probe_test.go).
 This boundary makes no `xs:ID` lexical, value, or uniqueness claim.
 
 ## Exact supported shape and non-goals
