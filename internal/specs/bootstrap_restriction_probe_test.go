@@ -34,6 +34,25 @@ var restrictionProbeLines = []string{
 
 func restrictionProbePinnedFragment(t *testing.T, edition restrictionProbeEdition) string {
 	t.Helper()
+	return restrictionProbeFragmentFromLines(t, edition, restrictionProbePinnedLines(t, edition))
+}
+
+func restrictionProbeFragmentFromLines(t *testing.T, edition restrictionProbeEdition, lines []string) string {
+	t.Helper()
+	if edition.end > len(lines) || edition.end-edition.start+1 != len(restrictionProbeLines) {
+		t.Fatalf("converted artifact has %d lines", len(lines))
+	}
+	fragment := strings.Join(lines[edition.start-1:edition.end], "\n")
+	for index, want := range restrictionProbeLines {
+		if got := strings.TrimSpace(lines[edition.start-1+index]); got != want {
+			t.Fatalf("converted %s line %d = %q, want %q", edition.id, edition.start+index, got, want)
+		}
+	}
+	return fragment
+}
+
+func restrictionProbePinnedLines(t *testing.T, edition restrictionProbeEdition) []string {
+	t.Helper()
 	manifest := readBootstrapProbeManifest(t)
 	entry, err := manifest.Find(edition.id)
 	if err != nil {
@@ -58,17 +77,7 @@ func restrictionProbePinnedFragment(t *testing.T, edition restrictionProbeEditio
 	if entry.Representation == manifestXMLRepresentation && !bytes.Equal(converted, raw) {
 		t.Fatal("XML conversion changed raw bytes")
 	}
-	lines := strings.Split(string(converted), "\n")
-	if edition.end > len(lines) || edition.end-edition.start+1 != len(restrictionProbeLines) {
-		t.Fatalf("converted artifact has %d lines", len(lines))
-	}
-	fragment := strings.Join(lines[edition.start-1:edition.end], "\n")
-	for index, want := range restrictionProbeLines {
-		if got := strings.TrimSpace(lines[edition.start-1+index]); got != want {
-			t.Fatalf("converted %s line %d = %q, want %q", edition.id, edition.start+index, got, want)
-		}
-	}
-	return fragment
+	return strings.Split(string(converted), "\n")
 }
 
 func restrictionProbeRemove(t *testing.T, fragment, begin, end string) string {
