@@ -386,6 +386,10 @@
 // named/inline lists with atomic precisionDecimal items and two-member unions
 // of precisionDecimal then negativeInteger are admitted. Direct-sequence
 // and anonymous grouped extensions admit only existing atomic local-use types.
+// A named grouped extension also admits an optional direct local final declaration
+// referencing the structurally matched named xs:simpleDerivationSet union/list
+// for query facts. Its member and item references, enumerations, identities, and locations
+// retain source order; value constraints and consumers remain unsupported.
 // Other local varieties remain unsupported. Strict10 rejects
 // precisionDecimal by policy. AttributeReferenceUse retains QName, RefLoc, TargetID,
 // and effective use. Explicit form or attributeFormDefault selects qualified or

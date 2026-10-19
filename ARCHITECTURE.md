@@ -18,7 +18,7 @@ Identities intern before resolution; slices order walks/output; no backpatching.
 
 ## Resolution
 
-`ParseSchema(root ResolvedSource, resolver Resolver)` uses Compatibility;
+`ParseSchema` uses Compatibility;
 `ParseSchemaWithPolicy` selects policy. Resolvers acquire sources; streams close,
 identities decode once.
 
@@ -29,7 +29,7 @@ type Resolver interface {
 ```
 
 Sources retain opaque identity/context; resolvers own locations.
-FIFO discovery; sequential resolver calls.
+FIFO discovery; sequential calls.
 `Loc`: one-based lines, Unicode code-point columns.
 
 ## Diagnostics
@@ -83,7 +83,7 @@ named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences admit built-in `xs:token`/`xs:anyURI` locals; consumers reject.
 Named empty/direct choice/sequence: built-in/supported named `xs:long`.
 Named empty: built-in/supported named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; facets copied.
-Named datatype cases exclude inline simple types, attribute refs, values, and other owners except anonymous token/anyURI ref-sequences; consumers reject.
+Named datatype cases exclude inline types, refs, values, other owners except anonymous token/anyURI ref-sequences; consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
@@ -101,15 +101,17 @@ invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
 Complexes retain abstract/final/block provenance, groups/extensions/wildcards.
-Empty named bodies lack particle/occurrence; they and untyped globals admit
-empty `block` overriding defaults. Named block `Loc` persists; untyped
-view/block facts are absent; nonempty block policies/consumers reject.
+Empty named bodies lack particles/occurrences; they and untyped globals admit
+empty `block` overrides. Named block `Loc` persists; untyped view/block
+facts absent; nonempty block policies/consumers reject.
 `xs:any`: positive sets, 1.1 strict/lax/skip `notNamespace`, chameleons, `0/0`. Compatibility/Strict11 direct strict `notQName` retains source-ordered normalized tokens (duplicates), bindings/`Loc`, sorted unique expanded names; conflicts before omission; other placements/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.
 Inline IDs omit from walks; selected precisionDecimal sequences validate.
-Bounded local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
+Validated local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
+Named grouped extensions query optional local `final` through structurally
+matched named `xs:simpleDerivationSet`; its union/list values and consumers reject.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
 Named direct choices/sequences query built-in/named `normalizedString`; consumers reject.
 Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
@@ -117,13 +119,13 @@ Facet-free `QName` varieties/global refs retain context; QName locals/attributes
 ## Datatypes
 
 Lexical/value forms differ.
-QName value conversion needs namespace context and remains unsupported.
+QName value conversion needs namespace context; unsupported.
 Datatypes map string enumeration, arbitrary precision, exact Compatibility/Strict11
 precisionDecimal facets, Boolean whitespace; broader facets/temporal values reject.
 
 ## Validation and code generation
 
-`ValidateInstance` handles selected scalar roots, lists/unions, and ordered
+Validation handles selected scalar roots, lists/unions, ordered
 typed/ref sequences. Compatibility/Strict11 admit precisionDecimal; Strict10
 rejects it before publication. Lists split XML whitespace; unions preserve
 member order. Bounded variety sequences accept selected typed/anonymous locals
@@ -134,17 +136,17 @@ SimpleContent accepts built-in string with selected precisionDecimal attributes
 or built-in/named effective precisionDecimal; named effective string excludes.
 Inline roots validate selected sequences (bounded list/union), attributes,
 simpleContent; inline complex-content extensions reject after 0/0/prohibited omission.
-Mixed-content validation unsupported; `GenerateGo` rejects inline complex roots.
+Mixed-content validation and inline-complex generation remain unsupported.
 Nonzero `xs:any` query-only. Identity-constrained roots reject at instance-use `Loc`,
 relating first constraint. QName globals/refs reject validation/generation.
 Structure precedes facets; first failure retains instance/
 schema `Loc`s. Occurrence and scalar failures differ. `xsi:schemaLocation` never
-resolves. Other byte/short/int/long/unsignedLong validation uses reject.
+resolves; other byte/short/int/long/unsignedLong validation uses reject.
 
 Generation covers selected named/inline scalars, default Boolean/integer/decimal
 choices/sequences, all-token choices. Other locals/attributes/reference targets
 reject.
-No-view globals, admitted `abstract=true`/`nillable=true` globals, identity constraints yield `GOXSD9029`, nil output.
+No-view, `abstract=true`/`nillable=true`, identity-constrained globals yield `GOXSD9029`, nil output.
 Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
 integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.
 Byte bounds [-128,127]; unsignedLong bounds [0,18446744073709551615]. Named
@@ -155,4 +157,4 @@ Nonzero inline `nonNegativeInteger` has no schema; valid `0/0` terms omit.
 ## Conformance
 
 Pinned W3C artifacts classify pass/conformance/unsupported/resolution/internal
-outcomes; tooling checks XSD 1.0 envelope/DTD order without changing parser behavior.
+outcomes; tooling checks XSD 1.0 envelope/DTD order outside parsing.
