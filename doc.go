@@ -490,6 +490,9 @@
 // effective particle and zero effective attribute uses. Derived wildcards need
 // explicit namespace and processContents: namespace must be a subset of the
 // base ##any, ##other, or positive namespace set, and process equal or stronger.
+// Inherited ##other keeps its declaring namespace through empty extensions;
+// XSD 1.0 requires equal ##other exclusions, while XSD 1.1 and Compatibility
+// permit exclusion-set containment.
 // The base reference retains its ID, QName, and source Loc. Grouped/simple-content
 // bases, richer derived particles, uses, group refs, notNamespace, and notQName
 // remain schema-unsupported; validation and generation reject admitted bodies.

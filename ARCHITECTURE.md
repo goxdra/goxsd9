@@ -43,11 +43,12 @@ Elements retain identity constraints, XPath, namespace scopes, `Loc`s, keyref ta
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
-Empty-base extensions and named/global-inline restrictions retain IDs, `Loc`s, wildcards.
+Empty-base extensions and named/global-inline restrictions retain IDs/`Loc`s/wildcards.
 Restrictions require completed named empty/attribute-only/direct/extension/
 restriction bases with nil particle/zero uses; grouped/simple-content bases
 unsupported. Derived `namespace`/`processContents` must be explicit: namespace
-subset of ##any/##other/positive-set base, process equal/stronger.
+subset of base ##any/##other/positive-set using original wildcard namespace,
+process equal/stronger (XSD10 equality; XSD11/Compatibility exclusion containment).
 `notNamespace`/`notQName` unsupported. Absent base wildcard invalid at derived
 wildcard; absent derived wildcard unsupported at restriction. Broader/weaker
 wildcards, final, cycles invalidate; richer derived particles/uses/group refs
@@ -59,9 +60,9 @@ Direct/extension particles model selected integer-family locals; named direct
 adds sign restrictions. Built-in/named integers validate; other derivatives/
 extensions remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
-Named direct choice/sequence and named-group sequence/nested-choice locals map matching `targetNamespace`.
-Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate. [Contract](doc.go).
-Groups nest opposites; refs resolve before `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
+Named direct choice/sequence and named-group sequence/nested-choice locals match `targetNamespace`.
+Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate.
+Groups nest opposites; refs precede `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
 Anonymous empty-base extensions admit ref-only choice, nested group-ref/element-ref sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
 Broader nesting/direct groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
@@ -131,8 +132,8 @@ SimpleContent accepts built-in string with selected precisionDecimal attributes
 or built-in/named effective precisionDecimal; named effective string excludes.
 Inline roots validate selected sequences (bounded list/union), attributes,
 simpleContent; inline complex-content extensions reject after 0/0/prohibited omission.
-Mixed-content validation is unsupported; `GenerateGo` rejects inline complex roots.
-Nonzero `xs:any` is query-only. Identity-constrained roots reject at instance-use `Loc`,
+Mixed-content validation unsupported; `GenerateGo` rejects inline complex roots.
+Nonzero `xs:any` query-only. Identity-constrained roots reject at instance-use `Loc`,
 relating first constraint. QName globals/refs reject validation/generation.
 Structure precedes facets; first failure retains instance/
 schema `Loc`s. Occurrence and scalar failures differ. `xsi:schemaLocation` never
@@ -140,7 +141,7 @@ resolves. Other byte/short/int/long/unsignedLong validation uses reject.
 
 Generation covers selected named/inline scalars, default Boolean/integer/decimal
 choices/sequences, all-token choices. Other locals/attributes/reference targets
-reject; see [contract](doc.go).
+reject.
 No-view globals, admitted `abstract=true`/`nillable=true` globals, identity constraints yield `GOXSD9029`, nil output.
 Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
 integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.

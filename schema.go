@@ -3024,11 +3024,12 @@ type schemaWildcardParticleInput struct {
 }
 
 type schemaWildcardNamespaceConstraint struct {
-	variety    WildcardNamespaceConstraintVariety
-	terms      []string
-	namespaces []string
-	lexical    string
-	loc        Loc
+	variety        WildcardNamespaceConstraintVariety
+	terms          []string
+	namespaces     []string
+	lexical        string
+	loc            Loc
+	otherNamespace string // Declaring target namespace for ##other.
 }
 
 type schemaWildcardQNameConstraint struct {

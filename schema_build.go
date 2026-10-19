@@ -2694,6 +2694,9 @@ func schemaWildcardNotNamespaceConstraintFromLexical(lexical string, loc Loc) sc
 }
 
 func resolveSchemaWildcardNamespaceConstraint(constraint schemaWildcardNamespaceConstraint, ownerNamespace string) schemaWildcardNamespaceConstraint {
+	if constraint.lexical == "##other" {
+		constraint.otherNamespace = ownerNamespace
+	}
 	if constraint.variety != WildcardNamespaceConstraintEnumeration && constraint.variety != WildcardNamespaceConstraintNot {
 		return constraint
 	}
@@ -6993,7 +6996,7 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 		if err != nil {
 			return nil, err
 		}
-		if err := resolver.checkRestrictionWildcard(wildcard, baseWildcard, resolver.records[candidate].name.Namespace(), owner.name.Namespace(), resolver.records[candidate].loc); err != nil {
+		if err := resolver.checkRestrictionWildcard(wildcard, baseWildcard, resolver.records[candidate].loc); err != nil {
 			return nil, err
 		}
 		base.id = resolver.records[candidate].id
@@ -7007,14 +7010,14 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 	}, nil
 }
 
-func (resolver *schemaComplexTypeResolver) checkRestrictionWildcard(derived, base schemaAnyAttributeResult, baseNamespace, ownerNamespace string, baseLoc Loc) error {
+func (resolver *schemaComplexTypeResolver) checkRestrictionWildcard(derived, base schemaAnyAttributeResult, baseLoc Loc) error {
 	if !base.present {
 		return newSchemaComplexTypeBaseDiagnostic(derived.loc,
 			"derived attribute wildcard has no base wildcard",
 			[]Loc{baseLoc}, resolver.version,
 			fmt.Errorf("%w: base has no attribute wildcard", errSchemaComplexTypeWildcardRestriction))
 	}
-	if !restrictionWildcardNamespaceSubset(derived.namespaceConstraint, base.namespaceConstraint, ownerNamespace, baseNamespace) {
+	if !restrictionWildcardNamespaceSubset(derived.namespaceConstraint, base.namespaceConstraint, resolver.version) {
 		return newSchemaComplexTypeBaseDiagnostic(derived.namespaceConstraint.loc,
 			"derived attribute wildcard namespace is not a subset of its base",
 			[]Loc{base.namespaceConstraint.loc}, resolver.version,
@@ -7042,7 +7045,7 @@ func restrictionWildcardProcessRank(value string) int {
 	}
 }
 
-func restrictionWildcardNamespaceSubset(derived, base schemaWildcardNamespaceConstraint, ownerNamespace, baseNamespace string) bool {
+func restrictionWildcardNamespaceSubset(derived, base schemaWildcardNamespaceConstraint, version XSDVersion) bool {
 	if base.lexical == "##any" {
 		return true
 	}
@@ -7053,17 +7056,24 @@ func restrictionWildcardNamespaceSubset(derived, base schemaWildcardNamespaceCon
 		return false
 	}
 	if derived.lexical == "##other" {
-		return ownerNamespace == baseNamespace
+		return restrictionOtherNamespaceSubset(derived.otherNamespace, base.otherNamespace, version)
 	}
 	if derived.variety != WildcardNamespaceConstraintEnumeration {
 		return false
 	}
 	for _, namespace := range derived.namespaces {
-		if namespace == "" || namespace == baseNamespace {
+		if namespace == "" || namespace == base.otherNamespace {
 			return false
 		}
 	}
 	return true
+}
+
+func restrictionOtherNamespaceSubset(derived, base string, version XSDVersion) bool {
+	if version == XSDVersion10 {
+		return derived == base
+	}
+	return base == "" || derived == base
 }
 
 func restrictionWildcardPositiveSetSubset(derived, base schemaWildcardNamespaceConstraint) bool {
