@@ -92,13 +92,22 @@ Direct-sequence extensions with local uses follow the separate
 
 Simple-type variety and reference identities remain distinct from list/union
 value semantics; named simple-type `final` controls remain enforced.
-The pinned `xs:simpleDerivationSet` declaration is a bounded exception for an
-optional local attribute named `final` on a named grouped extension. It retains
-the two ordered inline union members, the nested list item restriction of named
-`xs:derivationControl`, and the edition-specific enumeration facts. The local
-attribute name is separate from simple-type `final` controls. Values and
-consumers remain unsupported; other local union/list uses follow their existing
-gates.
+The sole nested union/list local-use exception is a direct local declaration
+`name="final"`, with absent or explicit `use="optional"`, on a named grouped
+extension. Its `type` directly references the named `xs:simpleDerivationSet`
+component. Admission checks completed copied facts, not just that QName: two
+ordered inline union members, first an `xs:token` restriction enumerating
+`#all`, then a list with an inline item restriction of named
+`xs:derivationControl`. That dependency restricts `xs:NMTOKEN` with ordered
+`substitution`, `extension`, `restriction`, `list`, `union` enumerations. The
+item restricts those values to `list`, `union`, `restriction` in the pinned
+XSD 1.0 slice and additionally `extension` in the XSD 1.1 slice. The parser
+publishes the copied identities, references, facets, order, and locations;
+this fragment slice does not claim support for either full schema-for-schemas.
+The local attribute name is separate from simple-type `final` controls. For
+this type, local inline simple types, attribute references, required uses,
+default/fixed values, other owners, generic union/list uses, and consumers
+remain unsupported.
 `xs:language`, `xs:anyURI`, and `xs:QName` remain outside grouped-extension local
 attribute admission. Named grouped owners admit built-in and named effective atomic
 `xs:NCName` declarations with copied enumeration facts. Built-in and named
@@ -177,7 +186,7 @@ error-level result returns a partial schema.
 | Affected axis | Supported | Invalid | Resolution failure | Explicit unsupported | N/A |
 | --- | --- | --- | --- | --- | --- |
 | Edition/policy | XSD 1.0/1.1 under Compatibility, Strict10, or Strict11; one policy for the whole graph. | Malformed edition-specific attributes or grammar. | N/A. | Valid unimplemented XSD 1.1 open-content/assertion behavior gets a feature/`Loc`/`SpecRef`; a label never selects policy. | Edition selection from `schema/@version` is N/A. |
-| Named/anonymous/inline/ref shape | Named global and global-element inline owners over a supported named empty base; one direct named group ref; local declaration/ref uses and supported anonymous scalar types. Named owners also admit their existing bounded precisionDecimal list/two-member union uses. | Duplicate direct model child (`XSD3010`); malformed QName/NCName; both or neither `name`/`ref`; invalid use/form/occurrences; duplicate effective name; unresolved, inaccessible, or wrong-kind targets remain `FailureInvalid`. Duplicate global group declarations fail earlier with `XSD3023`. | Grouped-extension referenced-source acquisition failures only, through the caller's resolver. | Attribute-bearing choices beyond the supported named direct-choice subset, and extension shapes beyond this grouped form and the supported direct-sequence form; local complex owners, nested/anonymous groups, attribute groups, ID/inheritable and list/union uses on anonymous owners, broader varieties and identity-only value semantics. Grouped-extension validation and generation reject admitted uses. | Global attribute declarations with inline simple types are handled separately; local element-inline owners are outside this boundary. Internal duplicate-candidate ambiguity is not a public parse outcome. |
+| Named/anonymous/inline/ref shape | Named global and global-element inline owners over a supported named empty base; one direct named group ref; local declaration/ref uses and supported anonymous scalar types. Named owners also admit their existing bounded precisionDecimal list/two-member union uses. A named grouped owner additionally admits one optional direct local `final` declaration with a named `xs:simpleDerivationSet` type reference and the exact copied nested union/list facts above. | Duplicate direct model child (`XSD3010`); malformed QName/NCName; both or neither `name`/`ref`; invalid use/form/occurrences; duplicate effective name; unresolved, inaccessible, or wrong-kind targets remain `FailureInvalid`. Duplicate global group declarations fail earlier with `XSD3023`. | Grouped-extension referenced-source acquisition failures only, through the caller's resolver. | Attribute-bearing choices beyond the supported named direct-choice subset, and extension shapes beyond this grouped form and the supported direct-sequence form; local complex owners, nested/anonymous groups, attribute groups, ID/inheritable and list/union uses on anonymous owners, broader varieties and identity-only value semantics. The `final` exception excludes inline local types, attribute refs, required use, value constraints, other owners, and generic union/list varieties. Grouped-extension validation and generation reject admitted uses. | Global attribute declarations with inline simple types are handled separately; local element-inline owners are outside this boundary. Internal duplicate-candidate ambiguity is not a public parse outcome. |
 | Graph visibility/cycles | Forward, included, imported, chameleon, repeated, and interned discovery identities with existing visibility. | Inaccessible/unresolved/wrong-kind grouped-extension targets; duplicate global group declarations fail before refs; named-group cycles fail XSD3062 before publication; base/simple-type cycles retain existing diagnostics. | Grouped-extension referenced-source acquisition failures only at the resolver/discovery boundary. | AttributeGroup recursion and broader graph composition remain unsupported. | Group-member expansion is N/A because the particle is opaque. |
 | Supported/invalid/explicit unsupported | Exact slice publishes facts; malformed structure is invalid; valid unavailable behavior is explicit unsupported. | Grouped-extension structural/target `FailureInvalid` keeps code, `Loc`, related evidence, cause, edition `SpecRef`; duplicate declarations use XSD3023, direct-group refs XSD3047–XSD3050, named-group cycles XSD3062 at closing ref with ordered related path, and attribute-use XSD3030/XSD3045–XSD3052/XSD3061 retain these details. | Only grouped-extension referenced-source acquisition failures are `FailureResolution` at the resolver/discovery boundary. | Registered feature ID, stable code, `Loc`, `SpecRef`, `ErrUnsupported`, and no schema; validation/generation reject explicitly. | W3C instance conformance scores are outside this decision. |
 | Location/order/provenance | Preserve group QName/ref/use locations, exact range, target ID, ordered attribute uses, effective names, type/form locations, and declaration order; validate before `0/0` omission. | Reference failures locate the use and relate targets; duplicate global groups locate the second declaration and relate the first; bounds retain their locations and causes. | Resolver/discovery acquisition location and underlying cause remain attached. | The unsupported construct's source `Loc` and versioned `SpecRef` remain attached. | Unordered map iteration is N/A to observable order; ordered slices are authoritative. |
