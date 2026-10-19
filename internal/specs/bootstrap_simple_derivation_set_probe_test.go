@@ -14,6 +14,8 @@ type simpleDerivationSetFragments struct {
 	values       []string
 }
 
+// Only the control and set declarations come from digest-verified, manifest-converted
+// artifact lines. The schema wrapper and local final use below are constructed.
 func pinnedSimpleDerivationSetFragments(t *testing.T, edition restrictionProbeEdition) simpleDerivationSetFragments {
 	t.Helper()
 	lines := restrictionProbePinnedLines(t, edition)
@@ -59,6 +61,9 @@ func pinnedSimpleDerivationSetFragments(t *testing.T, edition restrictionProbeEd
 	return simpleDerivationSetFragments{control: control, set: set, values: values}
 }
 
+// This synthetic schema wrapper adds synthetic Base and Fields dependencies and
+// the caller's synthetic Owner around copied declarations; negative cases may
+// deliberately omit or alter the copied fragments.
 func simpleDerivationSetSource(f simpleDerivationSetFragments, owner string) string {
 	return `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="http://www.w3.org/2001/XMLSchema" version="release-label">` + "\n" +
 		f.control + "\n" + f.set + "\n" +
@@ -67,6 +72,8 @@ func simpleDerivationSetSource(f simpleDerivationSetFragments, owner string) str
 		owner + "\n</xs:schema>"
 }
 
+// Owner and its local-use variants are constructed, including the final use;
+// they are not copied from the pinned datatype schema.
 func simpleDerivationSetOwner(attribute string) string {
 	return `<xs:complexType name="Owner"><xs:complexContent><xs:extension base="xs:Base"><xs:group ref="xs:Fields"/>` + attribute + `</xs:extension></xs:complexContent></xs:complexType>`
 }
@@ -353,6 +360,8 @@ type simpleDerivationSetFailureCase struct {
 	related                               []simpleDerivationSetLocation
 }
 
+// Failure owners, local uses, and consumers are synthetic variants; cases that
+// alter a copied declaration name the alteration explicitly.
 func simpleDerivationSetFailureCases(f simpleDerivationSetFragments) []simpleDerivationSetFailureCase {
 	owner := simpleDerivationSetOwner(`<xs:attribute name="final" type="xs:simpleDerivationSet"/>`)
 	setLoc := simpleDerivationSetLocation{`<xs:simpleType name="simpleDerivationSet">`, 0}
