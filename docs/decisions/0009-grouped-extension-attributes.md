@@ -92,6 +92,13 @@ Direct-sequence extensions with local uses follow the separate
 
 Simple-type variety and reference identities remain distinct from list/union
 value semantics; named simple-type `final` controls remain enforced.
+The pinned `xs:simpleDerivationSet` declaration is a bounded exception for an
+optional local attribute named `final` on a named grouped extension. It retains
+the two ordered inline union members, the nested list item restriction of named
+`xs:derivationControl`, and the edition-specific enumeration facts. The local
+attribute name is separate from simple-type `final` controls. Values and
+consumers remain unsupported; other local union/list uses follow their existing
+gates.
 `xs:language`, `xs:anyURI`, and `xs:QName` remain outside grouped-extension local
 attribute admission. Named grouped owners admit built-in and named effective atomic
 `xs:NCName` declarations with copied enumeration facts. Built-in and named

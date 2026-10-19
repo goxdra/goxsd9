@@ -3,6 +3,7 @@ package goxsd9
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -7280,10 +7281,10 @@ func resolveSchemaAttributeUseType(
 	if err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if err := rejectSchemaExtensionLocalVariety(reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
+	if err := rejectSchemaExtensionLocalVariety(input, reference, owner, simpleTypes.resolver, typeLoc, version); err != nil {
 		return schemaAttributeUseTypeResult{}, err
 	}
-	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaAnonymousSequenceExtensionTokenAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedDirectLocalLongAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalBoundedIntegerAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) {
+	if !schemaLocalAttributeSimpleTypeSupported(reference) && !schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalTokenFamilyAttributeTypeSupported(reference, owner) && !schemaAnonymousSequenceExtensionTokenAnyURIAttributeTypeSupported(reference, owner) && !schemaNamedDirectLocalLongAttributeTypeSupported(reference, owner) && !schemaNamedEmptyLocalBoundedIntegerAttributeTypeSupported(reference, owner) && !schemaDirectLocalIDAttributeTypeSupported(reference, owner) && !schemaNamedLocalNCNameAttributeTypeSupported(reference, owner) && !schemaNamedLocalNormalizedStringAttributeTypeSupported(reference, owner) && !schemaLocalAttributeBoundedPrecisionVariety(reference, simpleTypes.resolver) && !schemaLocalSimpleDerivationFinalUseSupported(input, reference, owner, simpleTypes.resolver) {
 		name := input.declaredType
 		if name.IsZero() {
 			name = reference.name
@@ -7310,6 +7311,7 @@ func resolveSchemaAttributeUseType(
 }
 
 func rejectSchemaExtensionLocalVariety(
+	input schemaAttributeUseInput,
 	reference schemaSimpleTypeReferenceComponent,
 	owner schemaComponentRecord,
 	resolver *schemaSimpleTypeResolver,
@@ -7317,6 +7319,9 @@ func rejectSchemaExtensionLocalVariety(
 	version XSDVersion,
 ) error {
 	if reference.variety == SimpleTypeVarietyAtomicRestriction {
+		return nil
+	}
+	if schemaLocalSimpleDerivationFinalUseSupported(input, reference, owner, resolver) {
 		return nil
 	}
 	var hasExtensionUses bool
@@ -7338,6 +7343,83 @@ func rejectSchemaExtensionLocalVariety(
 		}
 	}
 	return diagnostic
+}
+
+func schemaLocalSimpleDerivationFinalUseSupported(input schemaAttributeUseInput, reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord, resolver *schemaSimpleTypeResolver) bool {
+	if input.reference != nil || input.inlineSimple != nil || input.name.Local() != "final" || input.use != AttributeUseOptional {
+		return false
+	}
+	if owner.complexType == nil {
+		return false
+	}
+	if _, ok := owner.complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput); !ok {
+		return false
+	}
+	return schemaSimpleDerivationSetReferenceSupported(reference, resolver)
+}
+
+func schemaSimpleDerivationSetReferenceSupported(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver) bool {
+	if reference.kind != SimpleTypeReferenceNamed || !reference.hasID || reference.name.Namespace() != xsdNamespaceURI || reference.name.Local() != "simpleDerivationSet" || resolver == nil {
+		return false
+	}
+	for index, record := range resolver.records {
+		if record.id != reference.id {
+			continue
+		}
+		result := resolver.results[index]
+		if !result.present || result.variety != SimpleTypeVarietyUnion || len(result.memberTypes) != 2 {
+			return false
+		}
+		return schemaSimpleDerivationSetMembersSupported(result.memberTypes, resolver)
+	}
+	return false
+}
+
+func schemaSimpleDerivationSetMembersSupported(members []schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver) bool {
+	first := members[0]
+	if first.kind != SimpleTypeReferenceAnonymous || first.anonymous == nil || first.anonymous.variety != SimpleTypeVarietyAtomicRestriction || first.anonymous.atomicKind != schemaSimpleTypeAtomicToken || first.anonymous.baseReference.kind != SimpleTypeReferenceBuiltin || first.anonymous.baseReference.name.Local() != "token" || !schemaStringEnumerationMatches(first.facets, "#all") {
+		return false
+	}
+	second := members[1]
+	if second.kind != SimpleTypeReferenceAnonymous || second.anonymous == nil || second.anonymous.variety != SimpleTypeVarietyList || !second.anonymous.hasItemType {
+		return false
+	}
+	item := second.anonymous.itemType
+	if item.kind != SimpleTypeReferenceAnonymous || item.anonymous == nil || item.anonymous.variety != SimpleTypeVarietyAtomicRestriction || item.anonymous.atomicKind != schemaSimpleTypeAtomicNMTOKEN || !item.anonymous.hasBaseReference {
+		return false
+	}
+	base := item.anonymous.baseReference
+	if base.kind != SimpleTypeReferenceNamed || !base.hasID || base.name.Namespace() != xsdNamespaceURI || base.name.Local() != "derivationControl" {
+		return false
+	}
+	if !schemaStringEnumerationMatches(base.facets, "substitution", "extension", "restriction", "list", "union") {
+		return false
+	}
+	if !schemaDerivationControlReferenceSupported(base, resolver) {
+		return false
+	}
+	return schemaStringEnumerationMatches(item.facets, "list", "union", "restriction") ||
+		schemaStringEnumerationMatches(item.facets, "list", "union", "restriction", "extension")
+}
+
+func schemaDerivationControlReferenceSupported(reference schemaSimpleTypeReferenceComponent, resolver *schemaSimpleTypeResolver) bool {
+	for index, record := range resolver.records {
+		if record.id != reference.id {
+			continue
+		}
+		result := resolver.results[index]
+		return result.present && result.variety == SimpleTypeVarietyAtomicRestriction && result.atomicKind == schemaSimpleTypeAtomicNMTOKEN && result.hasBaseReference && result.baseReference.kind == SimpleTypeReferenceBuiltin && result.baseReference.name.Namespace() == xsdNamespaceURI && result.baseReference.name.Local() == "NMTOKEN"
+	}
+	return false
+}
+
+func schemaStringEnumerationMatches(facets schemaSimpleTypeFacetVariant, want ...string) bool {
+	stringFacets, ok := facets.(schemaStringFacetVariant)
+	if !ok {
+		return false
+	}
+	values := stringFacets.enumeration.Values()
+	return slices.Equal(values, want)
 }
 
 func resolveSchemaAttributeUseTypeReference(
@@ -10845,12 +10927,19 @@ func (resolver *schemaSimpleTypeResolver) resolveReference(input schemaSimpleTyp
 			return schemaSimpleTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "simple type QName reference is empty")
 		}
 		if input.name.Namespace() == xsdNamespaceURI {
-			return resolveBuiltinSchemaSimpleTypeReference(input, version)
+			return resolver.resolveXSDSimpleTypeReference(input, source, version)
 		}
 		return resolver.resolveNamedSchemaSimpleTypeReference(input, source, version)
 	default:
 		return schemaSimpleTypeReferenceComponent{}, newSchemaBridgeInvariant(input.loc, "simple type reference has an unknown kind")
 	}
+}
+
+func (resolver *schemaSimpleTypeResolver) resolveXSDSimpleTypeReference(input schemaSimpleTypeReferenceInput, source SourceID, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
+	if input.name.Local() == "derivationControl" || input.name.Local() == "simpleDerivationSet" {
+		return resolver.resolveNamedSchemaSimpleTypeReference(input, source, version)
+	}
+	return resolveBuiltinSchemaSimpleTypeReference(input, version)
 }
 
 func resolveBuiltinSchemaSimpleTypeReference(input schemaSimpleTypeReferenceInput, version XSDVersion) (schemaSimpleTypeReferenceComponent, error) {
