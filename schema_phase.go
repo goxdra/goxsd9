@@ -2909,11 +2909,16 @@ func schemaSimpleContentExtensionChild(element *syntaxElement) *syntaxElement {
 	return nil
 }
 
+//nolint:gocognit // Bounded restriction syntax distinguishes the built-in and named-base paths.
 func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexContent bool) bool {
 	if !complexContent || element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "restriction" {
 		return false
 	}
 	if len(syntaxAttributesByLocal(element, "base")) != 1 {
+		return false
+	}
+	base, err := expandSchemaQName(element, syntaxAttributesByLocal(element, "base")[0])
+	if err != nil {
 		return false
 	}
 	anyAttributeSeen := false
@@ -2929,7 +2934,8 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 		case "annotation":
 			continue
 		case "anyAttribute":
-			if anyAttributeSeen || !isSupportedAnyAttribute(child) {
+			if anyAttributeSeen || !isSupportedAnyAttribute(child) &&
+				(base.Namespace() == xsdNamespaceURI && base.Local() == "anyType" || !isExplicitRestrictionAnyAttribute(child)) {
 				return false
 			}
 			anyAttributeSeen = true
@@ -2938,6 +2944,13 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 		}
 	}
 	return anyAttributeSeen
+}
+
+func isExplicitRestrictionAnyAttribute(element *syntaxElement) bool {
+	return len(syntaxAttributesByLocal(element, "namespace")) == 1 &&
+		len(syntaxAttributesByLocal(element, "processContents")) == 1 &&
+		len(syntaxAttributesByLocal(element, "notNamespace")) == 0 &&
+		len(syntaxAttributesByLocal(element, "notQName")) == 0
 }
 
 func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
@@ -3185,6 +3198,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if err := particleErr; err != nil && !candidate.considerError(err) {
 				return err
 			}
+			if complexContent && element.name.local == "restriction" && particleErr == nil {
+				candidate.considerAtVersion(child.loc, "complexContent restriction particle is not implemented", version)
+			}
 		case "choice":
 			if !complexContent {
 				return compositionDiagnostic(child.loc, element.name.local+" does not permit a model particle")
@@ -3202,6 +3218,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			}
 			if err := particleErr; err != nil && !candidate.considerError(err) {
 				return err
+			}
+			if complexContent && element.name.local == "restriction" && particleErr == nil {
+				candidate.considerAtVersion(child.loc, "complexContent restriction particle is not implemented", version)
 			}
 		case "attribute", "attributeGroup":
 			if anyAttributeSeen || assertSeen {
@@ -3730,6 +3749,9 @@ func supportsDirectNamedComplexTypeAnyAttribute(parent *syntaxElement) bool {
 }
 
 func isSupportedAnyAttribute(element *syntaxElement) bool {
+	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 || len(syntaxAttributesByLocal(element, "notQName")) > 0 {
+		return false
+	}
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
 	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
 	if len(namespaceAttributes) != 1 || len(processContentsAttributes) != 1 {

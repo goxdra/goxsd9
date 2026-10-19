@@ -2287,7 +2287,7 @@ func codegenNamedElementFieldType(
 		)
 	}
 	if target.Kind() == ComponentKindComplexTypeDefinition && allowComplexElementType {
-		if err := rejectCodegenBoundedOpenAttrsElement(target, component, declaredType, related, version); err != nil {
+		if err := rejectCodegenRestrictedElement(target, component, declaredType, related, version); err != nil {
 			return codegenSourceTarget{}, "", false, err
 		}
 		definition, definitionOK := target.ComplexType()
@@ -2362,7 +2362,7 @@ func codegenNamedElementFieldType(
 	return sourceTarget, fieldType, false, nil
 }
 
-func rejectCodegenBoundedOpenAttrsElement(target, component Component, declaredType QName, related []Loc, version XSDVersion) error {
+func rejectCodegenRestrictedElement(target, component Component, declaredType QName, related []Loc, version XSDVersion) error {
 	definition, ok := target.ComplexType()
 	if !ok {
 		return newCodegenInternal(
@@ -2372,8 +2372,8 @@ func rejectCodegenBoundedOpenAttrsElement(target, component Component, declaredT
 			errCodegenElementType,
 		)
 	}
-	body, ok := definition.boundedOpenAttrsRestrictionBody()
-	if !ok {
+	body := definition.restrictionBody()
+	if body == nil {
 		return nil
 	}
 	related = appendCodegenRelated(related, definition.Loc())
@@ -2383,9 +2383,9 @@ func rejectCodegenBoundedOpenAttrsElement(target, component Component, declaredT
 	related = appendCodegenRelated(related, body.anyAttribute.loc)
 	return newCodegenElementUnsupported(
 		component.Loc(),
-		fmt.Sprintf("global element type %q uses bounded openAttrs content outside Go generation", declaredType),
+		fmt.Sprintf("global element type %q uses complex-content restriction outside Go generation", declaredType),
 		related,
-		fmt.Errorf("%w: bounded openAttrs complex type", errCodegenUnsupported),
+		fmt.Errorf("%w: restricted complex type", errCodegenUnsupported),
 		version,
 	)
 }

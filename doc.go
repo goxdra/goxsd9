@@ -484,7 +484,19 @@
 // complexContent/restriction over built-in xs:anyType with representable
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
 // target members. Direct model-group references retain `RefLoc`/`TargetID`; their
-// consumer gates use the group RefLoc and reject them. Grouped extensions add
+// consumer gates use the group RefLoc and reject them.
+// Named and global-element inline complexContent restrictions expose completed
+// named empty, attribute-only, direct, extension, or restriction bases with nil
+// effective particle and zero effective attribute uses. Derived wildcards need
+// explicit namespace and processContents: namespace must be a subset of the
+// base ##any, ##other, or positive namespace set, and process equal or stronger.
+// Inherited ##other keeps its declaring namespace through empty extensions;
+// XSD 1.0 requires equal ##other exclusions, while XSD 1.1 and Compatibility
+// permit exclusion-set containment.
+// The base reference retains its ID, QName, and source Loc. Grouped/simple-content
+// bases, richer derived particles, uses, group refs, notNamespace, and notQName
+// remain schema-unsupported; validation and generation reject admitted bodies.
+// Grouped extensions add
 // one opaque direct group reference and ordered local AttributeUse facts over a
 // supported named empty base. They resolve the group before the uses and base;
 // effective 0/0 omits the group, and prohibited uses may leave no effective uses.

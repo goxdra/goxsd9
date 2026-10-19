@@ -548,14 +548,14 @@ func instanceChoiceProgramFor(
 			errInstanceComplexContentExtension,
 		)
 	}
-	if body, ok := definition.boundedOpenAttrsRestrictionBody(); ok {
+	if body := definition.restrictionBody(); body != nil {
 		related = appendInstanceRelated(related, body.complexContentLoc)
 		related = appendInstanceRelated(related, body.restrictionLoc)
 		related = appendInstanceRelated(related, body.base.loc)
 		related = appendInstanceRelated(related, body.anyAttribute.loc)
 		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
 			loc,
-			fmt.Sprintf("named complex type %q uses bounded openAttrs content outside instance validation", definition.Name()),
+			fmt.Sprintf("named complex type %q uses complex-content restriction outside instance validation", definition.Name()),
 			related,
 			version,
 			errInstanceOpenAttrsType,

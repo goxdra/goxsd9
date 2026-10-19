@@ -1,14 +1,14 @@
 # goxsd9
 
-goxsd9 parses XML Schema into immutable components. Errors prevent partial
-schemas; source diagnostics are located.
+goxsd9 parses XML Schema into immutable components with located diagnostics
+and no partial schemas.
 
 ## Library
 
 `NewResolvedSource`/`ParseSchema`/`Resolver` handle includes/imports.
-Resolvers receive namespace URNs/lexical locations; the library opens no resources.
+Resolvers receive URNs/lexical locations; parsing opens no resources.
 `ParseSchema` accepts mixed XSD 1.0/1.1 graphs;
-`ParseSchemaWithPolicy` selects policy. Queries/walks are deterministic.
+`ParseSchemaWithPolicy` selects policy. Queries/walks deterministic.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
 Named empty/choice/sequence/grouped/sequence-extension owners query NCName/`xs:normalizedString` facets. Named empty/choice/sequence: built-in `xs:language`/`xs:anyURI`; built-in/named `xs:long` attributes. Named empty: built-in/named `xs:token`/`xs:NMTOKEN`; built-in/supported named effective atomic `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes. Attribute-free simpleContent queries `xs:normalizedString`/`xs:token`/`xs:NMTOKEN` bases. Consumers reject; enumerated NCName list/union members reject.
 
@@ -19,13 +19,14 @@ precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits global `xs:byte`/`xs:long`/`xs:int`/`xs:unsignedLong`:
 built-ins use `StrictInteger`; named use generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Named empty/choice/sequence/all and grouped/sequence-extension owners query facet-free `xs:ID` uses; inline grouped/sequence extensions query selected atomic uses. Consumers reject. Empty `block` overrides named empty complexes and untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals, anonymous global-element inline direct-sequence non-ID locals, and untyped globals; refs and consumers reject.
+Named empty/choice/sequence/all/grouped/sequence-extension owners query facet-free `xs:ID` uses; inline grouped/sequence extensions query atomic uses. Consumers reject. Empty `block` overrides named empty complexes and untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals, anonymous global-element inline direct-sequence non-ID locals, and untyped globals; refs and consumers reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
-Direct choices/sequences and bounded extensions expose built-in/named long locals;
-extension choices are attribute-free.
-Anonymous empty-base extensions query ref-only choice, nested group-ref/element-ref sequence, or both. Bounds/order/`Loc`s/wildcard persist; broader nesting and attributes on these forms reject.
+Direct choices/sequences/bounded extensions expose built-in/named long locals;
+extension choices exclude attributes.
+Anonymous empty-base extensions query ref-only choices and nested group-ref/element-ref sequences, alone or combined. Bounds/order/`Loc`s/wildcards persist; deeper nesting/attributes reject.
 Anonymous empty-base ref-sequence extensions query built-in `xs:token`/`xs:anyURI` locals; consumers reject.
+Named/global-inline wildcard-only restrictions query empty/use-free named bases with ##any/##other/positive-set wildcard subsets; validation/generation reject.
 Named-group sequences/nested choices query atomic integer/string/token locals; consumers reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
@@ -60,7 +61,7 @@ go tool workflowctl doctor
 go tool workflowctl check
 ```
 
-Links: [plan](PLAN.md), [issues](https://github.com/goxdra/goxsd9/issues),
+[plan](PLAN.md), [issues](https://github.com/goxdra/goxsd9/issues),
 [roadmap](https://github.com/orgs/goxdra/projects/1), [operations](docs/operations.md), [rules](AGENTS.md).
 
 ## License

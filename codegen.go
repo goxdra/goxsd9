@@ -13,7 +13,7 @@ package goxsd9
 // extension, base, particle, and anyAttribute locations when present. Direct
 // and extension model-group references without effective uses reject at group
 // RefLoc, with group/component/reference/target locations related.
-// Global inline complex-content extensions reject at their element Loc before
+// Global inline complex-content extensions and restrictions reject at their element Loc before
 // named-base planning, including when their sequence or uses are omitted.
 func GenerateGo(schema Schema, packageName string) ([]byte, error) {
 	directParticlePlan, err := planCodegenDirectParticles(schema, packageName)
