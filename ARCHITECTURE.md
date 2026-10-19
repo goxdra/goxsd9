@@ -44,16 +44,17 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
 Empty-base extensions and named/global-inline restrictions retain IDs/`Loc`s/wildcards.
-Restrictions require completed named empty/attribute-only/direct/extension/
-restriction bases with nil particle/zero uses; grouped/simple-content bases
-unsupported. Derived `namespace`/`processContents` explicit: namespace subset
+Built-in xs:anyType ##other/lax restrictions supported. Named-base
+restrictions require completed empty/attribute-only/direct/extension/restriction
+bases with nil particle/zero uses; grouped/simple-content unsupported.
+Named-base derived `namespace`/`processContents` explicit: namespace subset
 of base ##any/##other/positive-set, process always equal/stronger.
-Inherited ##other uses original namespace: XSD10 equality;
+Inherited ##other preserves origin: XSD10 equality;
 XSD11/Compatibility exclusion containment.
-`notNamespace`/`notQName` unsupported. Absent base wildcard invalid at derived
-wildcard; absent derived wildcard unsupported at restriction. Broader/weaker
-wildcards, final, cycles invalidate; richer derived particles/uses/group refs
-and nonempty/used bases remain unsupported. Consumers reject.
+`notNamespace`/`notQName` unsupported. Missing base wildcard invalid at derived
+wildcard; missing derived wildcard unsupported. Broader/weaker wildcards, final,
+cycles invalid; richer derived particles/uses/group refs or nonempty/used bases
+unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union, grouped/nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free simpleContent extensions query selected atomic bases; restrictions reject.
