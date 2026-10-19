@@ -46,9 +46,10 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 Empty-base extensions and named/global-inline restrictions retain IDs/`Loc`s/wildcards.
 Restrictions require completed named empty/attribute-only/direct/extension/
 restriction bases with nil particle/zero uses; grouped/simple-content bases
-unsupported. Derived `namespace`/`processContents` must be explicit: namespace
-subset of base ##any/##other/positive-set using original wildcard namespace,
-process equal/stronger (XSD10 equality; XSD11/Compatibility exclusion containment).
+unsupported. Derived `namespace`/`processContents` explicit: namespace subset
+of base ##any/##other/positive-set, process always equal/stronger.
+Inherited ##other uses original namespace: XSD10 equality;
+XSD11/Compatibility exclusion containment.
 `notNamespace`/`notQName` unsupported. Absent base wildcard invalid at derived
 wildcard; absent derived wildcard unsupported at restriction. Broader/weaker
 wildcards, final, cycles invalidate; richer derived particles/uses/group refs
