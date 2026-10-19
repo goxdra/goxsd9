@@ -151,7 +151,7 @@ func collectCodegenDirectParticles(
 ) ([]codegenDirectParticleCollectedOwner, error) {
 	owners := make([]codegenDirectParticleCollectedOwner, 0)
 	for _, component := range components {
-		if err := rejectCodegenInlineExtension(component, version); err != nil {
+		if err := rejectCodegenInlineComposition(component, version); err != nil {
 			return nil, err
 		}
 		if component.Kind() != ComponentKindComplexTypeDefinition {
@@ -166,7 +166,7 @@ func collectCodegenDirectParticles(
 				errCodegenDirectParticlePlan,
 			)
 		}
-		if body, bodyOK := definition.boundedOpenAttrsRestrictionBody(); bodyOK {
+		if body := definition.restrictionBody(); body != nil {
 			related := appendCodegenRelated(nil, definition.Loc())
 			related = appendCodegenRelated(related, body.complexContentLoc)
 			related = appendCodegenRelated(related, body.restrictionLoc)
@@ -174,9 +174,9 @@ func collectCodegenDirectParticles(
 			related = appendCodegenRelated(related, body.anyAttribute.loc)
 			return nil, newCodegenDirectParticleUnsupported(
 				component.Loc(),
-				fmt.Sprintf("complex type %q uses bounded openAttrs content outside direct particle generation", component.Name()),
+				fmt.Sprintf("complex type %q uses complex-content restriction outside direct particle generation", component.Name()),
 				related,
-				fmt.Errorf("%w: bounded openAttrs complex type", errCodegenUnsupported),
+				fmt.Errorf("%w: restricted complex type", errCodegenUnsupported),
 				version,
 			)
 		}
@@ -289,7 +289,7 @@ func collectCodegenDirectParticles(
 	return owners, nil
 }
 
-func rejectCodegenInlineExtension(component Component, version XSDVersion) error {
+func rejectCodegenInlineComposition(component Component, version XSDVersion) error {
 	if component.Kind() != ComponentKindElementDeclaration {
 		return nil
 	}
@@ -300,6 +300,17 @@ func rejectCodegenInlineExtension(component Component, version XSDVersion) error
 	inline, ok := declaration.InlineComplexType()
 	if !ok {
 		return nil
+	}
+	if body := inline.restrictionBody(); body != nil {
+		related := appendCodegenRelated(nil, inline.Loc())
+		related = appendCodegenRelated(related, body.restrictionLoc)
+		related = appendCodegenRelated(related, body.base.loc)
+		if body.anyAttribute != nil {
+			related = appendCodegenRelated(related, body.anyAttribute.loc)
+		}
+		return newCodegenElementUnsupported(component.Loc(),
+			fmt.Sprintf("global element %q has an inline complex-content restriction outside Go generation", component.Name()),
+			related, fmt.Errorf("%w: inline complex-content restriction", errCodegenUnsupported), version)
 	}
 	body := inline.extensionBody()
 	if body == nil {

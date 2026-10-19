@@ -134,10 +134,9 @@ func restrictionProbeCases(t *testing.T, fragment string) []restrictionProbeCase
 		first("without-anyAttribute", project(restrictionProbeRemove(t, fragment, `<xs:anyAttribute`, `/>`)), `minOccurs="0"`, "first"),
 		first("base-only", project(baseOnly), `<xs:restriction`, "schema10"),
 		{name: "wildcard-only-named-complex-base", fragment: project(wildcard), base: standIn,
-			marker: `base="p:SimpleTypeBase"`, relatedMarker: `<xs:complexType name="SimpleTypeBase"`, specKind: "derivation",
-			class: goxsd9.FailureUnsupported, code: goxsd9.UnsupportedSchemaSyntaxCode,
-			feature:   goxsd9.FeatureSchemaSyntax,
-			causeType: "*fmt.wrapError", cause: `complex type named base is not implemented: "{urn:restriction-probe}SimpleTypeBase"`},
+			marker: `<xs:anyAttribute`, relatedMarker: `<xs:complexType name="SimpleTypeBase"`, specKind: "derivation",
+			class: goxsd9.FailureInvalid, code: "XSD3010",
+			causeType: "*fmt.wrapError", cause: `complex type wildcard restriction violates its base: base has no attribute wildcard`},
 		{name: "wildcard-only-named-simple-base", fragment: project(wildcard),
 			base:   `<xs:simpleType name="SimpleTypeBase"><xs:restriction base="xs:token"/></xs:simpleType>`,
 			marker: `base="p:SimpleTypeBase"`, relatedMarker: `<xs:simpleType name="SimpleTypeBase"`, specKind: "derivation",
@@ -216,8 +215,8 @@ func TestPinnedDatatypeRestrictionFirstGates(t *testing.T) {
 }
 
 // The copied wildcard alone can be published over xs:anyType. The synthetic
-// named complex base only localizes a later parser gate; it is not equivalent
-// to the authored complex base or evidence of a valid full restriction.
+// named complex base lacks a wildcard and is invalid for this restriction;
+// it is not equivalent to the authored complex base.
 func TestPinnedDatatypeRestrictionWildcardControlFacts(t *testing.T) { //nolint:gocognit // Provenance, copied facts, locations, and repeat stability form one control.
 	for _, edition := range restrictionProbeEditions {
 		t.Run(edition.specPrefix, func(t *testing.T) {

@@ -484,7 +484,12 @@
 // complexContent/restriction over built-in xs:anyType with representable
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
 // target members. Direct model-group references retain `RefLoc`/`TargetID`; their
-// consumer gates use the group RefLoc and reject them. Grouped extensions add
+// consumer gates use the group RefLoc and reject them.
+// Named and inline complexContent restrictions also expose a completed named
+// empty-content base with zero effective attribute uses and a proved explicit
+// wildcard subset. The base reference retains its ID, QName, and source Loc;
+// validation and generation reject these restriction bodies.
+// Grouped extensions add
 // one opaque direct group reference and ordered local AttributeUse facts over a
 // supported named empty base. They resolve the group before the uses and base;
 // effective 0/0 omits the group, and prohibited uses may leave no effective uses.

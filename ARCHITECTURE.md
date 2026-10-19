@@ -50,11 +50,12 @@ constraints, XPath, namespace scopes, `Loc`s, and keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
-Bounded empty-base extensions/`xs:anyType` restrictions retain refs, IDs/`Loc`s,
-and `##other`/`lax` wildcards.
+Empty-base extensions and wildcard-only restrictions publish IDs, locations,
+and wildcards. Named restrictions require resolved empty, use-free bases,
+compatible wildcards, and no final/cycle block; consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union, grouped/nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
-Named attribute-free simpleContent extensions query built-in/supported named effective atomic `xs:normalizedString`/`xs:token`/`xs:NMTOKEN` bases; restrictions remain unsupported.
+Attribute-free simpleContent extensions query selected atomic bases; restrictions reject.
 Direct and extension particles model selected integer-family locals; named
 direct models add sign restrictions. Built-in/named integer validates;
 broader derivatives and extensions remain query-only.
@@ -97,7 +98,7 @@ refs query-only. Inline defaults/fixed fail at value `Loc`;
 invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
-Complexes retain abstract/final/block provenance, groups/extensions/wildcards. Empty named bodies lack particle/occurrence; they and untyped globals admit empty `block` overriding defaults. Named block `Loc` persists; untyped view/block facts absent; nonempty policies/consumers reject.
+Complexes retain derivation and wildcard provenance. Empty named bodies and untyped globals admit empty `block` overrides; nonempty forms/consumers reject.
 `xs:any`: positive sets, 1.1 strict/lax/skip `notNamespace`, chameleons, `0/0`. Compatibility/Strict11 direct strict `notQName` retains source-ordered normalized tokens (duplicates), bindings/`Loc`, sorted unique expanded names; conflicts before omission; other placements/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.

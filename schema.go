@@ -1683,17 +1683,6 @@ func (definition ComplexTypeDefinition) baseReferenceFacts() (*schemaComplexType
 	return nil, false
 }
 
-func (definition ComplexTypeDefinition) boundedOpenAttrsRestrictionBody() (*schemaComplexTypeRestrictionBodyComponent, bool) {
-	body := definition.restrictionBody()
-	if body == nil || body.base.kind != ComplexTypeReferenceBuiltin || body.base.name.Namespace() != xsdNamespaceURI || body.base.name.Local() != "anyType" {
-		return nil, false
-	}
-	if body.anyAttribute == nil || body.anyAttribute.namespaceConstraint.lexical != "##other" || body.anyAttribute.processContents != "lax" {
-		return nil, false
-	}
-	return body, true
-}
-
 // ProhibitedSubstitutions returns the effective derivation methods prohibited
 // for this complex type in specification order. The returned slice is
 // independent of the schema.

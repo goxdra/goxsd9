@@ -86,8 +86,8 @@ func (observer *instanceValidationObserver) startElement(name syntaxName, loc Lo
 	if err != nil {
 		return true, err
 	}
-	if extensionErr := inlineInstanceComplexContentExtensionError(observer.schema, declaration, loc); extensionErr != nil {
-		return true, extensionErr
+	if compositionErr := inlineInstanceComplexContentError(observer.schema, declaration, loc); compositionErr != nil {
+		return true, compositionErr
 	}
 	if _, selected := instanceAttributeRootPlanFor(observer.schema, declaration); selected {
 		return true, nil
@@ -117,10 +117,22 @@ func (observer *instanceValidationObserver) startElement(name syntaxName, loc Lo
 	return false, observer.validator.startElement(name, loc, attrs)
 }
 
-func inlineInstanceComplexContentExtensionError(schema Schema, declaration ElementDeclaration, loc Loc) error {
+func inlineInstanceComplexContentError(schema Schema, declaration ElementDeclaration, loc Loc) error {
 	inline, ok := declaration.InlineComplexType()
 	if !ok {
 		return nil
+	}
+	if body := inline.restrictionBody(); body != nil {
+		related := []Loc{declaration.Loc(), inline.Loc()}
+		related = appendInstanceRelated(related, body.complexContentLoc)
+		related = appendInstanceRelated(related, body.restrictionLoc)
+		related = appendInstanceRelated(related, body.base.loc)
+		if body.anyAttribute != nil {
+			related = appendInstanceRelated(related, body.anyAttribute.loc)
+		}
+		return newInstanceValidationUnsupported(loc,
+			"inline complex type restriction is outside instance validation",
+			related, instanceSchemaValidationVersion(schema), errInstanceOpenAttrsType)
 	}
 	body := inline.extensionBody()
 	if body == nil {
@@ -232,14 +244,14 @@ func instanceSequenceProgramFor(
 			errInstanceComplexContentExtension,
 		)
 	}
-	if body, ok := definition.boundedOpenAttrsRestrictionBody(); ok {
+	if body := definition.restrictionBody(); body != nil {
 		related = appendInstanceRelated(related, body.complexContentLoc)
 		related = appendInstanceRelated(related, body.restrictionLoc)
 		related = appendInstanceRelated(related, body.base.loc)
 		related = appendInstanceRelated(related, body.anyAttribute.loc)
 		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
 			loc,
-			fmt.Sprintf("named complex type %q uses bounded openAttrs content outside instance validation", definition.Name()),
+			fmt.Sprintf("named complex type %q uses complex-content restriction outside instance validation", definition.Name()),
 			related,
 			version,
 			errInstanceOpenAttrsType,
