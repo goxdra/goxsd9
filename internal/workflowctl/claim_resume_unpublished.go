@@ -42,7 +42,7 @@ func (a app) readIntegratedClaimMetadata(root string, issue int, branch string) 
 	if err != nil {
 		return claimIntegratedAuthority{}, false, fmt.Errorf("read integrated claim head: %w", err)
 	}
-	history, err := a.readClaimResumeFirstParentHistory(root, head)
+	history, err := a.readCurrentClaimFirstParentHistory(root, head)
 	if err != nil {
 		return claimIntegratedAuthority{}, false, err
 	}
@@ -80,6 +80,9 @@ func (a app) readIntegratedClaimMetadata(root string, issue int, branch string) 
 			return claimIntegratedAuthority{}, false, err
 		}
 		if err := a.validateUnpublishedClaimAncestry(root, canonical.parent, entry.object.parents[0]); err != nil {
+			return claimIntegratedAuthority{}, false, err
+		}
+		if err := a.validateClaimRunOutsideMain(root, issue, canonical.runID); err != nil {
 			return claimIntegratedAuthority{}, false, err
 		}
 		authority := claimIntegratedAuthority{integration: entry.head, marker: marker, lease: canonical.lease, runID: canonical.runID}

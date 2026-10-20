@@ -343,3 +343,60 @@ func TestClaimCompanionPublicationAndEvaluationUsePrimaryGuard(t *testing.T) {
 		t.Fatalf("evaluation target = %s/#%d/%s, PR reads %d", root, primary, view.HeadRefOID, prReads)
 	}
 }
+
+func TestClaimMetadataIgnoresHistoricalMainMarkerOutsideCurrentClaim(t *testing.T) {
+	base := newBaseRepositoryFixture(t, false)
+	parent := runGitTest(t, base.primary, "rev-parse", "HEAD")
+	historicalMessage := claimMessage(5, "run-historical", time.Now().UTC().Add(-time.Hour)) +
+		"\n---------\n\nCo-authored-by: goxdra[bot] <bot@example.test>"
+	historical := createResumeTestCommit(t, base.primary, parent, historicalMessage)
+	runGitTest(t, base.primary, "push", "origin", historical+":refs/heads/main")
+	runGitTest(t, base.primary, "fetch", "origin", "main")
+	lease := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
+	current := createResumeTestCommit(t, base.primary, historical, claimMessage(808, "run-current", lease))
+	runGitTest(t, base.primary, "push", "origin", current+":refs/heads/"+claimBranch(808))
+	worktree := filepath.Join(base.root, "claim-current")
+	runGitTest(t, base.primary, "worktree", "add", "-b", claimLocalBranch(808, "run-current"), worktree, current)
+	application, _ := claimGitApplication(t, worktree)
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("verify claim above historical malformed main marker: %v", err)
+	}
+	if err := application.renewClaim(); err != nil {
+		t.Fatalf("renew claim above historical malformed main marker: %v", err)
+	}
+	if got := runGitTest(t, worktree, "rev-parse", "HEAD^^"); got != historical {
+		t.Fatalf("renewal lost historical main ancestry: %s, want %s", got, historical)
+	}
+}
+
+func TestClaimMetadataIgnoresNewlyMergedHistoricalMainMarker(t *testing.T) {
+	live := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
+	fixture := newCompanionClaimFixture(t, true, live, live)
+	base := runGitTest(t, fixture.root, "rev-parse", "origin/main")
+	historical := createResumeTestCommit(t, fixture.root, base,
+		claimMessage(5, "run-historical", live)+"\n---------\n\nCo-authored-by: bot <bot@example.test>")
+	runGitTest(t, fixture.root, "push", "origin", historical+":refs/heads/main")
+	runGitTest(t, fixture.worktree, "merge", "--no-ff", "-s", "ours", "-m", "fix(workflow): incorporate newer main", historical)
+	runGitTest(t, fixture.worktree, "push", "origin", "HEAD:refs/heads/"+claimBranch(fixture.issue))
+	application, _ := fixture.application(t)
+	if err := application.verifyClaim(); err != nil {
+		t.Fatalf("newly merged main history replaced primary authority: %v", err)
+	}
+}
+
+func TestClaimMetadataRefusesRunAbsorbedByMain(t *testing.T) {
+	base := newBaseRepositoryFixture(t, false)
+	parent := runGitTest(t, base.primary, "rev-parse", "HEAD")
+	live := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
+	acquisition := createResumeTestCommit(t, base.primary, parent, claimMessage(808, "run-current", live))
+	runGitTest(t, base.primary, "push", "origin", acquisition+":refs/heads/main")
+	runGitTest(t, base.primary, "fetch", "origin", "main")
+	renewal := createResumeTestCommit(t, base.primary, acquisition, claimMessage(808, "run-current", live.Add(time.Hour)))
+	runGitTest(t, base.primary, "push", "origin", renewal+":refs/heads/"+claimBranch(808))
+	worktree := filepath.Join(base.root, "claim-overlap")
+	runGitTest(t, base.primary, "worktree", "add", "-b", claimLocalBranch(808, "run-current"), worktree, renewal)
+	application, _ := claimGitApplication(t, worktree)
+	if err := application.verifyClaim(); err == nil || !strings.Contains(err.Error(), "already appears in origin/main") {
+		t.Fatalf("absorbed acquisition authority = %v, want overlap refusal", err)
+	}
+}

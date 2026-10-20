@@ -262,6 +262,9 @@ func (a app) renewClaim() error {
 	if fetchErr := a.fetchClaim(root, branch); fetchErr != nil {
 		return fetchErr
 	}
+	if fetchErr := a.fetchMain(root); fetchErr != nil {
+		return fetchErr
+	}
 	local, remote, err := a.claimHeads(root, branch)
 	if err != nil {
 		return retryableOperationIfRecoverable("read claim heads", fmt.Errorf("read claim heads: %w", err))
@@ -322,6 +325,9 @@ func (a app) verifyClaim() error {
 	if fetchErr := a.fetchClaim(root, branch); fetchErr != nil {
 		return fetchErr
 	}
+	if fetchErr := a.fetchMain(root); fetchErr != nil {
+		return fetchErr
+	}
 	local, remote, err := a.claimHeads(root, branch)
 	if err != nil {
 		return retryableOperationIfRecoverable("read claim heads", fmt.Errorf("read claim heads: %w", err))
@@ -346,6 +352,9 @@ func (a app) verifyClaim() error {
 func (a app) verifyClaimForPush(root, branch string, number int) error {
 	remoteBranch := claimBranch(number)
 	if err := a.fetchClaim(root, remoteBranch); err != nil {
+		return err
+	}
+	if err := a.fetchMain(root); err != nil {
 		return err
 	}
 	local, remote, err := a.claimHeads(root, remoteBranch)
@@ -396,7 +405,7 @@ func (a app) readClaimMetadata(root string, issue int, branch string) (time.Time
 	if err != nil {
 		return time.Time{}, "", retryableOperation("read claim head", err)
 	}
-	history, err := a.readClaimResumeFirstParentHistory(root, head)
+	history, err := a.readCurrentClaimFirstParentHistory(root, head)
 	if err != nil {
 		return time.Time{}, "", err
 	}
@@ -437,10 +446,56 @@ func (a app) readClaimMetadata(root string, issue int, branch string) (time.Time
 	if selected.runID == "" {
 		return time.Time{}, "", stateError("claim head %s has no canonical marker for issue #%d on branch %s", head, issue, branch)
 	}
+	if err := a.validateClaimRunOutsideMain(root, issue, selected.runID); err != nil {
+		return time.Time{}, "", err
+	}
 	if err := a.validateNoHiddenPrimaryClaimMarker(root, head, acquisitionHead, history, issue); err != nil {
 		return time.Time{}, "", err
 	}
 	return selected.lease, selected.runID, nil
+}
+
+func (a app) validateClaimRunOutsideMain(root string, issue int, runID string) error {
+	output, err := a.command(root, "git", "log", "--format=%H", "--fixed-strings", "--grep=Agent-Run-ID: "+runID, "origin/main")
+	if err != nil {
+		return fmt.Errorf("prove claim run is outside origin/main: %w", err)
+	}
+	for _, commit := range strings.Split(output, "\n") {
+		if commit == "" {
+			continue
+		}
+		if !validExactCommitSHA(commit) {
+			return stateError("origin/main returned malformed claim run candidate %q", commit)
+		}
+		return stateError("claim issue #%d run %s already appears in origin/main at %s; current acquisition authority is ambiguous", issue, runID, commit)
+	}
+	return nil
+}
+
+func (a app) readCurrentClaimFirstParentHistory(root, head string) ([]claimResumeHistoryCommit, error) {
+	output, err := a.command(root, "git", "rev-list", "--first-parent", "origin/main.."+head)
+	if err != nil {
+		return nil, fmt.Errorf("read current claim ancestry: %w", err)
+	}
+	if output == "" {
+		return nil, stateError("claim head %s has no commits beyond origin/main", head)
+	}
+	history := make([]claimResumeHistoryCommit, 0, 4)
+	for _, commit := range strings.Split(output, "\n") {
+		if !validExactCommitSHA(commit) {
+			return nil, stateError("current claim ancestry has malformed commit %q", commit)
+		}
+		object, readErr := a.gitRaw(root, "cat-file", "commit", commit)
+		if readErr != nil {
+			return nil, fmt.Errorf("read current claim commit %s: %w", commit, readErr)
+		}
+		parsed, parseErr := parseCommitObject(object)
+		if parseErr != nil {
+			return nil, stateError("current claim commit %s is malformed: %w", commit, parseErr)
+		}
+		history = append(history, claimResumeHistoryCommit{head: commit, object: parsed})
+	}
+	return history, nil
 }
 
 //nolint:gocognit // Every side ancestor must be checked for competing primary authority.
@@ -449,7 +504,7 @@ func (a app) validateNoHiddenPrimaryClaimMarker(root, head, marker string, histo
 	for _, entry := range history {
 		firstParents[entry.head] = true
 	}
-	output, err := a.command(root, "git", "rev-list", marker+".."+head)
+	output, err := a.command(root, "git", "rev-list", marker+".."+head, "^origin/main")
 	if err != nil {
 		return fmt.Errorf("read claim side ancestry: %w", err)
 	}

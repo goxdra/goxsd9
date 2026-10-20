@@ -2798,6 +2798,8 @@ func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
 	switch command {
 	case "fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 		return "", nil
+	case "fetch origin main":
+		return "", nil
 	case "rev-parse HEAD", "rev-parse origin/agent/issue-13":
 		return b.head, nil
 	case "rev-parse --verify --end-of-options HEAD^{commit}":

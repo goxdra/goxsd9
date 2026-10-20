@@ -48,6 +48,8 @@ func (b *retryOpenBackend) execute(_ string, input io.Reader, name string, args 
 		return framedCommitLog("fix(workflow): reuse existing draft"), nil
 	case "git fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 		return "", nil
+	case "git fetch origin main":
+		return "", nil
 	case "git rev-parse HEAD":
 		return b.localHead, nil
 	case "git rev-parse origin/agent/issue-13":

@@ -347,6 +347,8 @@ func runOpenLifecycleCommand(t *testing.T, body string) (createPullRequestReques
 				return framedCommitLog("fix(workflow): validate lifecycle frame"), nil
 			case "git fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 				return "", nil
+			case "git fetch origin main":
+				return "", nil
 			case "git rev-parse HEAD", "git rev-parse origin/agent/issue-13":
 				return strings.Repeat("a", 40), nil
 			case "git log -100 --format=%B":
