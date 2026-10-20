@@ -79,7 +79,7 @@ Compatibility/Strict11 omit false/0 `inheritable` for supported named empty/all/
 Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID/owner.
 Empty/choice/sequence: built-in and facet-free named `xs:language`/`xs:anyURI`; all: built-in only;
-named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
+named empty/choice/sequence: built-in/named `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
 Empty/choice/sequence and direct-sequence extensions over use-free empty bases: built-in/named `xs:long`; wildcard inherited.
 Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; facets copied.
