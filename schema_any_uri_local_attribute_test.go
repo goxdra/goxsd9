@@ -182,7 +182,6 @@ func TestAnyURILocalAttributeExclusionsRemainLocated(t *testing.T) {
 		cause                              error
 		useSpec                            bool
 	}{
-		{"named restriction", `<xs:complexType name="Record"><xs:attribute name="a" type="r:Alias"/></xs:complexType>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:anyURI"/></xs:simpleType>`, `type="r:Alias"`, "", errSchemaAttributeUseUnsupported, false},
 		{"inline restriction", `<xs:complexType name="Record"><xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:anyURI"/></xs:simpleType></xs:attribute></xs:complexType>`, "", `<xs:simpleType`, "", errSchemaAttributeUseUnsupported, false},
 		{"ref built-in target", `<xs:complexType name="Record"><xs:attribute ref="r:a"/></xs:complexType>`, `<xs:attribute name="a" type="xs:anyURI"/>`, `ref="r:a"`, `<xs:attribute name="a"`, errSchemaAttributeReferenceUnsupported, true},
 		{"ref named target", `<xs:complexType name="Record"><xs:attribute ref="r:a"/></xs:complexType>`, `<xs:attribute name="a" type="r:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:anyURI"/></xs:simpleType>`, `ref="r:a"`, `<xs:attribute name="a"`, errSchemaAttributeReferenceUnsupported, true},
@@ -309,7 +308,6 @@ func TestAnyURILocalAttributeResolutionBoundaryDiagnostics(t *testing.T) {
 		{"unresolved type", `<xs:attribute name="href" type="r:Missing"/>`, "", `type="r:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, errSchemaAttributeTypeUnresolved, schemaAttributeTypeSpecRef, FailureInvalid},
 		{"prohibited unresolved type", `<xs:attribute name="href" type="r:Missing" use="prohibited"/>`, "", `type="r:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, errSchemaAttributeTypeUnresolved, schemaAttributeTypeSpecRef, FailureInvalid},
 		{"wrong kind type", `<xs:attribute name="href" type="r:Wrong"/>`, `<xs:element name="Wrong" type="xs:integer"/>`, `type="r:Wrong"`, `<xs:element name="Wrong"`, diagnosticSchemaAttributeTypeWrongKindCode, errSchemaAttributeTypeWrongKind, schemaAttributeTypeSpecRef, FailureInvalid},
-		{"prohibited named restriction", `<xs:attribute name="href" type="r:Alias" use="prohibited"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:anyURI"/></xs:simpleType>`, `type="r:Alias"`, "", UnsupportedSchemaSyntaxCode, errSchemaAttributeUseUnsupported, schemaAttributeTypeSpecRef, FailureUnsupported},
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, test := range cases {

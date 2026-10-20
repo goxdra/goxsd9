@@ -7534,10 +7534,16 @@ func schemaNamedLocalIDAttributeOwnerSupported(owner schemaComponentRecord) bool
 }
 
 func schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
-	if reference.kind != SimpleTypeReferenceBuiltin || reference.variety != SimpleTypeVarietyAtomicRestriction {
+	if reference.kind != SimpleTypeReferenceBuiltin && reference.kind != SimpleTypeReferenceNamed {
+		return false
+	}
+	if reference.variety != SimpleTypeVarietyAtomicRestriction {
 		return false
 	}
 	if reference.atomicKind != schemaSimpleTypeAtomicLanguage && reference.atomicKind != schemaSimpleTypeAtomicAnyURI {
+		return false
+	}
+	if _, ok := reference.facets.(schemaAtomicFacetVariant); !ok {
 		return false
 	}
 	if owner.complexType == nil {
@@ -7551,8 +7557,10 @@ func schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference schema
 			return false
 		}
 		switch body.particle.(type) {
-		case *schemaChoiceParticleInput, *schemaSequenceParticleInput, *schemaAllParticleInput:
+		case *schemaChoiceParticleInput, *schemaSequenceParticleInput:
 			return true
+		case *schemaAllParticleInput:
+			return reference.kind == SimpleTypeReferenceBuiltin
 		}
 	}
 	return false
