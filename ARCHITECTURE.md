@@ -81,7 +81,7 @@ Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs
 Named empty/choice/sequence/all: built-in `xs:language`/`xs:anyURI`;
 named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences admit built-in `xs:token`/`xs:anyURI` locals; consumers reject.
-Named empty/direct choice/sequence: built-in/supported named `xs:long`.
+Named empty/choice/sequence/sequence-extension: built-in/named `xs:long` (empty-base extensions).
 Named empty: built-in/supported named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; facets copied.
 Named datatype cases exclude inline types, refs, values, other owners except anonymous token/anyURI ref-sequences; consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/

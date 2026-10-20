@@ -7634,6 +7634,12 @@ func schemaNamedDirectLocalLongAttributeTypeSupported(reference schemaSimpleType
 		case *schemaChoiceParticleInput, *schemaSequenceParticleInput:
 			return true
 		}
+	case *schemaComplexTypeExtensionBodyInput:
+		if body == nil {
+			return false
+		}
+		_, ok := body.particle.(*schemaSequenceParticleInput)
+		return ok
 	}
 	return false
 }

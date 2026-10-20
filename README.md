@@ -9,7 +9,7 @@ without partial schemas.
 Resolvers receive URNs/lexical locations; parsing opens no resources.
 `ParseSchemaWithPolicy` selects policy; queries/walks deterministic.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named empty/choice/sequence/grouped/sequence-extension query NCName/`xs:normalizedString` facets. Named empty/choice/sequence/all: built-in `xs:language`/`xs:anyURI`; named empty/choice/sequence: built-in/named `xs:long` attributes. Named empty: built-in/named `xs:token`/`xs:NMTOKEN`; built-in/supported named effective atomic `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes. Attribute-free simpleContent queries `xs:normalizedString`/`xs:token`/`xs:NMTOKEN` bases. Named grouped extensions query optional `final` through structurally matched named `xs:simpleDerivationSet`; values and consumers reject. Enumerated NCName list/union members reject.
+Named empty/choice/sequence/grouped/sequence-extension query NCName/`xs:normalizedString` facets. Named empty/choice/sequence/all: built-in `xs:language`/`xs:anyURI`; named empty/choice/sequence/direct-sequence-extension: built-in/named `xs:long` attributes. Named empty: built-in/named `xs:token`/`xs:NMTOKEN`; built-in/supported named effective atomic `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes. Attribute-free simpleContent queries `xs:normalizedString`/`xs:token`/`xs:NMTOKEN` bases. Named grouped extensions query optional `final` through structurally matched named `xs:simpleDerivationSet`; values and consumers reject. Enumerated NCName list/union members reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
