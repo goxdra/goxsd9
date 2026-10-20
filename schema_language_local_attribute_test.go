@@ -168,7 +168,6 @@ func TestLanguageLocalAttributeExclusionsRemainLocated(t *testing.T) {
 		cause                              error
 		useSpec                            bool
 	}{
-		{"named restriction", `<xs:complexType name="Record"><xs:attribute name="a" type="r:Alias"/></xs:complexType>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:language"/></xs:simpleType>`, `type="r:Alias"`, "", errSchemaAttributeUseUnsupported, false},
 		{"inline restriction", `<xs:complexType name="Record"><xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:language"/></xs:simpleType></xs:attribute></xs:complexType>`, "", `<xs:simpleType`, "", errSchemaAttributeUseUnsupported, false},
 		{"ref built-in target", `<xs:complexType name="Record"><xs:attribute ref="r:a"/></xs:complexType>`, `<xs:attribute name="a" type="xs:language"/>`, `ref="r:a"`, `<xs:attribute name="a"`, errSchemaAttributeReferenceUnsupported, true},
 		{"ref named target", `<xs:complexType name="Record"><xs:attribute ref="r:a"/></xs:complexType>`, `<xs:attribute name="a" type="r:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:language"/></xs:simpleType>`, `ref="r:a"`, `<xs:attribute name="a"`, errSchemaAttributeReferenceUnsupported, true},

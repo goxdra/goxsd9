@@ -78,12 +78,12 @@ Ordered uses; models→uses→base resolution.
 Compatibility/Strict11 omit false/0 `inheritable` for supported named empty/all/choice/sequence/group/grouped/sequence-extension locals (ID included) and anonymous global-element inline complexContent direct-sequence name-bearing non-ID locals; Strict10/true/1/refs/other-owners reject.
 Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID/owner.
-Named empty/choice/sequence/all: built-in `xs:language`/`xs:anyURI`;
+Empty/choice/sequence: built-in and facet-free named `xs:language`/`xs:anyURI`; all: built-in only;
 named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
-Named empty/choice/sequence and named direct-sequence extensions over supported use-free empty bases (wildcard inherited): built-in/named `xs:long`.
-Named empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; facets copied.
-Named datatypes exclude inline/ref/value/other owners; anonymous token/anyURI ref-sequences excepted; consumers reject.
+Empty/choice/sequence and direct-sequence extensions over use-free empty bases: built-in/named `xs:long`; wildcard inherited.
+Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; facets copied.
+Inline/ref/value/other owners exclude named datatypes; ref-sequence token/anyURI excepted; consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

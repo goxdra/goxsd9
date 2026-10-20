@@ -242,7 +242,6 @@ func directBuiltinExcludedUses(name string) []directBuiltinExcludedUse {
 	alias := `<xs:simpleType name="Alias"><xs:restriction base="xs:` + name + `"/></xs:simpleType>`
 	inline := `<xs:simpleType><xs:restriction base="xs:` + name + `"/></xs:simpleType>`
 	return []directBuiltinExcludedUse{
-		{"named restriction", `<xs:attribute name="a" type="r:Alias"/>`, alias, `type="r:Alias"`, "", errSchemaAttributeUseUnsupported, false},
 		{"inline restriction", `<xs:attribute name="a">` + inline + `</xs:attribute>`, "", `<xs:simpleType`, "", errSchemaAttributeUseUnsupported, false},
 		{"ref built-in target", `<xs:attribute ref="r:a"/>`, `<xs:attribute name="a" type="xs:` + name + `"/>`, `ref="r:a"`, `<xs:attribute name="a"`, errSchemaAttributeReferenceUnsupported, true},
 		{"ref named target", `<xs:attribute ref="r:a"/>`, `<xs:attribute name="a" type="r:Alias"/>` + alias, `ref="r:a"`, `<xs:attribute name="a"`, errSchemaAttributeReferenceUnsupported, true},
@@ -390,7 +389,6 @@ func directBuiltinBoundaryCases(name string) []directBuiltinBoundaryCase {
 		{"unresolved type", `<xs:attribute name="a" type="r:Missing"/>`, "", `type="r:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, "type", FailureInvalid, errSchemaAttributeTypeUnresolved},
 		{"prohibited unresolved type", `<xs:attribute name="a" type="r:Missing" use="prohibited"/>`, "", `type="r:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, "type", FailureInvalid, errSchemaAttributeTypeUnresolved},
 		{"wrong kind type", `<xs:attribute name="a" type="r:Wrong"/>`, `<xs:element name="Wrong" type="xs:integer"/>`, `type="r:Wrong"`, `<xs:element name="Wrong"`, diagnosticSchemaAttributeTypeWrongKindCode, "type", FailureInvalid, errSchemaAttributeTypeWrongKind},
-		{"prohibited named restriction", `<xs:attribute name="a" type="r:Alias" use="prohibited"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:` + name + `"/></xs:simpleType>`, `type="r:Alias"`, "", UnsupportedSchemaSyntaxCode, "type", FailureUnsupported, errSchemaAttributeUseUnsupported},
 		{"invalid use", `<xs:attribute name="a" type="xs:` + name + `" use="sometimes"/>`, "", `use="sometimes"`, "", invalidSchemaCompositionCode, "use", FailureInvalid, nil},
 		{"invalid name", `<xs:attribute name="a:b" type="xs:` + name + `"/>`, "", `name="a:b"`, "", invalidSchemaCompositionCode, "use", FailureInvalid, nil},
 		{"missing name and ref", `<xs:attribute type="xs:` + name + `"/>`, "", `<xs:attribute type=`, "", invalidSchemaCompositionCode, "use", FailureInvalid, nil},

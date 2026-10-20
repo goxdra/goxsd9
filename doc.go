@@ -348,9 +348,10 @@
 // Named complex owners with empty, direct choice, direct sequence, direct all, grouped
 // extension, or direct-sequence extension bodies admit built-in or facet-free
 // named effective xs:ID local uses for queries.
-// Named empty, direct choice, direct sequence, and direct all complex owners admit built-in
-// xs:language and xs:anyURI local declarations as ordered query-only AttributeUse
-// facts under every language policy. Named and inline restrictions, attribute
+// Named empty, direct choice, and direct sequence owners admit built-in and
+// facet-free named effective xs:language and xs:anyURI local declarations;
+// named direct all admits built-ins only. These ordered query-only AttributeUse
+// facts apply under every language policy. Inline restrictions, attribute
 // refs, local default/fixed values, and owners beyond these named cases and the
 // anonymous ref-sequence extension below remain unsupported; consumers reject.
 // Named empty owners also admit built-in and named effective atomic xs:token
