@@ -5164,6 +5164,13 @@ func validateAllParticleUnsupportedChild(child *syntaxElement, version XSDVersio
 	}
 	childErr := validateUnsupportedParticle(child, version)
 	if childErr != nil {
+		if child.name.local == "group" {
+			var diagnostic Diagnostic
+			if errors.As(childErr, &diagnostic) && diagnostic.Class() == FailureUnsupported && schemaAllGroupParticleAttributeLoc(child, diagnostic.Loc()) {
+				diagnostic.specRef = schemaAllLimitedSpecRef(version)
+				childErr = diagnostic
+			}
+		}
 		if version == XSDVersion10 {
 			if mismatchErr := validateAllParticleXSD10Error(child, childErr); mismatchErr != nil {
 				if errors.Is(childErr, errLanguagePolicyMismatch) {
@@ -5196,6 +5203,17 @@ func validateAllParticleUnsupportedChild(child *syntaxElement, version XSDVersio
 	}
 	candidate.considerAtVersion(child.loc, fmt.Sprintf("all child <%s> is not implemented", child.name.local), version)
 	return nil
+}
+
+func schemaAllGroupParticleAttributeLoc(group *syntaxElement, loc Loc) bool {
+	for _, name := range []string{"ref", "minOccurs", "maxOccurs"} {
+		for _, attribute := range syntaxAttributesByLocal(group, name) {
+			if attribute.loc == loc {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validateAllParticleXSD10Error(child *syntaxElement, childErr error) error {
