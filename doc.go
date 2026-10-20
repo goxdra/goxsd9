@@ -361,10 +361,13 @@
 // Their lexical use order, anonymous owner, base, and built-in facts persist;
 // consumers reject. Inline/list/union types, attribute refs, and values remain
 // unsupported for these uses.
-// Named empty and direct choice/sequence owners also admit built-in and named
-// effective atomic xs:long local declarations with copied exact bounds and type
-// provenance under every policy. Inline varieties, refs, values, other owners,
-// and consumers reject.
+// Named empty and direct choice/sequence owners, plus named direct-sequence
+// extensions over supported named empty-content bases without effective
+// attribute uses, admit built-in and supported named effective atomic xs:long
+// locals. Copied exact bounds and type provenance remain queryable under every
+// policy; extensions retain representable inherited wildcards. Inline
+// varieties, attribute refs, values, other owners, validation, and generation
+// reject.
 // Named empty owners also admit built-in and supported named effective atomic
 // xs:short, xs:int, xs:byte, and xs:unsignedLong local declarations with exact
 // bounds, digits, enumeration, and type provenance. Inline/list/union, refs,

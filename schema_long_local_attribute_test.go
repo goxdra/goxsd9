@@ -210,7 +210,6 @@ func TestLongLocalAttributeExcludedShapes(t *testing.T) {
 		{"all", `<xs:all><xs:element name="x" type="xs:integer"/></xs:all>`, ""},
 		{"group", `<xs:group ref="r:Fields"/>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
 		{"grouped extension", `<xs:complexContent><xs:extension base="r:Base"><xs:group ref="r:Fields"/><xs:attribute name="a" type="xs:long"/></xs:extension></xs:complexContent>`, `<xs:complexType name="Base"/><xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
-		{"sequence extension", `<xs:complexContent><xs:extension base="r:Base"><xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence><xs:attribute name="a" type="xs:long"/></xs:extension></xs:complexContent>`, `<xs:complexType name="Base"/>`},
 		{"simple content", `<xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="a" type="xs:long"/></xs:extension></xs:simpleContent>`, ""},
 	} {
 		for _, target := range []struct{ name, lexical, extra string }{{"direct", "xs:long", ""}, {"named", "r:Named", named}} {
