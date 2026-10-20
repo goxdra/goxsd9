@@ -49,7 +49,7 @@ restrictions require completed empty/attribute-only/direct/extension/restriction
 bases with nil particle/zero uses; grouped/simple-content unsupported.
 Named-base derived `namespace`/`processContents` explicit: namespace subset
 of base ##any/##other/positive-set, process always equal/stronger.
-Inherited ##other preserves origin: XSD10 equality;
+##other preserves origin: XSD10 equality;
 XSD11/Compatibility exclusion containment.
 `notNamespace`/`notQName` unsupported. Missing base wildcard invalid at derived
 wildcard; missing derived wildcard unsupported. Broader/weaker wildcards, final,
@@ -80,10 +80,10 @@ Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs
 `xs:NCName`/`xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID/owner.
 Named empty/choice/sequence/all: built-in `xs:language`/`xs:anyURI`;
 named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
-Anonymous empty-base ref-sequences admit built-in `xs:token`/`xs:anyURI` locals; consumers reject.
-Named empty/choice/sequence/sequence-extension: built-in/named `xs:long` (empty-base extensions).
-Named empty: built-in/supported named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; facets copied.
-Named datatype cases exclude inline types, refs, values, other owners except anonymous token/anyURI ref-sequences; consumers reject.
+Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
+Named empty/choice/sequence and named direct-sequence extensions over supported use-free empty bases (wildcard inherited): built-in/named `xs:long`.
+Named empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; facets copied.
+Named datatypes exclude inline/ref/value/other owners; anonymous token/anyURI ref-sequences excepted; consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
