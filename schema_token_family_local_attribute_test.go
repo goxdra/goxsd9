@@ -369,6 +369,8 @@ func TestTokenFamilyLocalAttributeFacts(t *testing.T) {
 func TestTokenFamilyLocalAttributeExclusions(t *testing.T) {
 	owners := []struct{ name, before, after, extra string }{
 		{"empty inline", `<xs:element name="root"><xs:complexType>`, `</xs:complexType></xs:element>`, ""},
+		{"choice inline", `<xs:element name="root"><xs:complexType><xs:choice><xs:element name="item" type="xs:integer"/></xs:choice>`, `</xs:complexType></xs:element>`, ""},
+		{"sequence inline", `<xs:element name="root"><xs:complexType><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence>`, `</xs:complexType></xs:element>`, ""},
 		{"all", `<xs:complexType name="Box"><xs:all><xs:element name="item" type="xs:integer"/></xs:all>`, `</xs:complexType>`, ""},
 		{"group", `<xs:complexType name="Box"><xs:group ref="t:Fields"/>`, `</xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence></xs:group>`},
 		{"simple content", `<xs:complexType name="Box"><xs:simpleContent><xs:extension base="xs:string">`, `</xs:extension></xs:simpleContent></xs:complexType>`, ""},
@@ -413,7 +415,7 @@ func tokenFamilyExcludedUse(kind, shape string) (use, extra, marker, related str
 	case "direct":
 		return `<xs:attribute name="a" type="xs:` + kind + `"/>`, "", `type="xs:` + kind + `"`, ""
 	case "named":
-		return `<xs:attribute name="a" type="t:Alias"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType>`, `type="t:Alias"`, ""
+		return `<xs:attribute name="a" type="t:Alias"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`, `type="t:Alias"`, ""
 	case "inline":
 		return `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:` + kind + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType>`, ""
 	case "ref":

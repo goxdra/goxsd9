@@ -120,35 +120,69 @@ func TestTokenFamilyDirectAttributeFacts(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // The two consumers independently reject each newly admitted owner and kind.
+//nolint:gocognit // The two consumers independently reject every admitted owner and type shape.
 func TestTokenFamilyDirectAttributeConsumersReject(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		for _, shape := range []string{"choice", "sequence"} {
 			for _, kind := range []string{"token", "NMTOKEN"} {
-				t.Run(profile.name+"/"+shape+"/"+kind, func(t *testing.T) {
-					root := tokenFamilyLocalRoot(`<xs:complexType name="Box">` + tokenFamilyDirectParticle(shape) + `<xs:attribute name="a" type="xs:` + kind + `"/></xs:complexType><xs:element name="root" type="t:Box"/>`)
-					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-					if err != nil {
-						t.Fatal(err)
-					}
-					useLoc := elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="a"`)
-					ownerLoc := elementReferenceTestAttributeLoc(t, root, `<xs:complexType name="Box"`)
-					elementLoc := elementReferenceTestAttributeLoc(t, root, `<xs:element name="root"`)
-					wantValidationRelated := []Loc{elementLoc, ownerLoc, useLoc}
-					if shape == "sequence" {
-						wantValidationRelated = []Loc{elementLoc, ownerLoc, elementReferenceTestAttributeLoc(t, root, `<xs:sequence`), useLoc}
-					}
-					validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<t:root xmlns:t="urn:token-local" a="one"/>`)))
-					vd := requireDiagnostic(t, validationErr)
-					if vd.Class() != FailureUnsupported || vd.Code() != UnsupportedInstanceValidationCode || vd.Loc() != useLoc || vd.SpecRef() != instanceValidationSpecRef(profile.version) || !reflect.DeepEqual(vd.Related(), wantValidationRelated) || !errors.Is(validationErr, errInstanceAttributes) {
-						t.Fatalf("validation = %v", validationErr)
-					}
-					output, generationErr := GenerateGo(schema, "generated")
-					gd := requireDiagnostic(t, generationErr)
-					if output != nil || gd.Class() != FailureUnsupported || gd.Code() != diagnosticCodegenUnsupported || gd.Loc() != useLoc || gd.SpecRef() != codegenDirectSequenceSpecReference(profile.version, codegenDirectSequenceParticlesReference) || !reflect.DeepEqual(gd.Related(), []Loc{ownerLoc, useLoc}) || !errors.Is(generationErr, errCodegenUnsupported) {
-						t.Fatalf("generation = %v/%v", output, generationErr)
-					}
-				})
+				for _, typeShape := range []string{"builtin", "named", "inherited"} {
+					t.Run(profile.name+"/"+shape+"/"+kind+"/"+typeShape, func(t *testing.T) {
+						declaredType := "xs:" + kind
+						extra := ""
+						if typeShape == "named" {
+							declaredType = "t:Alias"
+							extra = `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`
+						}
+						if typeShape == "inherited" {
+							declaredType = "t:Alias"
+							extra = `<xs:simpleType name="Parent"><xs:restriction base="xs:` + kind + `"><xs:enumeration value="one"/><xs:enumeration value="two"/></xs:restriction></xs:simpleType><xs:simpleType name="Alias"><xs:restriction base="t:Parent"><xs:enumeration value="one"/></xs:restriction></xs:simpleType>`
+						}
+						root := tokenFamilyLocalRoot(`<xs:complexType name="Box">` + tokenFamilyDirectParticle(shape) + `<xs:attribute name="a" type="` + declaredType + `"/></xs:complexType><xs:element name="root" type="t:Box"/>` + extra)
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+						if err != nil {
+							t.Fatal(err)
+						}
+						ownerName := mustTestQName(t, "urn:token-local", "Box")
+						ownerComponents := schema.FindKind(ComponentKindComplexTypeDefinition, ownerName)
+						if len(ownerComponents) != 1 {
+							t.Fatalf("owner components = %v", ownerComponents)
+						}
+						owner := requireTestComplexTypeDefinition(t, ownerComponents[0], "Box")
+						uses := owner.AttributeUses()
+						if len(uses) != 1 {
+							t.Fatalf("queryable uses = %v", uses)
+						}
+						use, ok := uses[0].(LocalAttributeUse)
+						if !ok {
+							t.Fatalf("use = %T", uses[0])
+						}
+						if typeShape != "builtin" {
+							ref, hasRef := use.TypeReference()
+							id, hasID := use.TypeID()
+							if !hasRef || !ref.IsNamed() || !hasID || id != componentIDForName(t, schema, mustTestQName(t, "urn:token-local", "Alias")) {
+								t.Fatalf("named use = %#v", use)
+							}
+							assertStringEnumerationFacts(t, ref.StringEnumerationFacets(), profile.version, []string{"one"}, []Loc{mustTestLoc(t, "root.xsd", 1, strings.LastIndex(root, `value="one"`)+1)})
+						}
+						useLoc := elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="a"`)
+						ownerLoc := elementReferenceTestAttributeLoc(t, root, `<xs:complexType name="Box"`)
+						elementLoc := elementReferenceTestAttributeLoc(t, root, `<xs:element name="root"`)
+						wantValidationRelated := []Loc{elementLoc, ownerLoc, useLoc}
+						if shape == "sequence" {
+							wantValidationRelated = []Loc{elementLoc, ownerLoc, elementReferenceTestAttributeLoc(t, root, `<xs:sequence`), useLoc}
+						}
+						validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<t:root xmlns:t="urn:token-local" a="one"/>`)))
+						vd := requireDiagnostic(t, validationErr)
+						if vd.Class() != FailureUnsupported || vd.Code() != UnsupportedInstanceValidationCode || vd.Loc() != useLoc || vd.SpecRef() != instanceValidationSpecRef(profile.version) || !reflect.DeepEqual(vd.Related(), wantValidationRelated) || !errors.Is(validationErr, errInstanceAttributes) {
+							t.Fatalf("validation = %v", validationErr)
+						}
+						output, generationErr := GenerateGo(schema, "generated")
+						gd := requireDiagnostic(t, generationErr)
+						if output != nil || gd.Class() != FailureUnsupported || gd.Code() != diagnosticCodegenUnsupported || gd.Loc() != useLoc || gd.SpecRef() != codegenDirectSequenceSpecReference(profile.version, codegenDirectSequenceParticlesReference) || !reflect.DeepEqual(gd.Related(), []Loc{ownerLoc, useLoc}) || !errors.Is(generationErr, errCodegenUnsupported) {
+							t.Fatalf("generation = %v/%v", output, generationErr)
+						}
+					})
+				}
 			}
 		}
 	}
