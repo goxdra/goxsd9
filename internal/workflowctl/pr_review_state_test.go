@@ -281,7 +281,7 @@ func TestPREvidenceUpdateTransitionsReviewStateAndIsIdempotent(t *testing.T) {
 	signalsPath := writePREvidenceJSONSource(t, "signals.json", evidence.DevelopmentSignals)
 	auditPath := writePREvidenceJSONSource(t, "audit.json", evidence.DocumentationAudit)
 	application := app{
-		executeCommand:                 backend.execute,
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         new(bytes.Buffer),
 		stderr:                         new(bytes.Buffer),
@@ -372,8 +372,8 @@ func TestReservedStatusOutsideLifecycleRejectsEvidenceUpdateBeforePatch(t *testi
 			signalsPath := writePREvidenceJSONSource(t, "signals.json", evidence.DevelopmentSignals)
 			auditPath := writePREvidenceJSONSource(t, "audit.json", evidence.DocumentationAudit)
 			application := app{
-				ctx:                            context.Background(),
-				executeCommand:                 backend.execute,
+				ctx:                 context.Background(),
+				claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 				stdout:                         new(bytes.Buffer),
 				stderr:                         new(bytes.Buffer),
@@ -407,8 +407,8 @@ func assertReviewStateGateRejects(t *testing.T, mutate func(string) string, comm
 	backend := newWorkflowBackend(t)
 	backend.body = mutate(backend.body)
 	application := app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         new(bytes.Buffer),
 		stderr:                         new(bytes.Buffer),
@@ -434,8 +434,8 @@ func TestReviewStateGateAllowsLegitimateExaminerPendingProse(t *testing.T) {
 	backend.body += "\nFresh Examiner receipt/evaluation pending.\n"
 	originalBody := backend.body
 	application := app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         new(bytes.Buffer),
 		stderr:                         new(bytes.Buffer),

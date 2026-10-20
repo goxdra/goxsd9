@@ -48,6 +48,8 @@ func (b *retryOpenBackend) execute(_ string, input io.Reader, name string, args 
 		return framedCommitLog("fix(workflow): reuse existing draft"), nil
 	case "git fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 		return "", nil
+	case "git fetch origin main":
+		return "", nil
 	case "git rev-parse HEAD":
 		return b.localHead, nil
 	case "git rev-parse origin/agent/issue-13":
@@ -107,7 +109,12 @@ func TestPROpenRunLocalRetryPublishesRemediationAndReusesDraft(t *testing.T) {
 	var stdout bytes.Buffer
 	backend := &retryOpenBackend{localHead: firstHead, remoteHead: firstHead, existing: []pullRequestAPI{}}
 	application := app{ctx: context.Background(), stdout: &stdout, stderr: &bytes.Buffer{},
-		executeCommand: backend.execute}
+		claimMetadataReader: func(_ string, issue int, branch string) (time.Time, string, error) {
+			if issue != 13 || branch != claimLocalBranch(13, "run-test") {
+				return time.Time{}, "", fmt.Errorf("unexpected claim %d/%s", issue, branch)
+			}
+			return time.Now().UTC().Add(time.Hour), "run-test", nil
+		}, executeCommand: backend.execute}
 	open := func() {
 		t.Helper()
 		if err := application.openPullRequest([]string{"13", "--title", "fix(workflow): reuse existing draft", "--body-file", path}); err != nil {

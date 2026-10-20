@@ -634,8 +634,8 @@ func newConvergenceWorkflowFixture(t *testing.T) (*workflowBackend, *app, *bytes
 	backend := newWorkflowBackend(t)
 	stdout := new(bytes.Buffer)
 	application := &app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         stdout,
 		stderr:                         new(bytes.Buffer),

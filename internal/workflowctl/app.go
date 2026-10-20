@@ -28,6 +28,7 @@ type app struct {
 	fuzzCopyWorktree                func(source, destination string) error
 	fuzzRemoveAll                   func(path string) error
 	buildCoverageReport             func(root, base string) (coverageReport, error)
+	claimMetadataReader             func(root string, issue int, branch string) (time.Time, string, error)
 	coverageChangedPaths            func(root, base, head string) (map[string]bool, error)
 	buildDevelopmentSignalsReport   func(root, base, expectedHead string, duration time.Duration,
 		explanations []coverageExplanation, additional []additionalFuzzTarget) (developmentSignalsReport, error)

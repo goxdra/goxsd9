@@ -13,7 +13,7 @@ import (
 
 func measuredChallengeApplication(backend *workflowBackend, stdout *bytes.Buffer, measurements *int) app {
 	return app{
-		ctx: context.Background(), executeCommand: backend.execute,
+		ctx: context.Background(), claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		buildDevelopmentSignalsReport: func(_ string, _, _ string, _ time.Duration,
 			_ []coverageExplanation, _ []additionalFuzzTarget,
 		) (developmentSignalsReport, error) {

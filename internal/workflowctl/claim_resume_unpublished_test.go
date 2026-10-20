@@ -242,7 +242,7 @@ func TestClaimResumeIntegrationUsesRenewalMetadataThroughPublication(t *testing.
 	if err := application.run(unpublishedClaimArgs(fixture, source, true)); err != nil {
 		t.Fatalf("resume and integrate source: %v", err)
 	}
-	lease, runID, err := application.readClaimMetadata(fixture.worktree)
+	lease, runID, err := application.readClaimMetadata(fixture.worktree, fixture.issue, claimLocalBranch(fixture.issue, fixture.runID))
 	if err != nil || runID != fixture.runID || !lease.After(time.Now().UTC()) {
 		t.Fatalf("integrated metadata lease=%s run=%s err=%v", lease, runID, err)
 	}
@@ -522,8 +522,8 @@ func TestClaimResumeIntegratedAuthoritySelectsLatestMonotoneLease(t *testing.T) 
 		{name: "same-second renewal lease", historical: now.Add(time.Hour), latest: now.Add(time.Hour), latestIssue: 643, latestRun: "run-643-source"},
 		{name: "expired latest", historical: now.Add(-time.Hour), latest: now.Add(-time.Minute), latestIssue: 643, latestRun: "run-643-source", wantDiagnostic: "expired at"},
 		{name: "regressing latest", historical: now.Add(2 * time.Hour), latest: now.Add(time.Hour), latestIssue: 643, latestRun: "run-643-source", wantDiagnostic: "regressing lease"},
-		{name: "conflicting run", historical: now.Add(-time.Minute), latest: now.Add(time.Hour), latestIssue: 643, latestRun: "run-other", wantDiagnostic: "metadata binds issue"},
-		{name: "conflicting issue", historical: now.Add(-time.Minute), latest: now.Add(time.Hour), latestIssue: 644, latestRun: "run-643-source", wantDiagnostic: "metadata binds issue"},
+		{name: "conflicting run", historical: now.Add(-time.Minute), latest: now.Add(time.Hour), latestIssue: 643, latestRun: "run-other", wantDiagnostic: "changes issue #643 run"},
+		{name: "unrelated marker does not renew expired primary", historical: now.Add(-time.Minute), latest: now.Add(time.Hour), latestIssue: 644, latestRun: "run-643-source", wantDiagnostic: "claim #643 expired"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture, source, backend := unpublishedClaimFixture(t, false)

@@ -27,8 +27,8 @@ func TestEvaluationToMergeCommandFlow(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	application := app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         &stdout,
 		stderr:                         &stderr,
@@ -989,8 +989,8 @@ func TestThirdFailureProjectTransitionRetryConvergesWithoutReceipt(t *testing.T)
 	backend.projectStatus = "Ready"
 	var stdout bytes.Buffer
 	application := app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         &stdout,
 		stderr:                         new(bytes.Buffer),
@@ -1116,8 +1116,8 @@ func runThirdFailureProofCase(t *testing.T, prepare, repair func(*workflowBacken
 	prepare(backend)
 	var stdout bytes.Buffer
 	application := app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         &stdout,
 		stderr:                         new(bytes.Buffer),
@@ -1150,8 +1150,8 @@ func TestEvaluationAcceptsRunSpecificLocalBranchForFixedPRHead(t *testing.T) {
 	backend.localBranch = claimLocalBranch(13, "run-test")
 	var stdout bytes.Buffer
 	application := app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         &stdout,
 		stderr:                         new(bytes.Buffer),
@@ -1207,8 +1207,8 @@ func TestManagedDocumentCuratorValidationPrecedesChallengeAndFinishMutation(t *t
 			configureManagedDocumentEvidence(t, backend, test.curator(backend.head))
 			var stdout bytes.Buffer
 			application := app{
-				ctx:                            context.Background(),
-				executeCommand:                 backend.execute,
+				ctx:                 context.Background(),
+				claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 				stdout:                         &stdout,
 				stderr:                         new(bytes.Buffer),
@@ -1310,7 +1310,7 @@ func currentStateReviewMutationFixture(t *testing.T) (*workflowBackend, *app) {
 	backend := newWorkflowBackend(t)
 	configureCurrentStateReviewEvidence(t, backend, []string{"schema.go"}, noCuratorResult(backend.head))
 	return backend, &app{
-		ctx: context.Background(), executeCommand: backend.execute,
+		ctx: context.Background(), claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         new(bytes.Buffer), stderr: new(bytes.Buffer),
 	}
@@ -1341,7 +1341,7 @@ func TestCurrentStateReviewAuditMismatchPrecedesDuplicateChallengeConvergence(t 
 	configureCurrentStateReviewEvidence(t, backend, []string{"old.go"}, testPassingCurator(backend.head))
 	var stdout bytes.Buffer
 	application := app{
-		ctx: context.Background(), executeCommand: backend.execute,
+		ctx: context.Background(), claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         &stdout, stderr: new(bytes.Buffer),
 	}
@@ -1421,7 +1421,7 @@ func TestCurrentStateReviewAuditMismatchRejectsEvidenceUpdate(t *testing.T) {
 				args = append(args, "--curator-file", curatorPath)
 			}
 			application := app{
-				ctx: context.Background(), executeCommand: backend.execute,
+				ctx: context.Background(), claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 				stdout:                         new(bytes.Buffer), stderr: new(bytes.Buffer),
 			}
@@ -1480,7 +1480,7 @@ func TestSignalEvidenceRecomputationPrecedesUpdateChallengeAndFinishMutations(t 
 			backend := newWorkflowBackend(t)
 			makeSignalEvidenceStale(t, backend)
 			application := app{
-				ctx: context.Background(), executeCommand: backend.execute,
+				ctx: context.Background(), claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 				buildDevelopmentSignalsReport: func(_ string, _ string, _ string, _ time.Duration,
 					_ []coverageExplanation, _ []additionalFuzzTarget,
 				) (developmentSignalsReport, error) {
@@ -1500,7 +1500,7 @@ func TestSignalEvidenceRecomputationPrecedesUpdateChallengeAndFinishMutations(t 
 func TestSignalEvidenceRecomputationAcceptsExactCurrentReport(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	application := app{
-		ctx: context.Background(), executeCommand: backend.execute,
+		ctx: context.Background(), claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		buildDevelopmentSignalsReport: func(_ string, _ string, _ string, _ time.Duration,
 			_ []coverageExplanation, _ []additionalFuzzTarget,
 		) (developmentSignalsReport, error) {
@@ -1582,8 +1582,8 @@ func TestFinishRejectsEvaluationMetadataDrift(t *testing.T) {
 	backend := newWorkflowBackend(t)
 	var stdout bytes.Buffer
 	application := app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         &stdout,
 		stderr:                         new(bytes.Buffer),
@@ -1618,8 +1618,8 @@ func TestAmbiguousMergeResponsesReconcile(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 			application := app{
-				ctx:                            context.Background(),
-				executeCommand:                 backend.execute,
+				ctx:                 context.Background(),
+				claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 				verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 				stdout:                         &stdout,
 				stderr:                         &stderr,
@@ -1647,8 +1647,8 @@ func TestAmbiguousMergeResponseRejectsPostMergeMetadataDrift(t *testing.T) {
 	backend.mutatePRBodyAfterMerge = true
 	var stdout bytes.Buffer
 	application := app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         &stdout,
 		stderr:                         new(bytes.Buffer),
@@ -1730,8 +1730,8 @@ func testReservedAttestationSequence(t *testing.T, field struct {
 	backend := newWorkflowBackend(t)
 	stdout := new(bytes.Buffer)
 	application := &app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         stdout,
 		stderr:                         new(bytes.Buffer),
@@ -1969,8 +1969,8 @@ func newRepairFixture(t *testing.T) (*workflowBackend, *app, *bytes.Buffer) {
 	backend.localBranch = claimLocalBranch(13, "run-test")
 	stdout := new(bytes.Buffer)
 	application := &app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         stdout,
 		stderr:                         new(bytes.Buffer),
@@ -2326,8 +2326,8 @@ func newPassingFinishFixture(t *testing.T) (*workflowBackend, *app) {
 	backend := newWorkflowBackend(t)
 	stdout := new(bytes.Buffer)
 	application := &app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         stdout,
 		stderr:                         new(bytes.Buffer),
@@ -2798,6 +2798,8 @@ func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
 	switch command {
 	case "fetch origin refs/heads/agent/issue-13:refs/remotes/origin/agent/issue-13":
 		return "", nil
+	case "fetch origin main":
+		return "", nil
 	case "rev-parse HEAD", "rev-parse origin/agent/issue-13":
 		return b.head, nil
 	case "rev-parse --verify --end-of-options HEAD^{commit}":
@@ -2812,6 +2814,22 @@ func (b *workflowBackend) executeGitClaim(dir, command string) (string, error) {
 	default:
 		return "", fmt.Errorf("unexpected git command: %s in %s", command, dir)
 	}
+}
+
+func (b *workflowBackend) claimMetadata(root string, issue int, branch string) (time.Time, string, error) {
+	if issue != 13 || branch != b.localBranch {
+		return time.Time{}, "", fmt.Errorf("unexpected claim metadata request for issue #%d branch %s", issue, branch)
+	}
+	message, err := b.executeGitClaim(root, "log -100 --format=%B")
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	lease, err := trailerTime(message)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	runID, err := trailerValue(message, "Agent-Run-ID")
+	return lease, runID, err
 }
 
 func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, error) {
