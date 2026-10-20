@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -31,8 +32,12 @@ func (a app) claimIntegrationPublished(root, integration, remote string) (bool, 
 // readIntegratedClaimMetadata proves the historical integration and derives
 // current authority from the latest monotone marker, not source trailers.
 //
-//nolint:gocognit // The marker, integration, and source ancestry form one ordered authority proof.
-func (a app) readIntegratedClaimMetadata(root string) (claimIntegratedAuthority, bool, error) {
+//nolint:gocognit,funlen // The marker, integration, and source ancestry form one ordered authority proof.
+func (a app) readIntegratedClaimMetadata(root string, issue int, branch string) (claimIntegratedAuthority, bool, error) {
+	wantRun, err := claimBranchRunID(branch, issue)
+	if err != nil {
+		return claimIntegratedAuthority{}, false, err
+	}
 	head, err := a.command(root, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return claimIntegratedAuthority{}, false, fmt.Errorf("read integrated claim head: %w", err)
@@ -49,6 +54,13 @@ func (a app) readIntegratedClaimMetadata(root string) (claimIntegratedAuthority,
 		if !strings.HasPrefix(entry.object.message, "chore(workflow): integrate renewed claim #") {
 			continue
 		}
+		integrationIssue, parseErr := parseClaimIntegrationIssue(entry.object.message)
+		if parseErr != nil {
+			return claimIntegratedAuthority{}, false, stateError("claim integration %s has malformed issue identity: %w", entry.head, parseErr)
+		}
+		if integrationIssue != issue {
+			continue
+		}
 		if len(entry.object.parents) != 2 {
 			return claimIntegratedAuthority{}, false, stateError("claim integration %s has noncanonical parent count", entry.head)
 		}
@@ -56,6 +68,12 @@ func (a app) readIntegratedClaimMetadata(root string) (claimIntegratedAuthority,
 		canonical, err := a.readCanonicalClaimIdentity(root, marker, "")
 		if err != nil {
 			return claimIntegratedAuthority{}, false, fmt.Errorf("read integrated renewal marker: %w", err)
+		}
+		if wantRun != "" && canonical.runID != wantRun {
+			return claimIntegratedAuthority{}, false, stateError("claim integration %s binds issue #%d run %s, not local branch %s", entry.head, issue, canonical.runID, branch)
+		}
+		if canonical.issue != issue {
+			return claimIntegratedAuthority{}, false, stateError("claim integration %s binds issue #%d, not issue #%d", entry.head, canonical.issue, issue)
 		}
 		if err := a.validateClaimResumeIntegration(root, entry.head, entry.object.parents[0], marker,
 			canonical.parent, canonical.issue, canonical.runID); err != nil {
@@ -68,9 +86,15 @@ func (a app) readIntegratedClaimMetadata(root string) (claimIntegratedAuthority,
 		previousLease := canonical.lease
 		for index := len(newerMarkers) - 1; index >= 0; index-- {
 			candidate := newerMarkers[index]
-			renewal, err := a.readCanonicalClaimCommit(root, candidate.head, canonical.issue, canonical.runID, "")
+			renewal, err := a.readCanonicalClaimIdentity(root, candidate.head, "")
 			if err != nil {
 				return claimIntegratedAuthority{}, false, fmt.Errorf("read renewed integrated claim marker %s: %w", candidate.head, err)
+			}
+			if renewal.issue != issue {
+				continue
+			}
+			if renewal.runID != canonical.runID {
+				return claimIntegratedAuthority{}, false, stateError("renewed integrated claim marker %s changes issue #%d run from %s to %s", candidate.head, issue, canonical.runID, renewal.runID)
 			}
 			if renewal.lease.Before(previousLease) {
 				return claimIntegratedAuthority{}, false, stateError("renewed integrated claim marker %s has regressing lease", candidate.head)
@@ -79,9 +103,25 @@ func (a app) readIntegratedClaimMetadata(root string) (claimIntegratedAuthority,
 			authority.marker = candidate.head
 			authority.lease = renewal.lease
 		}
+		if err := a.validateNoHiddenPrimaryClaimMarker(root, head, entry.head, history, issue); err != nil {
+			return claimIntegratedAuthority{}, false, err
+		}
 		return authority, true, nil
 	}
 	return claimIntegratedAuthority{}, false, nil
+}
+
+func parseClaimIntegrationIssue(message string) (int, error) {
+	const prefix = "chore(workflow): integrate renewed claim #"
+	if !strings.HasPrefix(message, prefix) || !strings.HasSuffix(message, "\n") {
+		return 0, errors.New("integration message is not generated")
+	}
+	value := strings.TrimSuffix(strings.TrimPrefix(message, prefix), "\n")
+	issue, err := strconv.Atoi(value)
+	if err != nil || issue < 1 || strconv.Itoa(issue) != value {
+		return 0, errors.New("integration issue is not canonical")
+	}
+	return issue, nil
 }
 
 func claimResumeIntegrationMessage(issue int) string {

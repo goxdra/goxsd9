@@ -1,8 +1,6 @@
 package workflowctl
 
 import (
-	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -88,61 +86,29 @@ func TestRenewClaimPreservesRunIDAndAdvancesFixedRemoteRef(t *testing.T) {
 	const (
 		issue       = 70
 		localBranch = "agent/issue-70-run-test"
-		oldHead     = "old-head"
-		newHead     = "new-head"
 	)
+	fixture := newBaseRepositoryFixture(t, false)
 	lease := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
-	var commitMessage string
-	var commands []string
-	application := app{
-		ctx:    context.Background(),
-		stdout: &bytes.Buffer{},
-		executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
-			command := name + " " + strings.Join(args, " ")
-			commands = append(commands, command)
-			switch command {
-			case "git rev-parse --show-toplevel":
-				return "/repo", nil
-			case "git branch --show-current":
-				return localBranch, nil
-			case "git fetch origin refs/heads/agent/issue-70:refs/remotes/origin/agent/issue-70":
-				return "", nil
-			case "git rev-parse HEAD", "git rev-parse origin/agent/issue-70":
-				return oldHead, nil
-			case "git log -100 --format=%B":
-				return claimMessage(issue, "run-test", lease), nil
-			case "git rev-parse HEAD^{tree}":
-				return "tree", nil
-			case "git commit-tree tree -p HEAD":
-				data, err := io.ReadAll(input)
-				if err != nil {
-					return "", err
-				}
-				commitMessage = string(data)
-				return newHead, nil
-			case "git update-ref refs/heads/agent/issue-70-run-test new-head old-head":
-				return "", nil
-			case "git push origin new-head:refs/heads/agent/issue-70":
-				return "", nil
-			default:
-				return "", fmt.Errorf("unexpected command: %s", command)
-			}
-		},
-	}
+	parent := runGitTest(t, fixture.primary, "rev-parse", "HEAD")
+	oldHead := createResumeTestCommit(t, fixture.primary, parent, claimMessage(issue, "run-test", lease))
+	runGitTest(t, fixture.primary, "push", "origin", oldHead+":refs/heads/"+claimBranch(issue))
+	worktree := filepath.Join(fixture.root, "claim-70")
+	runGitTest(t, fixture.primary, "worktree", "add", "-b", localBranch, worktree, oldHead)
+	application, _ := claimGitApplication(t, worktree)
 	if err := application.renewClaim(); err != nil {
 		t.Fatalf("renewClaim: %v", err)
 	}
+	newHead := runGitTest(t, worktree, "rev-parse", "HEAD")
+	commitMessage := runGitTest(t, worktree, "log", "-1", "--format=%B")
 	if !strings.Contains(commitMessage, "Agent-Run-ID: run-test\n") {
 		t.Fatalf("renewal commit changed run ID: %q", commitMessage)
 	}
 	if strings.Count(commitMessage, "Agent-Run-ID:") != 1 {
 		t.Fatalf("renewal emitted unexpected run ID trailers: %q", commitMessage)
 	}
-	if !containsCommand(commands, "git update-ref refs/heads/agent/issue-70-run-test new-head old-head") {
-		t.Fatal("renewal did not advance the run-local branch")
-	}
-	if !containsCommand(commands, "git push origin new-head:refs/heads/agent/issue-70") {
-		t.Fatal("renewal did not advance the fixed remote claim ref")
+	if newHead == oldHead || runGitTest(t, worktree, "rev-parse", "origin/"+claimBranch(issue)) != newHead ||
+		!strings.HasPrefix(runGitTest(t, worktree, "ls-remote", "origin", "refs/heads/"+claimBranch(issue)), newHead) {
+		t.Fatal("renewal did not advance both local and fixed remote claim refs")
 	}
 }
 

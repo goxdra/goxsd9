@@ -167,6 +167,7 @@ func historicalPREvidenceSources(t *testing.T, backend *workflowBackend) histori
 func historicalPREvidenceApplication(backend *workflowBackend) app {
 	return app{
 		ctx:                            context.Background(),
+		claimMetadataReader:            backend.claimMetadata,
 		executeCommand:                 backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         new(bytes.Buffer),
@@ -319,6 +320,12 @@ func runOpenLifecycleCommand(t *testing.T, body string) (createPullRequestReques
 		ctx:    context.Background(),
 		stdout: new(bytes.Buffer),
 		stderr: new(bytes.Buffer),
+		claimMetadataReader: func(_ string, issue int, branch string) (time.Time, string, error) {
+			if issue != 13 || branch != claimBranch(13) {
+				return time.Time{}, "", fmt.Errorf("unexpected claim %d/%s", issue, branch)
+			}
+			return time.Now().UTC().Add(time.Hour), "run-test", nil
+		},
 		executeCommand: func(_ string, input io.Reader, name string, args ...string) (string, error) {
 			command := name + " " + strings.Join(args, " ")
 			var data []byte

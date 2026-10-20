@@ -270,7 +270,7 @@ func (a app) renewClaim() error {
 		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
 			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
 		}
-		authority, integrated, integratedErr := a.readIntegratedClaimMetadata(root)
+		authority, integrated, integratedErr := a.readIntegratedClaimMetadata(root, number, localBranch)
 		if integratedErr != nil {
 			return integratedErr
 		}
@@ -284,7 +284,7 @@ func (a app) renewClaim() error {
 			}
 		}
 	}
-	lease, runID, err := a.readClaimMetadata(root)
+	lease, runID, err := a.readClaimMetadata(root, number, localBranch)
 	if err != nil {
 		return err
 	}
@@ -329,7 +329,7 @@ func (a app) verifyClaim() error {
 	if local != remote {
 		return stateError("claim branch moved remotely; local=%s remote=%s", local, remote)
 	}
-	lease, runID, err := a.readClaimMetadata(root)
+	lease, runID, err := a.readClaimMetadata(root, number, localBranch)
 	if err != nil {
 		return err
 	}
@@ -356,7 +356,7 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 		if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", remote, local); ancestorErr != nil {
 			return stateError("claim branch diverged; local=%s remote=%s", local, remote)
 		}
-		authority, integrated, integratedErr := a.readIntegratedClaimMetadata(root)
+		authority, integrated, integratedErr := a.readIntegratedClaimMetadata(root, number, branch)
 		if integratedErr != nil {
 			return integratedErr
 		}
@@ -370,7 +370,7 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 			}
 		}
 	}
-	lease, runID, err := a.readClaimMetadata(root)
+	lease, runID, err := a.readClaimMetadata(root, number, branch)
 	if err != nil {
 		return stateError("claim #%d has no valid lease: %v", number, err)
 	}
@@ -380,32 +380,114 @@ func (a app) verifyClaimForPush(root, branch string, number int) error {
 	return validateClaimDeadline(number, lease, time.Now().UTC())
 }
 
-func (a app) readClaimMetadata(root string) (time.Time, string, error) {
-	text, err := a.command(root, "git", "log", "-100", "--format=%B")
-	if err != nil {
-		return time.Time{}, "", retryableOperation("read claim metadata", fmt.Errorf("read claim metadata: %w", err))
+//nolint:gocognit // Selection proves each ordered marker before deriving one issue/run authority.
+func (a app) readClaimMetadata(root string, issue int, branch string) (time.Time, string, error) {
+	if a.claimMetadataReader != nil {
+		return a.claimMetadataReader(root, issue, branch)
 	}
-	if strings.Contains(text, "chore(workflow): integrate renewed claim #") {
-		authority, integrated, integratedErr := a.readIntegratedClaimMetadata(root)
-		if integratedErr != nil {
-			return time.Time{}, "", integratedErr
-		}
-		if !integrated {
-			return time.Time{}, "", stateError("claim log alleges integration without a canonical first-parent integration")
-		}
+	authority, integrated, err := a.readIntegratedClaimMetadata(root, issue, branch)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	if integrated {
 		return authority.lease, authority.runID, nil
 	}
-	var lease time.Time
-	var runID string
-	lease, err = trailerTime(text)
+	head, err := a.command(root, "git", "rev-parse", "HEAD")
 	if err != nil {
-		return time.Time{}, "", terminalOperation("read claim metadata", err)
+		return time.Time{}, "", retryableOperation("read claim head", err)
 	}
-	runID, err = trailerValue(text, "Agent-Run-ID")
+	history, err := a.readClaimResumeFirstParentHistory(root, head)
 	if err != nil {
-		return time.Time{}, "", terminalOperation("read claim metadata", err)
+		return time.Time{}, "", err
 	}
-	return lease, runID, nil
+	wantRun, err := claimBranchRunID(branch, issue)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	var selected canonicalClaimCommit
+	var acquisitionHead string
+	var previousLease time.Time
+	for _, entry := range history {
+		if !claimResumeLooksLikeMarker(entry.object.message) {
+			continue
+		}
+		marker, markerErr := a.readCanonicalClaimIdentity(root, entry.head, "")
+		if markerErr != nil {
+			return time.Time{}, "", fmt.Errorf("read claim metadata at %s: %w", entry.head, markerErr)
+		}
+		if marker.issue != issue {
+			continue
+		}
+		if wantRun != "" && marker.runID != wantRun {
+			return time.Time{}, "", stateError("claim marker %s binds issue #%d run %s, not local branch %s", entry.head, issue, marker.runID, branch)
+		}
+		if selected.runID == "" {
+			selected = marker
+			acquisitionHead = entry.head
+			previousLease = marker.lease
+			wantRun = marker.runID
+			continue
+		}
+		if marker.lease.After(previousLease) {
+			return time.Time{}, "", stateError("claim marker %s has a lease newer than later marker for issue #%d run %s", entry.head, issue, wantRun)
+		}
+		acquisitionHead = entry.head
+		previousLease = marker.lease
+	}
+	if selected.runID == "" {
+		return time.Time{}, "", stateError("claim head %s has no canonical marker for issue #%d on branch %s", head, issue, branch)
+	}
+	if err := a.validateNoHiddenPrimaryClaimMarker(root, head, acquisitionHead, history, issue); err != nil {
+		return time.Time{}, "", err
+	}
+	return selected.lease, selected.runID, nil
+}
+
+//nolint:gocognit // Every side ancestor must be checked for competing primary authority.
+func (a app) validateNoHiddenPrimaryClaimMarker(root, head, marker string, history []claimResumeHistoryCommit, issue int) error {
+	firstParents := make(map[string]bool, len(history))
+	for _, entry := range history {
+		firstParents[entry.head] = true
+	}
+	output, err := a.command(root, "git", "rev-list", marker+".."+head)
+	if err != nil {
+		return fmt.Errorf("read claim side ancestry: %w", err)
+	}
+	for _, candidate := range strings.Split(output, "\n") {
+		if candidate == "" || firstParents[candidate] {
+			continue
+		}
+		object, readErr := a.gitRaw(root, "cat-file", "commit", candidate)
+		if readErr != nil {
+			return fmt.Errorf("read claim side commit %s: %w", candidate, readErr)
+		}
+		parsed, parseErr := parseCommitObject(object)
+		if parseErr != nil {
+			return stateError("claim side commit %s is malformed: %w", candidate, parseErr)
+		}
+		if !claimResumeLooksLikeMarker(parsed.message) {
+			continue
+		}
+		authority, identityErr := a.readCanonicalClaimIdentity(root, candidate, "")
+		if identityErr != nil {
+			return fmt.Errorf("read claim side marker %s: %w", candidate, identityErr)
+		}
+		if authority.issue == issue {
+			return stateError("claim head %s has incomparable issue #%d marker %s outside first-parent ancestry", head, issue, candidate)
+		}
+	}
+	return nil
+}
+
+func claimBranchRunID(branch string, issue int) (string, error) {
+	if branch == claimBranch(issue) {
+		return "", nil
+	}
+	prefix := claimBranch(issue) + "-"
+	if !strings.HasPrefix(branch, prefix) || !validRunID(strings.TrimPrefix(branch, prefix)) {
+		return "", stateError("local claim branch %q does not bind issue #%d to a valid run", branch, issue)
+	}
+	return strings.TrimPrefix(branch, prefix), nil
 }
 
 func validateClaimDeadline(number int, deadline, now time.Time) error {

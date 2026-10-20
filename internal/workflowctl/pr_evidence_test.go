@@ -24,7 +24,7 @@ func TestPREvidenceUpdateCommandUsesSourcesAndPatchesOnlyOwnedBlock(t *testing.T
 	signalsPath := writePREvidenceJSONSource(t, "signals.json", signals)
 	auditPath := writePREvidenceJSONSource(t, "audit.json", audit)
 	var stdout, stderr bytes.Buffer
-	application := app{executeCommand: backend.execute, verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow, stdout: &stdout, stderr: &stderr}
+	application := app{claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute, verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow, stdout: &stdout, stderr: &stderr}
 
 	if err := application.runPREvidence([]string{"update", "14", "--signals-file", signalsPath, "--docs-audit-file", auditPath}); err != nil {
 		t.Fatalf("update PR evidence: %v", err)

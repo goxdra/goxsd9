@@ -609,8 +609,8 @@ func FuzzEvaluationResolutionParserDoesNotPanic(f *testing.F) {
 
 func newResolutionWorkflowApplication(backend *workflowBackend, stdout *bytes.Buffer) app {
 	return app{
-		ctx:                            context.Background(),
-		executeCommand:                 backend.execute,
+		ctx:                 context.Background(),
+		claimMetadataReader: backend.claimMetadata, executeCommand: backend.execute,
 		verifyDevelopmentSignalsReport: acceptDevelopmentSignalsForCommandFlow,
 		stdout:                         stdout,
 		stderr:                         new(bytes.Buffer),
