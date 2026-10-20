@@ -78,7 +78,7 @@ Ordered uses; models→uses→base resolution.
 Compatibility/Strict11 omit false/0 `inheritable` for supported named empty/all/choice/sequence/group/grouped/sequence-extension locals (ID included) and anonymous global-element inline complexContent direct-sequence name-bearing non-ID locals; Strict10/true/1/refs/other-owners reject.
 Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID/owner.
-Named empty/choice/sequence: built-in `xs:language`/`xs:anyURI`;
+Named empty/choice/sequence/all: built-in `xs:language`/`xs:anyURI`;
 named empty: built-in/named `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences admit built-in `xs:token`/`xs:anyURI` locals; consumers reject.
 Named empty/direct choice/sequence: built-in/supported named `xs:long`.
