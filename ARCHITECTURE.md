@@ -55,7 +55,7 @@ XSD11/Compatibility exclusion containment.
 wildcard; missing derived wildcard unsupported. Broader/weaker wildcards, final,
 cycles invalid; richer derived particles/uses/group refs or nonempty/used bases
 unsupported. Consumers reject.
-Anonymous grouped/sequence IDs persist; ID/list/union, grouped/nested `inheritable` excluded.
+Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free simpleContent extensions query selected atomic bases; restrictions reject.
 Direct/extension particles model selected integer-family locals; named direct
@@ -75,7 +75,7 @@ Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplica
 `0/0` omits; anonymous complex members/consumers reject.
 Ordered uses; models→uses→base resolution.
 `0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
-Compatibility/Strict11 omit false/0 `inheritable` for supported named empty/all/choice/sequence/group/grouped/sequence-extension locals (ID included) and anonymous global-element inline complexContent direct-sequence name-bearing non-ID locals; Strict10/true/1/refs/other-owners reject.
+Compatibility/Strict11 omit false/0 `inheritable` for supported named empty/all/choice/sequence/group/grouped/sequence-extension locals (ID included) and anonymous global-element inline complexContent grouped/direct-sequence name-bearing non-ID locals; Strict10/true/1/refs/other-owners reject.
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
 Empty/choice/sequence: built-in and facet-free named `xs:language`/`xs:anyURI`; all: built-in only;

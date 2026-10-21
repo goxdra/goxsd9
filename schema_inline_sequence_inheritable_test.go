@@ -410,15 +410,25 @@ func TestAnonymousDirectFalseInheritableSiblingExits(t *testing.T) {
 	}
 }
 
-func TestAnonymousGroupedFalseInheritableValidOwnerRefusal(t *testing.T) {
+//nolint:gocognit // Compare omission across grouped policy, spelling, and prohibited-use shapes.
+func TestAnonymousGroupedFalseInheritableValidOwnerAdmission(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, value := range []string{"false", "0", " &#x9;false&#xA; ", " &#xA;0&#x9; "} {
 			for _, use := range []string{`<xs:attribute name="a" type="xs:boolean" inheritable="` + value + `"/>`, `<xs:attribute name="a" type="xs:boolean" use="prohibited" inheritable="` + value + `"/>`} {
 				root := anonymousGroupedExtensionSchema("1.0", "", use)
-				assertInlineInheritableDiagnostic(t, root, policy, `inheritable="`+value+`"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaComplexTypeExtensionSpecRef(XSDVersion11), ErrUnsupported)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("owner with inheritable: %v", err)
+				}
 				without := strings.Replace(root, ` inheritable="`+value+`"`, "", 1)
-				if _, err := discoverTestSchemaWithPolicy(t, without, nil, policy); err != nil {
+				omitted, err := discoverTestSchemaWithPolicy(t, without, nil, policy)
+				if err != nil {
 					t.Fatalf("owner without inheritable: %v", err)
+				}
+				admitted := inlineGroupedDefinition(t, schema)
+				baseline := inlineGroupedDefinition(t, omitted)
+				if !reflect.DeepEqual(admitted.Particle(), baseline.Particle()) || !reflect.DeepEqual(admitted.AttributeUses(), baseline.AttributeUses()) || admitted.BaseLoc() != baseline.BaseLoc() {
+					t.Fatalf("omission changed grouped facts: %v / %v", admitted, baseline)
 				}
 			}
 		}
