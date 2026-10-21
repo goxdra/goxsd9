@@ -271,7 +271,7 @@ func TestLocalInheritableMalformedAndExcludedShapes(t *testing.T) {
 		}
 		for _, owner := range ownerCases {
 			for _, spelling := range []string{"maybe", "true", "1", "false", "0"} {
-				if (owner.name == "direct named" || owner.name == "direct all" || owner.name == "grouped extension" || owner.name == "sequence extension" || owner.name == "sequence extension anonymous inline") && (spelling == "false" || spelling == "0") && policy != Strict10 {
+				if (owner.name == "direct named" || owner.name == "direct all" || owner.name == "grouped extension" || owner.name == "grouped anonymous inline" || owner.name == "sequence extension" || owner.name == "sequence extension anonymous inline") && (spelling == "false" || spelling == "0") && policy != Strict10 {
 					continue
 				}
 				t.Run(string(policy)+"/"+owner.name+"/"+spelling, func(t *testing.T) {

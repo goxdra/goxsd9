@@ -6637,6 +6637,7 @@ type schemaComplexTypeResolver struct {
 	stack             []int
 }
 
+//nolint:gocognit // Keep dependency resolution and the final deferred source gate in one phase.
 func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	if index < 0 || index >= len(resolver.records) {
 		return newSchemaBridgeInvariant(Loc{}, "complex type resolution has an invalid record index")
@@ -6670,6 +6671,9 @@ func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	}
 	for _, use := range schemaComplexTypeAttributeUseInputs(input.body) {
 		if use.deferredFalseInheritableLoc.IsZero() {
+			continue
+		}
+		if _, grouped := input.body.(*schemaComplexTypeGroupedExtensionBodyInput); grouped && record.element != nil {
 			continue
 		}
 		diagnostic := newSchemaSyntaxUnsupportedForVersion(use.deferredFalseInheritableLoc, "local attribute inheritable is not implemented", resolver.version)
