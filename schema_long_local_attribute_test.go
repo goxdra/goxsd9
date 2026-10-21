@@ -13,10 +13,19 @@ func longLocalRoot(version, body string) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:r="urn:long-local" xmlns:o="urn:other" targetNamespace="urn:long-local" attributeFormDefault="qualified" version="` + version + `">` + body + `</xs:schema>`
 }
 
+func longDirectOwnerShapes() []struct{ name, particle string } {
+	return []struct{ name, particle string }{
+		{"empty", ""},
+		{"choice", `<xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>`},
+		{"sequence", `<xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`},
+		{"all", `<xs:all><xs:element name="x" type="xs:integer"/></xs:all>`},
+	}
+}
+
 //nolint:gocognit,funlen // A single graph checks the public order, exact effective facts, and source provenance.
 func TestLongLocalAttributeGraphFacts(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []struct{ name, particle string }{{"empty", ""}, {"choice", `<xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>`}, {"sequence", `<xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`}} {
+		for _, ownerShape := range longDirectOwnerShapes() {
 			t.Run(profile.name+"/"+ownerShape.name, func(t *testing.T) {
 				root := longLocalRoot(string(profile.version), `<xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/><xs:complexType name="Box">`+ownerShape.particle+`<xs:attribute name="builtin" type="xs:long" use="required"/><xs:attribute name="forward" type="r:Forward"/><xs:attribute name="included" type="r:Included" form="unqualified"/><xs:attribute name="adopted" type="r:Adopted"/><xs:attribute name="foreign" type="o:Foreign"/><xs:attribute name="gone" type="xs:long" use="prohibited"/></xs:complexType><xs:simpleType name="Forward"><xs:restriction base="r:Parent"><xs:minInclusive value="-3"/><xs:maxInclusive value="4"/><xs:enumeration value="2"/></xs:restriction></xs:simpleType><xs:simpleType name="Parent"><xs:restriction base="xs:long"><xs:minInclusive value="-100"/><xs:maxInclusive value="100"/><xs:totalDigits value="3"/></xs:restriction></xs:simpleType>`)
 				included := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:long-local"><xs:include schemaLocation="root.xsd"/><xs:simpleType name="Included"><xs:restriction base="xs:long"/></xs:simpleType></xs:schema>`
@@ -52,6 +61,10 @@ func TestLongLocalAttributeGraphFacts(t *testing.T) {
 				case "sequence":
 					if _, ok := owner.Particle().(SequenceParticle); !ok {
 						t.Fatalf("sequence particle = %T", owner.Particle())
+					}
+				case "all":
+					if _, ok := owner.Particle().(AllParticle); !ok {
+						t.Fatalf("all particle = %T", owner.Particle())
 					}
 				case "empty":
 					if owner.Particle() != nil {
@@ -198,6 +211,7 @@ func TestLongLocalAttributeExcludedShapes(t *testing.T) {
 	for _, owner := range []struct{ name, particle string }{
 		{"choice", `<xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>`},
 		{"sequence", `<xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`},
+		{"all", `<xs:all><xs:element name="x" type="xs:integer"/></xs:all>`},
 	} {
 		for index := range original {
 			variant := cases[index]
@@ -207,7 +221,6 @@ func TestLongLocalAttributeExcludedShapes(t *testing.T) {
 		}
 	}
 	for _, owner := range []struct{ name, body, extra string }{
-		{"all", `<xs:all><xs:element name="x" type="xs:integer"/></xs:all>`, ""},
 		{"group", `<xs:group ref="r:Fields"/>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
 		{"grouped extension", `<xs:complexContent><xs:extension base="r:Base"><xs:group ref="r:Fields"/><xs:attribute name="a" type="xs:long"/></xs:extension></xs:complexContent>`, `<xs:complexType name="Base"/><xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
 		{"simple content", `<xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="a" type="xs:long"/></xs:extension></xs:simpleContent>`, ""},
@@ -266,7 +279,7 @@ func TestLongLocalAttributeExcludedShapes(t *testing.T) {
 //nolint:gocognit // One diagnostic matrix checks every admitted owner and policy.
 func TestLongLocalAttributeBoundaryDiagnostics(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []struct{ name, particle string }{{"empty", ""}, {"choice", `<xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>`}, {"sequence", `<xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`}} {
+		for _, ownerShape := range longDirectOwnerShapes() {
 			for _, tc := range []struct {
 				name, use, extra, primary, related, code string
 				class                                    FailureClass
@@ -333,7 +346,7 @@ func TestLongLocalAttributeCompositionAndConsumers(t *testing.T) {
 				}
 			})
 		}
-		for _, ownerShape := range []struct{ name, particle string }{{"empty", ""}, {"choice", `<xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>`}, {"sequence", `<xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`}} {
+		for _, ownerShape := range longDirectOwnerShapes() {
 			for _, kind := range []string{"builtin", "named"} {
 				t.Run(profile.name+"/consumers/"+ownerShape.name+"/"+kind, func(t *testing.T) {
 					typeName, extra := "xs:long", ""
@@ -372,7 +385,7 @@ func TestLongLocalAttributeCompositionAndConsumers(t *testing.T) {
 // The declaration phase rejects duplicate candidates before local type lookup can report ambiguity.
 func TestLongLocalAttributeDuplicateCandidateAndAmbiguousReframe(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []struct{ name, particle string }{{"empty", ""}, {"choice", `<xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>`}, {"sequence", `<xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`}} {
+		for _, ownerShape := range longDirectOwnerShapes() {
 			t.Run(profile.name+"/"+ownerShape.name, func(t *testing.T) {
 				root := longLocalRoot(string(profile.version), `<xs:complexType name="Box">`+ownerShape.particle+`<xs:attribute name="a" type="r:Alias"/></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:long"/></xs:simpleType><xs:simpleType name="Alias" id="second"><xs:restriction base="xs:long"/></xs:simpleType>`)
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
@@ -453,5 +466,141 @@ func TestLongLocalAttributeKeepsAdjacentIntegerUse(t *testing.T) {
 			}
 			assertAllIntegerBounds(t, ref, profile.version, "-9223372036854775808", "9223372036854775807", Loc{}, Loc{})
 		}
+	}
+}
+
+//nolint:gocognit,funlen // Member and use order, occurrence policy, and omission are separate public facts.
+func TestLongDirectAllOrderAndOccurrence(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		model := `<xs:all minOccurs="0"><xs:element name="later" type="xs:integer"/><xs:element name="earlier" type="xs:boolean" minOccurs="0"/></xs:all>`
+		uses := `<xs:attribute name="first" type="xs:long"/><xs:attribute name="second" type="r:Forward"/>`
+		extra := `<xs:simpleType name="Forward"><xs:restriction base="xs:long"><xs:minExclusive value="0"/><xs:maxInclusive value="12"/></xs:restriction></xs:simpleType>`
+		root := longLocalRoot(string(profile.version), `<xs:complexType name="Box">`+model+uses+`</xs:complexType>`+extra)
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := requireTestComplexTypeDefinition(t, schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:long-local", "Box"))[0], "Box")
+		all, ok := owner.Particle().(AllParticle)
+		if !ok || all.Occurrences().String() != "0/1" || len(all.Members()) != 2 {
+			t.Fatalf("all facts = %v", owner.Particle())
+		}
+		firstMember, firstOK := all.Members()[0].(ElementParticle)
+		secondMember, secondOK := all.Members()[1].(ElementParticle)
+		if !firstOK || !secondOK || firstMember.Name().Local() != "later" || secondMember.Name().Local() != "earlier" || secondMember.Occurrences().String() != "0/1" {
+			t.Fatalf("all member facts = %v", all.Members())
+		}
+		if got := owner.AttributeUses(); len(got) != 2 || got[0].Name().Local() != "first" || got[1].Name().Local() != "second" {
+			t.Fatalf("use order = %v", got)
+		}
+		second, ok := owner.AttributeUses()[1].(LocalAttributeUse)
+		if !ok {
+			t.Fatalf("second use = %T", owner.AttributeUses()[1])
+		}
+		ref, _ := second.TypeReference()
+		id, hasID := ref.ComponentID()
+		if second.TypeLoc() != elementReferenceTestAttributeLoc(t, root, `type="r:Forward"`) || !ref.IsNamed() || !hasID || id.Source() != "root.xsd" {
+			t.Fatalf("forward use = %#v", second)
+		}
+		bounds, ok := ref.IntegerBounds()
+		minimum, hasMin := bounds.MinExclusiveFacet()
+		maximum, hasMax := bounds.MaxInclusiveFacet()
+		if !ok || !hasMin || !hasMax || minimum.Value().Canonical() != "0" || maximum.Value().Canonical() != "12" || minimum.Loc() != elementReferenceTestAttributeLoc(t, root, `value="0"`) || maximum.Loc() != elementReferenceTestAttributeLoc(t, root, `value="12"`) {
+			t.Fatalf("named facets = %v", bounds)
+		}
+		if profile.policy == Strict10 {
+			root = longLocalRoot(string(profile.version), `<xs:complexType name="Box"><xs:all><xs:element name="many" type="xs:integer" minOccurs="2" maxOccurs="3"/></xs:all>`+uses+`</xs:complexType>`+extra)
+			schema, err = discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			assertNCNameDiagnostic(t, schema, err, FailureUnsupported, diagnosticSchemaAllOccurrenceVersionCode, elementReferenceTestAttributeLoc(t, root, `minOccurs="2"`), nil, schemaSyntaxSpecRefForVersion(XSDVersion11), errLanguagePolicyMismatch)
+			continue
+		}
+		root = longLocalRoot(string(profile.version), `<xs:complexType name="Box"><xs:all><xs:element name="many" type="xs:integer" minOccurs="2" maxOccurs="3"/></xs:all>`+uses+`</xs:complexType>`+extra)
+		schema, err = discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner = requireTestComplexTypeDefinition(t, schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:long-local", "Box"))[0], "Box")
+		all, ok = owner.Particle().(AllParticle)
+		if !ok {
+			t.Fatalf("repeated all = %T", owner.Particle())
+		}
+		if all.Members()[0].Occurrences().String() != "2/3" || len(owner.AttributeUses()) != 2 {
+			t.Fatalf("repeated member/use = %v/%v", all.Members(), owner.AttributeUses())
+		}
+		root = longLocalRoot(string(profile.version), `<xs:complexType name="Box"><xs:all minOccurs="0" maxOccurs="0"><xs:element name="gone" type="xs:integer"/></xs:all>`+uses+`</xs:complexType>`+extra)
+		schema, err = discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner = requireTestComplexTypeDefinition(t, schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:long-local", "Box"))[0], "Box")
+		if owner.Particle() != nil || len(owner.AttributeUses()) != 2 || owner.AttributeUses()[1].Name().Local() != "second" {
+			t.Fatalf("outer 0/0 = %v/%v", owner.Particle(), owner.AttributeUses())
+		}
+	}
+}
+
+func TestLongDirectAllOtherOwnersRemainUnsupported(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, kind := range []string{"builtin", "named"} {
+			lexical, extra := "xs:long", ""
+			if kind == "named" {
+				lexical = "r:Long"
+				extra = `<xs:simpleType name="Long"><xs:restriction base="xs:long"/></xs:simpleType>`
+			}
+			use := `<xs:attribute name="a" type="` + lexical + `"/>`
+			for _, shape := range []struct{ name, body, marker, spec string }{
+				{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="x" type="xs:integer"/></xs:all>` + use + `</xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(XSDVersion10)},
+				{"direct all extension", `<xs:complexType name="Base"/><xs:complexType name="Box"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="x" type="xs:integer"/></xs:all>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:attribute name="a"`, extensionSpecForNormalizedAll(profile.version)},
+			} {
+				t.Run(profile.name+"/"+kind+"/"+shape.name, func(t *testing.T) {
+					root := longLocalRoot(string(profile.version), shape.body+extra)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					checkStringAllDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, elementReferenceTestAttributeLoc(t, root, shape.marker), nil, shape.spec, ErrUnsupported)
+				})
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Each competing particle or type exit is checked under every policy.
+func TestLongDirectAllPhasePrecedence(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, exit := range []struct {
+			name, model, use, extra, marker, related, code, spec string
+			class                                                FailureClass
+			cause                                                error
+		}{
+			{"invalid member range before missing use", `<xs:all><xs:element name="bad" type="xs:integer" minOccurs="2" maxOccurs="1"/></xs:all>`, `<xs:attribute name="a" type="r:Missing"/>`, "", `<xs:element name="bad"`, `minOccurs="2"|maxOccurs="1"`, invalidSchemaCompositionCode, schemaParticleCorrectSpecRef(profile.version), FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum},
+			{"missing member before missing use", `<xs:all><xs:element ref="r:missing"/></xs:all>`, `<xs:attribute name="a" type="r:Missing" use="prohibited"/>`, "", `ref="r:missing"`, "", diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(profile.version), FailureInvalid, errSchemaElementReferenceUnresolved},
+			{"wrong member before missing use", `<xs:all><xs:element ref="r:Wrong"/></xs:all>`, `<xs:attribute name="a" type="r:Missing"/>`, `<xs:simpleType name="Wrong"><xs:restriction base="xs:long"/></xs:simpleType>`, `ref="r:Wrong"`, `<xs:simpleType name="Wrong"`, diagnosticSchemaElementReferenceWrongKindCode, schemaElementReferenceSpecRef(profile.version), FailureInvalid, errSchemaElementReferenceWrongKind},
+			{"missing use after omitted member", `<xs:all><xs:element name="gone" type="xs:integer" minOccurs="0" maxOccurs="0"/></xs:all>`, `<xs:attribute name="a" type="r:Missing" use="prohibited"/>`, "", `type="r:Missing"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, schemaAttributeTypeSpecRef(profile.version), FailureInvalid, errSchemaAttributeTypeUnresolved},
+			{"unsupported facet after member", `<xs:all><xs:element name="x" type="xs:integer"/></xs:all>`, `<xs:attribute name="a" type="r:Patterned" use="prohibited"/>`, `<xs:simpleType name="Patterned"><xs:restriction base="xs:long"><xs:pattern value="[0-9]+"/></xs:restriction></xs:simpleType>`, `<xs:pattern`, "", UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal"), FailureUnsupported, ErrUnsupported},
+		} {
+			t.Run(profile.name+"/"+exit.name, func(t *testing.T) {
+				model := exit.model
+				if exit.name == "missing member before missing use" && profile.policy != Strict10 {
+					model = strings.Replace(model, `<xs:all>`, `<xs:all minOccurs="0" maxOccurs="0">`, 1)
+				}
+				root := longLocalRoot(string(profile.version), `<xs:complexType name="Box">`+model+exit.use+`</xs:complexType>`+exit.extra)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				var related []Loc
+				if exit.related != "" {
+					for _, marker := range strings.Split(exit.related, "|") {
+						related = append(related, elementReferenceTestAttributeLoc(t, root, marker))
+					}
+				}
+				assertNCNameDiagnostic(t, schema, err, exit.class, exit.code, elementReferenceTestAttributeLoc(t, root, exit.marker), related, exit.spec, exit.cause)
+			})
+		}
+		t.Run(profile.name+"/malformed outer before missing use", func(t *testing.T) {
+			root := longLocalRoot(string(profile.version), `<xs:complexType name="Box"><xs:all maxOccurs="maybe"><xs:element name="x" type="xs:integer"/></xs:all><xs:attribute name="a" type="r:Missing"/></xs:complexType>`)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			loc := elementReferenceTestAttributeLoc(t, root, `maxOccurs="maybe"`)
+			checkStringAllDiagnostic(t, schema, err, FailureInvalid, invalidSchemaCompositionCode, loc, nil, schemaParticleOccurrenceDatatypeSpecRef(profile.version))
+			cause := requireDiagnostic(t, errors.Unwrap(requireDiagnostic(t, err)))
+			if cause.Code() != InvalidIntegerLexicalCode || cause.Loc() != loc {
+				t.Fatalf("malformed occurrence cause = %v", cause)
+			}
+		})
 	}
 }
