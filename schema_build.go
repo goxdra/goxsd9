@@ -7690,7 +7690,7 @@ func schemaNamedLocalNCNameAttributeTypeSupported(reference schemaSimpleTypeRefe
 		return false
 	}
 	_, ok := reference.facets.(schemaStringFacetVariant)
-	return ok && schemaNamedLocalAtomicAttributeOwnerSupported(owner)
+	return ok && (schemaNamedLocalAtomicAttributeOwnerSupported(owner) || schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner))
 }
 
 func schemaNamedLocalNormalizedStringAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
@@ -7701,7 +7701,19 @@ func schemaNamedLocalNormalizedStringAttributeTypeSupported(reference schemaSimp
 		return false
 	}
 	_, ok := reference.facets.(schemaStringFacetVariant)
-	return ok && schemaNamedLocalAtomicAttributeOwnerSupported(owner)
+	return ok && (schemaNamedLocalAtomicAttributeOwnerSupported(owner) || schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner))
+}
+
+func schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner schemaComponentRecord) bool {
+	if owner.complexType == nil {
+		return false
+	}
+	body, ok := owner.complexType.body.(*schemaComplexTypeDirectBodyInput)
+	if !ok || body == nil {
+		return false
+	}
+	_, all := body.particle.(*schemaAllParticleInput)
+	return all
 }
 
 func schemaNamedLocalAtomicAttributeOwnerSupported(owner schemaComponentRecord) bool {

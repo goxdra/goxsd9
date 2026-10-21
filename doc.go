@@ -209,7 +209,7 @@
 // restrictions remain queryable, while mapped nonzero local anonymous
 // restrictions fail at the local type location with no schema. Built-in and
 // supported named effective atomic NCName local declarations on named empty,
-// direct choice/sequence, grouped, and direct-sequence extension owners retain
+// direct choice/sequence/all, grouped, and direct-sequence extension owners retain
 // their written type QName, target identity, type location, and copied effective
 // enumeration facts. Inline restrictions, refs, and value constraints remain
 // excluded. NCName instance validation and Go generation remain unsupported.

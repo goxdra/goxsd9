@@ -303,8 +303,6 @@ func TestDirectAllNormalizedStringExcludedShapes(t *testing.T) {
 			name, local, extra, marker, spec string
 			cause                            error
 		}{
-			{"direct", `<xs:attribute name="a" type="xs:normalizedString"/>`, "", `type="xs:normalizedString"`, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
-			{"named", `<xs:attribute name="a" type="r:Named"/>`, "", `type="r:Named"`, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
 			{"inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:normalizedString"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
 			{"ref", `<xs:attribute ref="r:a"/>`, `<xs:attribute name="a" type="xs:normalizedString"/>`, `ref="r:a"`, schemaAttributeUseSpecRef(profile.version), errSchemaAttributeReferenceUnsupported},
 		} {

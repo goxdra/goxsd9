@@ -76,8 +76,8 @@ Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplica
 Ordered uses; models→uses→base resolution.
 `0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
 Compatibility/Strict11 omit false/0 `inheritable` for supported named empty/all/choice/sequence/group/grouped/sequence-extension locals (ID included) and anonymous global-element inline complexContent direct-sequence name-bearing non-ID locals; Strict10/true/1/refs/other-owners reject.
-Named empty/choice/sequence/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
-`xs:NCName`/`xs:normalizedString`; named all: facet-free `xs:ID`. Strict10: one effective ID/owner.
+Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
+`xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
 Empty/choice/sequence: built-in and facet-free named `xs:language`/`xs:anyURI`; all: built-in only;
 named empty/choice/sequence: built-in/named `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.

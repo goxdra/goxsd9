@@ -220,8 +220,6 @@ func TestDirectAllIDExcludedUseShapes(t *testing.T) {
 			{"inline default", `<xs:attribute name="id" default="a"><xs:simpleType><xs:restriction base="xs:ID"/></xs:simpleType></xs:attribute>`, "", `default="a"`, "", schemaAttributeUseSpecRef(version), UnsupportedSchemaSyntaxCode, errSchemaAttributeUseUnsupported},
 			{"inline fixed", `<xs:attribute name="id" fixed="a"><xs:simpleType><xs:restriction base="xs:ID"/></xs:simpleType></xs:attribute>`, "", `fixed="a"`, "", schemaAttributeUseSpecRef(version), UnsupportedSchemaSyntaxCode, errSchemaAttributeUseUnsupported},
 			{"attribute ref", `<xs:attribute ref="r:id"/>`, `<xs:attribute name="id" type="xs:ID"/>`, `ref="r:id"`, `<xs:attribute name="id"`, schemaAttributeUseSpecRef(version), UnsupportedSchemaSyntaxCode, errSchemaAttributeReferenceUnsupported},
-			{"non-ID NCName", `<xs:attribute name="id" type="xs:NCName"/>`, "", `type="xs:NCName"`, "", schemaAttributeTypeSpecRef(version), UnsupportedSchemaSyntaxCode, errSchemaAttributeUseUnsupported},
-			{"non-ID named NCName", `<xs:attribute name="id" type="r:N"/>`, `<xs:simpleType name="N"><xs:restriction base="xs:NCName"/></xs:simpleType>`, `type="r:N"`, "", schemaAttributeTypeSpecRef(version), UnsupportedSchemaSyntaxCode, errSchemaAttributeUseUnsupported},
 		} {
 			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
 				root := idUseRoot(idAllOwner(test.use), test.extra)
