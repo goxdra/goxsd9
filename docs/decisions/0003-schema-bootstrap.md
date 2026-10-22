@@ -61,7 +61,7 @@ The syntax, discovery, declaration, location, ordering, and immutable-component
 invariants are canonical in [ARCHITECTURE.md](../../ARCHITECTURE.md). This
 decision does not duplicate those implementation details or add syntax-phase
 support. [`BootstrapPlan`](../../internal/specs/bootstrap.go) operates on
-manifest records and verified corpus representations; it does not mutate or
+validated manifest records; it does not mutate or
 backpatch completed schema components. [`GenerateBootstrap`](../../internal/specs/bootstrap.go)
 does not claim complete parsing of either schema-for-schemas document.
 
