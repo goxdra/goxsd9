@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -194,6 +196,170 @@ func TestRunCoverageRejectsInvalidBaseBeforeTests(t *testing.T) {
 		if strings.Contains(call, "go ") || strings.Contains(call, "worktree") {
 			t.Fatalf("invalid base ran execution command %q", call)
 		}
+	}
+}
+
+//nolint:gocognit // The table distinguishes list, test, and ordinary product failures at the same command boundary.
+func TestCoverageSnapshotClassifiesStorageFailuresAndPreservesCause(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command string
+		cause   error
+		storage bool
+	}{
+		{name: "list ENOSPC", command: "list", cause: syscall.ENOSPC, storage: true},
+		{name: "test child ENOSPC", command: "test", cause: errors.New("exit status 1: write build cache: no space left on device"), storage: true},
+		{name: "ordinary test failure", command: "test", cause: errors.New("exit status 1: TestValue failed"), storage: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			artifacts := coverageArtifacts{cache: filepath.Join(root, "build-cache"), tmp: filepath.Join(root, "build-tmp")}
+			profile := filepath.Join(root, "profile.out")
+			application := app{executeCommandWithEnv: func(dir string, env []string, _ io.Reader, name string, args ...string) (string, error) {
+				if dir != root || name != "go" || len(args) == 0 {
+					t.Fatalf("coverage command = %q %q in %q", name, args, dir)
+				}
+				if !slices.Contains(env, "GOCACHE="+artifacts.cache) || !slices.Contains(env, "GOTMPDIR="+artifacts.tmp) {
+					t.Fatalf("coverage environment omitted owned artifact paths: %#v", env)
+				}
+				if args[0] == test.command {
+					return "", test.cause
+				}
+				if args[0] == "list" {
+					return fmt.Sprintf("{\"Dir\":%q,\"ImportPath\":\"example.com/mod\"}\n", dir), nil
+				}
+				t.Fatalf("unexpected command %q", args)
+				return "", nil
+			}}
+			_, err := application.coverageSnapshot(root, profile, "base", artifacts)
+			if err == nil || !errors.Is(err, test.cause) {
+				t.Fatalf("coverage error = %v, want cause %v", err, test.cause)
+			}
+			var storage *coverageStorageError
+			if got := errors.As(err, &storage); got != test.storage {
+				t.Fatalf("storage classification = %t, want %t: %v", got, test.storage, err)
+			}
+			if test.storage && (!strings.Contains(err.Error(), coverageStorageCode) || !strings.Contains(err.Error(), artifacts.cache) || !strings.Contains(err.Error(), "retry the same command")) {
+				t.Fatalf("storage diagnostic omitted code, path, or recovery: %v", err)
+			}
+		})
+	}
+}
+
+//nolint:funlen,gocognit // This exercises the public command, exact-commit snapshots, owned cleanup, and retry in one fixture.
+func TestCoverageStorageFailureCleansOwnedCacheBeforeWorktreeAndRetries(t *testing.T) {
+	root := t.TempDir()
+	cacheHome := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheHome)
+	writeFuzzFixtureFile(t, root, "go.mod", "module example.com/coveragefixture\n\ngo 1.26.0\n")
+	writeFuzzFixtureFile(t, root, "sample.go", "package coveragefixture\n\nfunc Value() int { return 1 }\n")
+	runGitTest(t, root, "init", "--initial-branch=main")
+	runGitTest(t, root, "config", "user.name", "Workflow Test")
+	runGitTest(t, root, "config", "user.email", "workflow@example.test")
+	runGitTest(t, root, "add", ".")
+	runGitTest(t, root, "commit", "--no-gpg-sign", "-m", "fixture")
+	head := runGitTest(t, root, "rev-parse", "HEAD")
+	shared := filepath.Join(cacheHome, "shared-cache")
+	if err := os.Mkdir(shared, 0o700); err != nil {
+		t.Fatalf("create shared cache sentinel: %v", err)
+	}
+	var output bytes.Buffer
+	application := app{ctx: context.Background(), stdout: &output}
+	cleanupCause := errors.New("coverage artifact cleanup failed")
+	cleanupAttempt := 0
+	failCleanupAt := 1
+	application.coverageRemoveAll = func(path string) error {
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+		cleanupAttempt++
+		if cleanupAttempt == failCleanupAt {
+			return cleanupCause
+		}
+		return nil
+	}
+	var cachePaths []string
+	var failedCache string
+	first := true
+	application.executeCommand = func(dir string, input io.Reader, name string, args ...string) (string, error) {
+		if dir == "" && name == "git" && reflect.DeepEqual(args, []string{"rev-parse", "--show-toplevel"}) {
+			return root, nil
+		}
+		if name == "git" && len(args) == 4 && args[0] == "worktree" && args[1] == "remove" && failedCache != "" {
+			if _, err := os.Stat(failedCache); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("owned cache still exists before worktree removal: %v", err)
+			}
+		}
+		return (app{ctx: context.Background()}).commandOutput(dir, input, true, name, args...)
+	}
+	storageCause := errors.New("write build cache: no space left on device")
+	application.executeCommandWithEnv = func(dir string, env []string, _ io.Reader, name string, args ...string) (string, error) {
+		if name != "go" || len(args) == 0 {
+			t.Fatalf("unexpected environment command: %q %q", name, args)
+		}
+		var cache string
+		for _, value := range env {
+			if strings.HasPrefix(value, "GOCACHE=") {
+				cache = strings.TrimPrefix(value, "GOCACHE=")
+			}
+		}
+		if cache == "" || !strings.HasPrefix(cache, cacheHome+string(filepath.Separator)) {
+			t.Fatalf("coverage used unexpected cache %q", cache)
+		}
+		if !slices.Contains(cachePaths, cache) {
+			cachePaths = append(cachePaths, cache)
+		}
+		if args[0] == "list" {
+			return fmt.Sprintf("{\"Dir\":%q,\"ImportPath\":\"example.com/coveragefixture\"}\n", dir), nil
+		}
+		if args[0] != "test" {
+			t.Fatalf("unexpected Go command: %q", args)
+		}
+		if first {
+			first = false
+			failedCache = cache
+			return "", storageCause
+		}
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "-coverprofile=") {
+				path := strings.TrimPrefix(arg, "-coverprofile=")
+				return "", os.WriteFile(path, []byte("mode: set\nexample.com/coveragefixture/sample.go:1.1,1.2 1 1\n"), 0o600)
+			}
+		}
+		t.Fatal("coverage test omitted profile path")
+		return "", nil
+	}
+	err := application.runCoverage([]string{"--base", head, "--format", "json"})
+	var storage *coverageStorageError
+	if !errors.As(err, &storage) || !errors.Is(err, storageCause) || !errors.Is(err, cleanupCause) || output.Len() != 0 {
+		t.Fatalf("first coverage result = %v, output %q", err, output.String())
+	}
+	if _, err := os.Stat(shared); err != nil {
+		t.Fatalf("shared cache was changed: %v", err)
+	}
+	output.Reset()
+	if err := application.runCoverage([]string{"--base", head, "--format", "json"}); err != nil {
+		t.Fatalf("retry same exact head: %v", err)
+	}
+	var report coverageReport
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+		t.Fatalf("decode coverage retry: %v", err)
+	}
+	if report.Base != head || report.Head != head || len(report.Packages) != 1 || len(cachePaths) != 2 || cachePaths[0] == cachePaths[1] {
+		t.Fatalf("retry report or cache lifecycle = %#v, paths %#v", report, cachePaths)
+	}
+	for _, cache := range cachePaths {
+		if _, err := os.Stat(cache); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("owned cache remains after coverage: %q: %v", cache, err)
+		}
+	}
+	failCleanupAt = cleanupAttempt + 2 // The head closure succeeds; the final deferred cleanup fails.
+	output.Reset()
+	if err := application.runCoverage([]string{"--base", head, "--format", "json"}); !errors.Is(err, cleanupCause) || output.Len() != 0 {
+		t.Fatalf("cleanup-only failure returned partial report: %v, output %q", err, output.String())
+	}
+	if status := runGitTest(t, root, "status", "--porcelain"); status != "" {
+		t.Fatalf("source changed during retry: %q", status)
 	}
 }
 

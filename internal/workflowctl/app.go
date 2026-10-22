@@ -30,6 +30,7 @@ type app struct {
 	buildCoverageReport             func(root, base string) (coverageReport, error)
 	claimMetadataReader             func(root string, issue int, branch string) (time.Time, string, error)
 	coverageChangedPaths            func(root, base, head string) (map[string]bool, error)
+	coverageRemoveAll               func(path string) error
 	buildDevelopmentSignalsReport   func(root, base, expectedHead string, duration time.Duration,
 		explanations []coverageExplanation, additional []additionalFuzzTarget) (developmentSignalsReport, error)
 	verifyDevelopmentSignalsReport func(root string, expected developmentSignalsReport) error
