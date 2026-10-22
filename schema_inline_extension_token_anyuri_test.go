@@ -297,6 +297,9 @@ func TestInlineExtensionTokenAnyURIExcludedShapes(t *testing.T) {
 				{"value constraint", `<xs:element ref="t:child"/>`, `<xs:attribute name="value" type="xs:` + kind + `" default="value"/>`, "", `default="value"`, schemaComplexTypeExtensionSpecRef(profile.version)},
 				{"fixed constraint", `<xs:element ref="t:child"/>`, `<xs:attribute name="value" type="xs:` + kind + `" fixed="value"/>`, "", `fixed="value"`, schemaComplexTypeExtensionSpecRef(profile.version)},
 			} {
+				if tc.edit == "named" && kind == "anyURI" {
+					continue
+				}
 				t.Run(profile.name+"/"+kind+"/"+tc.name, func(t *testing.T) {
 					root := inlineTokenURIExtensionSchema("1.0", tc.member, tc.use)
 					switch tc.edit {
