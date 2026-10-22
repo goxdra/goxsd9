@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -64,50 +65,119 @@ func TestCLIReportsStableSearchFailure(t *testing.T) {
 
 func TestBootstrapPrintsPinnedPlans(t *testing.T) {
 	root := copyPinnedManifest(t)
+	manifest, err := specs.ReadManifest(root)
+	if err != nil {
+		t.Fatalf("ReadManifest() error = %v", err)
+	}
 	tests := []struct {
 		version string
-		want    string
+		rows    []string
 	}{
 		{
 			version: "1.0",
-			want: "version\t1.0\n" +
-				"id\trole\trepresentation\tdependencies\tlexical_aliases\n" +
-				"xsd10-datatypes-schema\tdependency\thtml-cdata-pre-xsd10-datatypes\t[]\t[]\n" +
-				"xml-schema\tdependency\txml\t[]\t[\"http://www.w3.org/2001/xml.xsd\"]\n" +
-				"xsd10-schema-for-schemas\tentry\txml\t[\"xsd10-datatypes-schema\",\"xml-schema\"]\t[]\n",
+			rows: []string{
+				"xsd10-datatypes-schema\tdependency\thtml-cdata-pre-xsd10-datatypes\t[]\t[]",
+				"xml-schema\tdependency\txml\t[]\t[\"http://www.w3.org/2001/xml.xsd\"]",
+				"xsd10-schema-for-schemas\tentry\txml\t[\"xsd10-datatypes-schema\",\"xml-schema\"]\t[]",
+			},
 		},
 		{
 			version: "1.1",
-			want: "version\t1.1\n" +
-				"id\trole\trepresentation\tdependencies\tlexical_aliases\n" +
-				"xsd11-datatypes-schema\tdependency\txml\t[]\t[]\n" +
-				"xml-schema\tdependency\txml\t[]\t[\"http://www.w3.org/2001/xml.xsd\"]\n" +
-				"xsd11-schema-for-schemas\tentry\txml\t[\"xsd11-datatypes-schema\",\"xml-schema\"]\t[]\n",
+			rows: []string{
+				"xsd11-datatypes-schema\tdependency\txml\t[]\t[]",
+				"xml-schema\tdependency\txml\t[]\t[\"http://www.w3.org/2001/xml.xsd\"]",
+				"xsd11-schema-for-schemas\tentry\txml\t[\"xsd11-datatypes-schema\",\"xml-schema\"]\t[]",
+			},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.version, func(t *testing.T) {
-			var stdout bytes.Buffer
-			var stderr bytes.Buffer
-			args := []string{"bootstrap", "-version", test.version, "-root", root}
-			code := run(args, &stdout, &stderr)
-			if code != 0 {
-				t.Fatalf("run(bootstrap %s) code = %d, stderr = %q", test.version, code, stderr.String())
-			}
-			if got := stdout.String(); got != test.want {
-				t.Fatalf("run(bootstrap %s) output = %q, want %q", test.version, got, test.want)
-			}
-
-			stdout.Reset()
-			stderr.Reset()
-			code = run(args, &stdout, &stderr)
-			if code != 0 || stdout.String() != test.want || stderr.Len() != 0 {
-				t.Fatalf("repeated run(bootstrap %s) = code %d, stdout %q, stderr %q", test.version, code, stdout.String(), stderr.String())
-			}
+			assertPinnedBootstrapPlan(t, root, manifest, test.version, test.rows)
 		})
 	}
 	if _, err := os.Stat(filepath.Join(root, ".cache")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("bootstrap created .cache: stat error = %v", err)
+	}
+}
+
+func assertPinnedBootstrapPlan(t *testing.T, root string, manifest specs.Manifest, version string, rows []string) {
+	t.Helper()
+	output := runBootstrapOutput(t, root, version)
+	lines := bootstrapPlanLines(t, output, version, len(rows))
+	for index, want := range rows {
+		fields := strings.Split(lines[index+2], "\t")
+		if got := len(fields); got != 6 {
+			t.Fatalf("row %d fields = %d, want 6: %q", index, got, lines[index+2])
+		}
+		if got := strings.Join(fields[:5], "\t"); got != want {
+			t.Fatalf("row %d = %q, want %q", index, got, want)
+		}
+		assertManifestDigest(t, manifest, fields[0], fields[5], index)
+	}
+	if repeated := runBootstrapOutput(t, root, version); repeated != output {
+		t.Fatalf("repeated run(bootstrap %s) output = %q, want %q", version, repeated, output)
+	}
+}
+
+func TestBootstrapPrintsDistinctManifestDigestsOnMatchingRows(t *testing.T) {
+	manifest := commandManifest()
+	for index := range manifest.BootstrapArtifacts {
+		manifest.BootstrapArtifacts[index].SHA256 = strings.Repeat(string(rune('a'+index)), 64)
+	}
+	root := writeCommandManifest(t, manifest)
+	for _, test := range []struct {
+		version string
+		ids     []string
+	}{
+		{"1.0", []string{"xsd10-datatypes", "xml-schema", "xsd10-entry"}},
+		{"1.1", []string{"xsd11-datatypes", "xml-schema", "xsd11-entry"}},
+	} {
+		t.Run(test.version, func(t *testing.T) {
+			output := runBootstrapOutput(t, root, test.version)
+			lines := bootstrapPlanLines(t, output, test.version, len(test.ids))
+			for index, id := range test.ids {
+				fields := strings.Split(lines[index+2], "\t")
+				if len(fields) != 6 || fields[0] != id {
+					t.Fatalf("row %d = %q, want ID %q and six fields", index, lines[index+2], id)
+				}
+				assertManifestDigest(t, manifest, id, fields[5], index)
+			}
+		})
+	}
+}
+
+func runBootstrapOutput(t *testing.T, root, version string) string {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"bootstrap", "-version", version, "-root", root}, &stdout, &stderr); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("run(bootstrap %s) code = %d, stderr = %q", version, code, stderr.String())
+	}
+	return stdout.String()
+}
+
+func bootstrapPlanLines(t *testing.T, output, version string, rows int) []string {
+	t.Helper()
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	if got, want := len(lines), rows+2; got != want {
+		t.Fatalf("run(bootstrap %s) lines = %d, want %d: %q", version, got, want, output)
+	}
+	if got, want := lines[0], "version\t"+version; got != want {
+		t.Fatalf("version line = %q, want %q", got, want)
+	}
+	if got, want := lines[1], "id\trole\trepresentation\tdependencies\tlexical_aliases\tmanifest_sha256"; got != want {
+		t.Fatalf("header = %q, want %q", got, want)
+	}
+	return lines
+}
+
+func assertManifestDigest(t *testing.T, manifest specs.Manifest, id, digest string, index int) {
+	t.Helper()
+	entry, err := manifest.Find(id)
+	if err != nil {
+		t.Fatalf("Find(%q) error = %v", id, err)
+	}
+	if digest != entry.SHA256 {
+		t.Fatalf("row %d digest = %q, manifest digest = %q", index, digest, entry.SHA256)
 	}
 }
 
@@ -147,6 +217,19 @@ func TestBootstrapUsageFailuresDoNotWriteStdout(t *testing.T) {
 				t.Fatalf("run(%v) stderr = %q, want %q", test.args, stderr.String(), test.wantOutput)
 			}
 		})
+	}
+}
+
+func TestBootstrapUsageDescribesManifestDigest(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"bootstrap"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("run(bootstrap) code = %d, want 2", code)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "manifest_sha256 is the manifest-pinned SHA-256 digest of the raw response") {
+		t.Fatalf("usage omits column meaning: %q", stderr.String())
 	}
 }
 
@@ -190,6 +273,18 @@ func TestBootstrapFailuresPreserveDiagnosticsAndLeaveStdoutEmpty(t *testing.T) {
 			wantOutput: "[specs.manifest.decode]",
 		},
 		{
+			name: "malformed manifest digest",
+			setup: func(t *testing.T) string {
+				manifest := commandManifest()
+				manifest.BootstrapArtifacts[1].SHA256 = "not-a-sha256-digest"
+				return writeCommandManifest(t, manifest)
+			},
+			args: func(root string) []string {
+				return []string{"bootstrap", "-version", "1.0", "-root", root}
+			},
+			wantOutput: "[specs.manifest.validate]",
+		},
+		{
 			name: "bootstrap graph",
 			setup: func(t *testing.T) string {
 				manifest := commandManifest()
@@ -222,17 +317,27 @@ func TestBootstrapFailuresPreserveDiagnosticsAndLeaveStdoutEmpty(t *testing.T) {
 
 func TestBootstrapReportsStdoutWriteFailure(t *testing.T) {
 	root := writeCommandManifest(t, commandManifest())
-	stdout := &bootstrapWriteError{err: errors.New("writer failed")}
-	var stderr bytes.Buffer
-	code := run([]string{"bootstrap", "-version", "1.0", "-root", root}, stdout, &stderr)
-	if code != 1 {
-		t.Fatalf("run(bootstrap write failure) code = %d, want 1; stderr = %q", code, stderr.String())
-	}
-	if stdout.calls != 1 {
-		t.Fatalf("bootstrap stdout writes = %d, want 1", stdout.calls)
-	}
-	if !strings.Contains(stderr.String(), "write bootstrap plan: writer failed") {
-		t.Fatalf("run(bootstrap write failure) stderr = %q", stderr.String())
+	for _, test := range []struct {
+		name   string
+		writer *bootstrapWriteError
+		cause  string
+	}{
+		{"writer error", &bootstrapWriteError{err: errors.New("writer failed")}, "writer failed"},
+		{"short write", &bootstrapWriteError{}, io.ErrShortWrite.Error()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			code := run([]string{"bootstrap", "-version", "1.0", "-root", root}, test.writer, &stderr)
+			if code != 1 {
+				t.Fatalf("run(bootstrap write failure) code = %d, want 1; stderr = %q", code, stderr.String())
+			}
+			if test.writer.calls != 1 {
+				t.Fatalf("bootstrap stdout writes = %d, want one attempted write", test.writer.calls)
+			}
+			if got, want := stderr.String(), "specs: write bootstrap plan: "+test.cause+"\n"; got != want {
+				t.Fatalf("stderr = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -243,6 +348,9 @@ type bootstrapWriteError struct {
 
 func (writer *bootstrapWriteError) Write([]byte) (int, error) {
 	writer.calls++
+	if writer.err == nil {
+		return 0, nil
+	}
 	return 0, writer.err
 }
 

@@ -15,6 +15,10 @@ fetches and converts those entries sequentially. A failed materialization
 returns no partial document list and retains the existing corpus error and
 cause.
 
+`go tool specs bootstrap -version VERSION` prints the read-only ordered plan.
+Each row's `manifest_sha256` is the manifest-pinned digest of the raw response;
+printing the plan does not fetch or verify bytes.
+
 This boundary is accepted because it makes the pinned prerequisite graph
 explicit and testable while leaving syntax, discovery, declaration, and
 immutable-schema phases unchanged. It does not parse or silently approximate
@@ -57,7 +61,7 @@ The syntax, discovery, declaration, location, ordering, and immutable-component
 invariants are canonical in [ARCHITECTURE.md](../../ARCHITECTURE.md). This
 decision does not duplicate those implementation details or add syntax-phase
 support. [`BootstrapPlan`](../../internal/specs/bootstrap.go) operates on
-manifest records and verified corpus representations; it does not mutate or
+validated manifest records; it does not mutate or
 backpatch completed schema components. [`GenerateBootstrap`](../../internal/specs/bootstrap.go)
 does not claim complete parsing of either schema-for-schemas document.
 
