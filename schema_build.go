@@ -7561,10 +7561,8 @@ func schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference schema
 			return false
 		}
 		switch body.particle.(type) {
-		case *schemaChoiceParticleInput, *schemaSequenceParticleInput:
+		case *schemaChoiceParticleInput, *schemaSequenceParticleInput, *schemaAllParticleInput:
 			return true
-		case *schemaAllParticleInput:
-			return reference.kind == SimpleTypeReferenceBuiltin
 		}
 	}
 	return false

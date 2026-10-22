@@ -11,7 +11,11 @@ import (
 func namedLanguageAnyURIOwner(shape, uses string) string {
 	particle := ""
 	if shape != "empty" {
-		particle = `<xs:` + shape + ` minOccurs="0" maxOccurs="1"><xs:element name="item" type="xs:integer" minOccurs="0" maxOccurs="2"/></xs:` + shape + `>`
+		childMaximum := "2"
+		if shape == "all" {
+			childMaximum = "1"
+		}
+		particle = `<xs:` + shape + ` minOccurs="0" maxOccurs="1"><xs:element name="item" type="xs:integer" minOccurs="0" maxOccurs="` + childMaximum + `"/></xs:` + shape + `>`
 	}
 	return `<xs:complexType name="Record">` + particle + uses + `</xs:complexType>`
 }
@@ -44,7 +48,7 @@ func namedLanguageAnyURIGraph(kind, shape string) (string, map[string]discoveryF
 func TestNamedLanguageAnyURIAttributeGraphFacts(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, kind := range []string{"language", "anyURI"} {
-			for _, shape := range []string{"empty", "choice", "sequence"} {
+			for _, shape := range []string{"empty", "choice", "sequence", "all"} {
 				t.Run(string(policy)+"/"+kind+"/"+shape, func(t *testing.T) {
 					root, fixtures := namedLanguageAnyURIGraph(kind, shape)
 					schema, err := parseIDUseSchema(t, root, fixtures, policy)
@@ -105,6 +109,10 @@ func TestNamedLanguageAnyURIAttributeGraphFacts(t *testing.T) {
 							if shape != "sequence" || len(particle.Elements()) != 1 || particle.Elements()[0].Loc() != childLoc || particle.Elements()[0].Occurrences().String() != "0/2" {
 								t.Fatalf("sequence child = %#v", particle.Elements())
 							}
+						case AllParticle:
+							if shape != "all" || len(particle.Members()) != 1 || particle.Members()[0].Loc() != childLoc || particle.Members()[0].Occurrences().String() != "0/1" {
+								t.Fatalf("all child = %#v", particle.Members())
+							}
 						default:
 							t.Fatalf("unexpected particle %T", owner.Particle())
 						}
@@ -156,8 +164,11 @@ func TestNamedLanguageAnyURIAttributeGraphFacts(t *testing.T) {
 						if i == 2 && use.FormLoc() != elementReferenceTestAttributeLoc(t, root, `form="unqualified"`) {
 							t.Fatalf("form Loc = %s", use.FormLoc())
 						}
-						if _, ok := ref.facts.facets.(schemaAtomicFacetVariant); !ok {
-							t.Fatalf("effective facets = %T", ref.facts.facets)
+						if len(ref.StringEnumerationFacets().Values()) != 0 {
+							t.Fatalf("unexpected effective enumeration facets = %v", ref.StringEnumerationFacets().Values())
+						}
+						if _, hasSpace := ref.StringWhiteSpaceFacet(); hasSpace {
+							t.Fatalf("unexpected string whiteSpace view for %s", want.local)
 						}
 						definition := schemaEnumerationTestDefinitionInNamespace(t, schema, want.namespace, want.typeName)
 						baseName := mustTestQName(t, testXSDNamespace, kind)
@@ -191,7 +202,7 @@ func TestNamedLanguageAnyURIAttributeGraphFacts(t *testing.T) {
 func TestNamedLanguageAnyURIAttributeConsumersReject(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, kind := range []string{"language", "anyURI"} {
-			for _, shape := range []string{"empty", "choice", "sequence"} {
+			for _, shape := range []string{"empty", "choice", "sequence", "all"} {
 				t.Run(string(policy)+"/"+kind+"/"+shape, func(t *testing.T) {
 					root := languageUseRoot(namedLanguageAnyURIOwner(shape, `<xs:attribute name="value" type="r:Alias"/>`) + `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType><xs:element name="root" type="r:Record"/>`)
 					schema, err := parseIDUseSchema(t, root, nil, policy)
@@ -234,7 +245,6 @@ func TestNamedLanguageAnyURIAttributeExcludedOwners(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, kind := range []string{"language", "anyURI"} {
 			for _, test := range []struct{ name, body string }{
-				{"all", `<xs:complexType name="Record"><xs:all><xs:element name="item" type="xs:integer"/></xs:all><xs:attribute name="value" type="r:Alias"/></xs:complexType>`},
 				{"grouped", `<xs:complexType name="Record"><xs:group ref="r:Fields"/><xs:attribute name="value" type="r:Alias"/></xs:complexType><xs:group name="Fields"><xs:sequence><xs:element ref="r:item"/></xs:sequence></xs:group><xs:element name="item" type="xs:integer"/>`},
 				{"grouped extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:group ref="r:Fields"/><xs:attribute name="value" type="r:Alias"/></xs:extension></xs:complexContent></xs:complexType><xs:group name="Fields"><xs:sequence><xs:element ref="r:item"/></xs:sequence></xs:group><xs:element name="item" type="xs:integer"/>`},
 				{"sequence extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence><xs:attribute name="value" type="r:Alias"/></xs:extension></xs:complexContent></xs:complexType>`},
@@ -259,7 +269,7 @@ func TestNamedLanguageAnyURIAttributeExcludedOwners(t *testing.T) {
 func TestNamedLanguageAnyURIAttributeProhibitedResolution(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, kind := range []string{"language", "anyURI"} {
-			for _, shape := range []string{"empty", "choice", "sequence"} {
+			for _, shape := range []string{"empty", "choice", "sequence", "all"} {
 				t.Run(string(policy)+"/"+kind+"/"+shape, func(t *testing.T) {
 					root := languageUseRoot(namedLanguageAnyURIOwner(shape, `<xs:attribute name="gone" type="r:Alias" use="prohibited"/><xs:attribute name="keep" type="xs:boolean"/>`) +
 						`<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType>`)
@@ -313,7 +323,7 @@ func TestNamedLanguageAnyURIAttributeProhibitedResolution(t *testing.T) {
 func TestNamedLanguageAnyURIAttributeExcludedTypeFacts(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, kind := range []string{"language", "anyURI"} {
-			for _, shape := range []string{"empty", "choice", "sequence"} {
+			for _, shape := range []string{"empty", "choice", "sequence", "all"} {
 				for _, test := range []struct {
 					name, declaration, marker, code, spec string
 					cause                                 error
@@ -343,7 +353,7 @@ func TestNamedLanguageAnyURIAttributeEditionLabels(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, label := range []string{"1.0", "1.1"} {
 			for _, kind := range []string{"language", "anyURI"} {
-				for _, shape := range []string{"empty", "choice", "sequence"} {
+				for _, shape := range []string{"empty", "choice", "sequence", "all"} {
 					t.Run(string(policy)+"/"+label+"/"+kind+"/"+shape, func(t *testing.T) {
 						root := languageUseRoot(namedLanguageAnyURIOwner(shape, `<xs:attribute name="a" type="r:Alias"/>`) + `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType>`)
 						root = strings.Replace(root, `attributeFormDefault="qualified"`, `attributeFormDefault="qualified" version="`+label+`"`, 1)
@@ -374,7 +384,7 @@ func TestNamedLanguageAnyURIAttributeEditionLabels(t *testing.T) {
 func TestNamedLanguageAnyURIAttributeGraphVisibilityAndDuplicates(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, kind := range []string{"language", "anyURI"} {
-			for _, shape := range []string{"empty", "choice", "sequence"} {
+			for _, shape := range []string{"empty", "choice", "sequence", "all"} {
 				t.Run(string(policy)+"/"+kind+"/"+shape, func(t *testing.T) {
 					root := languageUseRoot(`<xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/>` +
 						namedLanguageAnyURIOwner(shape, `<xs:attribute name="a" type="o:Hidden"/>`))

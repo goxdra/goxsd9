@@ -139,7 +139,6 @@ func TestDirectAllLanguageAnyURIExcludedUseShapes(t *testing.T) {
 				useSpec, reference                bool
 				cause                             error
 			}{
-				{"named atomic restriction", `<xs:attribute name="a" type="r:Alias"/>`, named, `type="r:Alias"`, "", false, false, errSchemaAttributeUseUnsupported},
 				{"inline atomic restriction", `<xs:attribute name="a">` + inline + `</xs:attribute>`, "", `<xs:simpleType`, "", false, false, errSchemaAttributeUseUnsupported},
 				{"inline list", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:` + name + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", false, false, errSchemaAttributeUseUnsupported},
 				{"inline union", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="xs:` + name + ` xs:` + name + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", false, false, errSchemaAttributeUseUnsupported},
