@@ -560,11 +560,11 @@ func TestGroupedExtensionTargetAndUnsupportedBoundaries(t *testing.T) {
 		},
 		{
 			name:   "excluded local attribute type",
-			root:   groupedExtensionSchema("1.1", "", `<xs:attribute name="flag" type="xs:language"/>`),
+			root:   groupedExtensionSchema("1.1", "", `<xs:attribute name="flag" type="xs:QName"/>`),
 			class:  FailureUnsupported,
 			code:   UnsupportedSchemaSyntaxCode,
 			cause:  ErrUnsupported,
-			marker: `type="xs:language"`,
+			marker: `type="xs:QName"`,
 		},
 		{
 			name:   "nonempty named base",

@@ -259,7 +259,6 @@ func TestDirectAllLanguageAnyURIOtherOwnersRemainExcluded(t *testing.T) {
 			group := `<xs:group name="Fields"><xs:sequence><xs:element ref="r:field"/></xs:sequence></xs:group><xs:element name="field" type="xs:integer"/>`
 			for _, test := range []struct{ name, body, extra string }{
 				{"grouped direct", `<xs:complexType name="Record"><xs:group ref="r:Fields"/>` + attribute + `</xs:complexType>`, group},
-				{"grouped extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:group ref="r:Fields"/>` + attribute + `</xs:extension></xs:complexContent></xs:complexType>`, group},
 				{"direct-sequence extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:sequence><xs:element name="field" type="xs:integer"/></xs:sequence>` + attribute + `</xs:extension></xs:complexContent></xs:complexType>`, ""},
 			} {
 				t.Run(string(policy)+"/"+name+"/"+test.name, func(t *testing.T) {
