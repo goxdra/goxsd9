@@ -202,19 +202,32 @@ func TestRunCoverageRejectsInvalidBaseBeforeTests(t *testing.T) {
 //nolint:gocognit // The table distinguishes list, test, and ordinary product failures at the same command boundary.
 func TestCoverageSnapshotClassifiesStorageFailuresAndPreservesCause(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		command string
-		cause   error
-		storage bool
+		name          string
+		command       string
+		cause         error
+		storage       bool
+		locationRoles []string
 	}{
-		{name: "list ENOSPC", command: "list", cause: syscall.ENOSPC, storage: true},
-		{name: "test child ENOSPC", command: "test", cause: errors.New("exit status 1: write build cache: no space left on device"), storage: true},
+		{name: "list ENOSPC without path", command: "list", cause: syscall.ENOSPC, storage: true, locationRoles: []string{"cache", "tmp"}},
+		{name: "test child ENOSPC without path", command: "test", cause: errors.New("exit status 1: no space left on device"), storage: true, locationRoles: []string{"profile", "cache", "tmp"}},
+		{name: "test profile ENOSPC", command: "test", storage: true, locationRoles: []string{"profile"}},
+		{name: "test cache ENOSPC", command: "test", storage: true, locationRoles: []string{"cache"}},
+		{name: "list temporary build ENOSPC", command: "list", storage: true, locationRoles: []string{"tmp"}},
 		{name: "ordinary test failure", command: "test", cause: errors.New("exit status 1: TestValue failed"), storage: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			artifacts := coverageArtifacts{cache: filepath.Join(root, "build-cache"), tmp: filepath.Join(root, "build-tmp")}
 			profile := filepath.Join(root, "profile.out")
+			cause := test.cause
+			switch test.name {
+			case "test profile ENOSPC":
+				cause = fmt.Errorf("write %s: %w", profile, syscall.ENOSPC)
+			case "test cache ENOSPC":
+				cause = fmt.Errorf("write %s: %w", artifacts.cache, syscall.ENOSPC)
+			case "list temporary build ENOSPC":
+				cause = fmt.Errorf("write %s: %w", artifacts.tmp, syscall.ENOSPC)
+			}
 			application := app{executeCommandWithEnv: func(dir string, env []string, _ io.Reader, name string, args ...string) (string, error) {
 				if dir != root || name != "go" || len(args) == 0 {
 					t.Fatalf("coverage command = %q %q in %q", name, args, dir)
@@ -223,7 +236,7 @@ func TestCoverageSnapshotClassifiesStorageFailuresAndPreservesCause(t *testing.T
 					t.Fatalf("coverage environment omitted owned artifact paths: %#v", env)
 				}
 				if args[0] == test.command {
-					return "", test.cause
+					return "", cause
 				}
 				if args[0] == "list" {
 					return fmt.Sprintf("{\"Dir\":%q,\"ImportPath\":\"example.com/mod\"}\n", dir), nil
@@ -232,17 +245,82 @@ func TestCoverageSnapshotClassifiesStorageFailuresAndPreservesCause(t *testing.T
 				return "", nil
 			}}
 			_, err := application.coverageSnapshot(root, profile, "base", artifacts)
-			if err == nil || !errors.Is(err, test.cause) {
-				t.Fatalf("coverage error = %v, want cause %v", err, test.cause)
+			if err == nil || !errors.Is(err, cause) {
+				t.Fatalf("coverage error = %v, want cause %v", err, cause)
 			}
 			var storage *coverageStorageError
 			if got := errors.As(err, &storage); got != test.storage {
 				t.Fatalf("storage classification = %t, want %t: %v", got, test.storage, err)
 			}
-			if test.storage && (!strings.Contains(err.Error(), coverageStorageCode) || !strings.Contains(err.Error(), artifacts.cache) || !strings.Contains(err.Error(), "retry the same command")) {
-				t.Fatalf("storage diagnostic omitted code, path, or recovery: %v", err)
+			if !test.storage {
+				return
+			}
+			locations := make([]string, 0, len(test.locationRoles))
+			for _, role := range test.locationRoles {
+				switch role {
+				case "profile":
+					locations = append(locations, profile)
+				case "cache":
+					locations = append(locations, artifacts.cache)
+				case "tmp":
+					locations = append(locations, artifacts.tmp)
+				}
+			}
+			if !reflect.DeepEqual(storage.locations, locations) || !strings.Contains(err.Error(), coverageStorageCode) || !strings.Contains(err.Error(), "retry") {
+				t.Fatalf("storage diagnostic locations/recovery = %#v, %v", storage.locations, err)
 			}
 		})
+	}
+}
+
+func TestCoverageSnapshotProfileENOSPCNamesActualProfilePath(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skipf("deterministic full device unavailable: %v", err)
+	}
+	root := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	writeFuzzFixtureFile(t, root, "go.mod", "module example.com/profilefixture\n\ngo 1.26.0\n")
+	writeFuzzFixtureFile(t, root, "sample.go", "package profilefixture\n\nfunc Value() int { return 1 }\n")
+	writeFuzzFixtureFile(t, root, "sample_test.go", "package profilefixture\n\nimport \"testing\"\n\nfunc TestValue(t *testing.T) { if Value() != 1 { t.Fatal(\"value\") } }\n")
+	application := app{ctx: context.Background()}
+	artifacts, err := application.makeCoverageArtifacts()
+	if err != nil {
+		t.Fatalf("make coverage artifacts: %v", err)
+	}
+	t.Cleanup(func() {
+		if cleanupErr := application.removeCoverageArtifacts(artifacts); cleanupErr != nil {
+			t.Errorf("remove coverage artifacts: %v", cleanupErr)
+		}
+	})
+	_, err = application.coverageSnapshot(root, "/dev/full", "head", artifacts)
+	var storage *coverageStorageError
+	if !errors.As(err, &storage) || !reflect.DeepEqual(storage.locations, []string{"/dev/full"}) {
+		t.Fatalf("profile write diagnostic = %v, locations %#v", err, storage)
+	}
+	if !strings.Contains(err.Error(), "write /dev/full") || strings.Contains(err.Error(), "at \""+artifacts.cache+"\"") {
+		t.Fatalf("profile write cause or location = %v", err)
+	}
+}
+
+func TestCoverageLocalStorageErrorUsesPathErrorLocation(t *testing.T) {
+	cause := &os.PathError{Op: "remove", Path: "/owned/artifacts/build-tmp/file", Err: syscall.ENOSPC}
+	err := coverageStorageAt("/owned/artifacts", cause)
+	var storage *coverageStorageError
+	if !errors.As(err, &storage) || !errors.Is(err, syscall.ENOSPC) ||
+		!reflect.DeepEqual(storage.locations, []string{cause.Path}) {
+		t.Fatalf("local storage path/cause = %v, locations %#v", err, storage)
+	}
+	artifacts := coverageArtifacts{root: "/owned/artifacts"}
+	application := app{coverageRemoveAll: func(path string) error {
+		if path != artifacts.root {
+			t.Fatalf("cleanup path = %q", path)
+		}
+		return cause
+	}}
+	err = application.removeCoverageArtifacts(artifacts)
+	if !errors.As(err, &storage) || !errors.Is(err, syscall.ENOSPC) ||
+		!reflect.DeepEqual(storage.locations, []string{cause.Path}) || !strings.Contains(err.Error(), "remove owned coverage artifacts") {
+		t.Fatalf("cleanup storage path/cause = %v, locations %#v", err, storage)
 	}
 }
 

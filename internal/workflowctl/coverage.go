@@ -33,13 +33,17 @@ type coverageArtifacts struct {
 }
 
 type coverageStorageError struct {
-	location string
-	cause    error
+	locations []string
+	cause     error
 }
 
 func (e *coverageStorageError) Error() string {
-	return fmt.Sprintf("%s coverage storage exhausted at %q; free space on that filesystem and retry the same command: %v",
-		coverageStorageCode, e.location, e.cause)
+	if len(e.locations) == 1 {
+		return fmt.Sprintf("%s coverage storage exhausted at %q; free space or choose a writable filesystem for that artifact and retry: %v",
+			coverageStorageCode, e.locations[0], e.cause)
+	}
+	return fmt.Sprintf("%s coverage storage exhausted while writing generated artifacts (possible locations: %q); check free space at each location or choose a writable filesystem, then retry: %v",
+		coverageStorageCode, e.locations, e.cause)
 }
 
 func (e *coverageStorageError) Unwrap() error { return e.cause }
@@ -63,7 +67,31 @@ func coverageStorageAt(location string, err error) error {
 	if errors.As(err, &diagnosed) {
 		return err
 	}
-	return &coverageStorageError{location: location, cause: err}
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) && pathErr.Path != "" {
+		location = pathErr.Path
+	}
+	return &coverageStorageError{locations: []string{location}, cause: err}
+}
+
+func coverageStorageAmong(err error, locations ...string) error {
+	if !coverageStorageFailure(err) {
+		return err
+	}
+	var diagnosed *coverageStorageError
+	if errors.As(err, &diagnosed) {
+		return err
+	}
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) && pathErr.Path != "" {
+		return coverageStorageAt(pathErr.Path, err)
+	}
+	for _, location := range locations {
+		if strings.Contains(err.Error(), location) {
+			return coverageStorageAt(location, err)
+		}
+	}
+	return &coverageStorageError{locations: locations, cause: err}
 }
 
 func (a app) makeCoverageArtifacts() (coverageArtifacts, error) {
@@ -282,7 +310,7 @@ func (a app) withCoverageWorktree(root, revision string, use func(string) error)
 	defer func() {
 		err = joinCoverageErrors(err, a.removeCoverageWorktreeIfRegistered(root, worktreeRoot))
 		err = joinCoverageErrors(err, os.RemoveAll(temporaryRoot))
-		err = coverageStorageAt(temporaryRoot, err)
+		err = coverageStorageAmong(err, temporaryRoot, root)
 	}()
 	if err := a.addCoverageWorktree(root, worktreeRoot, revision); err != nil {
 		return err
@@ -404,11 +432,12 @@ func (a app) coverageSnapshot(directory, profilePath, side string, artifacts cov
 	_, testErr := a.commandWithEnv(directory, artifacts.goEnvironment(), "go", "test", "-count=1", "-covermode=set",
 		"-coverpkg=./...", "-coverprofile="+profilePath, "./...")
 	if testErr != nil {
-		return coverageSnapshot{}, fmt.Errorf("run %s coverage tests: %w", side, coverageStorageAt(artifacts.cache, testErr))
+		return coverageSnapshot{}, fmt.Errorf("run %s coverage tests: %w", side,
+			coverageStorageAmong(testErr, profilePath, artifacts.cache, artifacts.tmp))
 	}
 	counts, err := readCoverageProfile(profilePath, packages.paths)
 	if err != nil {
-		return coverageSnapshot{}, fmt.Errorf("read %s coverage profile: %w", side, err)
+		return coverageSnapshot{}, fmt.Errorf("read %s coverage profile: %w", side, coverageStorageAt(profilePath, err))
 	}
 	return coverageSnapshot{packages: packages.packages, paths: packages.paths, counts: counts}, nil
 }
@@ -416,7 +445,8 @@ func (a app) coverageSnapshot(directory, profilePath, side string, artifacts cov
 func (a app) listCoveragePackages(directory, side string, artifacts coverageArtifacts) (coverageSnapshot, error) {
 	output, err := a.commandWithEnv(directory, artifacts.goEnvironment(), "go", "list", "-json", "./...")
 	if err != nil {
-		return coverageSnapshot{}, fmt.Errorf("list %s Go packages: %w", side, coverageStorageAt(artifacts.cache, err))
+		return coverageSnapshot{}, fmt.Errorf("list %s Go packages: %w", side,
+			coverageStorageAmong(err, artifacts.cache, artifacts.tmp))
 	}
 	return parseCoveragePackageList(output, directory, side)
 }
