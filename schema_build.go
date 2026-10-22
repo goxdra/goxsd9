@@ -7564,6 +7564,8 @@ func schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference schema
 		case *schemaChoiceParticleInput, *schemaSequenceParticleInput, *schemaAllParticleInput:
 			return true
 		}
+	case *schemaComplexTypeGroupedExtensionBodyInput:
+		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
 	}
 	return false
 }
