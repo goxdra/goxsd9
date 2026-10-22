@@ -87,7 +87,7 @@ func renderBootstrapPlan(plan specs.BootstrapPlan) (string, error) {
 	entries := plan.Entries()
 	lines := []string{
 		"version\t" + plan.Version(),
-		"id\trole\trepresentation\tdependencies\tlexical_aliases",
+		"id\trole\trepresentation\tdependencies\tlexical_aliases\tmanifest_sha256",
 	}
 	for _, entry := range entries {
 		dependencies, err := encodeBootstrapList(entry.Dependencies)
@@ -108,6 +108,7 @@ func renderBootstrapPlan(plan specs.BootstrapPlan) (string, error) {
 			entry.Representation,
 			dependencies,
 			aliases,
+			entry.SHA256,
 		}, "\t"))
 	}
 	return strings.Join(lines, "\n") + "\n", nil
@@ -277,7 +278,7 @@ func requireManifestRoot(root string) error {
 }
 
 func usage(stderr io.Writer, format string, args ...any) int {
-	if _, err := fmt.Fprintf(stderr, "specs: "+format+"\n\nUsage:\n  go tool specs build -id ID [-root REPOSITORY] [-output DIRECTORY]\n  go tool specs search [-id ID] [-query TEXT] [-root REPOSITORY] [-index FILE]\n  go tool specs bootstrap -version VERSION [-root REPOSITORY]\n", args...); err != nil {
+	if _, err := fmt.Fprintf(stderr, "specs: "+format+"\n\nUsage:\n  go tool specs build -id ID [-root REPOSITORY] [-output DIRECTORY]\n  go tool specs search [-id ID] [-query TEXT] [-root REPOSITORY] [-index FILE]\n  go tool specs bootstrap -version VERSION [-root REPOSITORY]\n\nBootstrap plan column manifest_sha256 is the manifest-pinned SHA-256 digest of the raw response.\n", args...); err != nil {
 		return 1
 	}
 	return 2

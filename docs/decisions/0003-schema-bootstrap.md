@@ -15,6 +15,10 @@ fetches and converts those entries sequentially. A failed materialization
 returns no partial document list and retains the existing corpus error and
 cause.
 
+`go tool specs bootstrap -version VERSION` prints the read-only ordered plan.
+Each row's `manifest_sha256` is the manifest-pinned digest of the raw response;
+printing the plan does not fetch or verify bytes.
+
 This boundary is accepted because it makes the pinned prerequisite graph
 explicit and testable while leaving syntax, discovery, declaration, and
 immutable-schema phases unchanged. It does not parse or silently approximate
