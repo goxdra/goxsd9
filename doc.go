@@ -350,8 +350,8 @@
 // named effective xs:ID local uses for queries.
 // Named empty, direct choice, direct sequence, and direct all owners admit
 // built-in and facet-free named effective xs:language and xs:anyURI local
-// declarations. Named grouped extensions over supported empty bases admit
-// direct built-in uses of these types. These ordered query-only AttributeUse
+// declarations. Named grouped and direct-sequence extensions over supported
+// use-free empty bases admit direct built-in uses of these types. These ordered query-only AttributeUse
 // facts apply under every language policy. Inline restrictions, attribute
 // refs, local default/fixed values, and owners beyond these named cases and the
 // anonymous ref-sequence extension below remain unsupported; consumers reject.

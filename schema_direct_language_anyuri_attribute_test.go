@@ -291,7 +291,6 @@ func TestDirectLanguageAnyURIOtherOwnersRemainExcluded(t *testing.T) {
 			attribute := `<xs:attribute name="a" type="xs:` + name + `"/>`
 			for _, test := range []struct{ name, body, extra string }{
 				{"direct group", `<xs:complexType name="Record"><xs:group ref="r:Fields"/>` + attribute + `</xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
-				{"sequence extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>` + attribute + `</xs:extension></xs:complexContent></xs:complexType>`, ""},
 				{"inline choice", `<xs:element name="root"><xs:complexType><xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>` + attribute + `</xs:complexType></xs:element>`, ""},
 				{"inline sequence", `<xs:element name="root"><xs:complexType><xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>` + attribute + `</xs:complexType></xs:element>`, ""},
 				{"simpleContent", `<xs:complexType name="Record"><xs:simpleContent><xs:extension base="xs:string">` + attribute + `</xs:extension></xs:simpleContent></xs:complexType>`, ""},
