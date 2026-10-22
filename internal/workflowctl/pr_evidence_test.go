@@ -3,6 +3,7 @@ package workflowctl
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -402,6 +403,42 @@ func TestDevelopmentSignalEvidenceRequiresFreshCompletePayload(t *testing.T) {
 	}
 	if err := application.verifyDevelopmentSignalsForExactHead("/repo", expected); err == nil || !strings.Contains(err.Error(), "complete v2 payload") {
 		t.Fatalf("rewritten old signal payload error = %v", err)
+	}
+}
+
+func TestExactHeadEvidenceRecomputationRetainsStorageFailure(t *testing.T) {
+	evidence, view := evidenceTestView(t)
+	cause := errors.New("write cache: no space left on device")
+	storage := coverageStorageAt("/owned/coverage/build-cache", cause)
+	application := app{
+		executeCommand: func(_ string, _ io.Reader, name string, args ...string) (string, error) {
+			if name != "git" {
+				t.Fatalf("unexpected command %q", name)
+			}
+			switch strings.Join(args, " ") {
+			case "rev-parse --verify --end-of-options HEAD^{commit}":
+				return evidence.Head, nil
+			case "rev-parse --verify --end-of-options base-sha^{commit}":
+				return evidence.Base, nil
+			default:
+				t.Fatalf("unexpected resolution command: %v", args)
+				return "", nil
+			}
+		},
+		verifyDevelopmentSignalsReport: func(root string, got developmentSignalsReport) error {
+			if root != "/repo" || got.Base != evidence.Base || got.Head != evidence.Head {
+				t.Fatalf("exact evidence inputs = %q %#v", root, got)
+			}
+			return storage
+		},
+	}
+	err := application.validatePREvidenceForExactHead("/repo", 821, view, evidence)
+	var diagnosed *coverageStorageError
+	if !errors.As(err, &diagnosed) || !errors.Is(err, cause) {
+		t.Fatalf("recomputation lost storage classification or cause: %v", err)
+	}
+	if !strings.Contains(err.Error(), "PR #821") || !strings.Contains(err.Error(), "/owned/coverage/build-cache") {
+		t.Fatalf("recomputation lost PR or cache location: %v", err)
 	}
 }
 

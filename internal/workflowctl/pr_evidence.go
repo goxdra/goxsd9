@@ -689,6 +689,10 @@ func (a app) validatePREvidenceForPR(root string, number int, view pullRequestVi
 
 func (a app) validatePREvidenceForExactHead(root string, number int, view pullRequestView, evidence prEvidence) error {
 	if err := a.verifyDevelopmentSignalsForExactHead(root, evidence.DevelopmentSignals); err != nil {
+		var storageErr *coverageStorageError
+		if errors.As(err, &storageErr) {
+			return fmt.Errorf("PR #%d development signals could not be independently recomputed: %w", number, err)
+		}
 		return stateError("PR #%d development signals could not be independently recomputed: %v", number, err)
 	}
 	audit, err := a.documentationAuditReportForCommits(root, evidence.DocumentationAudit.Base,
