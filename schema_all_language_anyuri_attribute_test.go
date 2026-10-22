@@ -411,10 +411,41 @@ func TestDirectAllLanguageAnyURIUseBoundaryDiagnostics(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Particle references resolve before admitted or excluded attribute uses.
+//nolint:gocognit // The named positive and competing unsupported use expose particle-first diagnostics.
 func TestDirectAllLanguageAnyURIParticleReferencePrecedence(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, name := range []string{"language", "anyURI"} {
+			alias := `<xs:simpleType name="Alias"><xs:restriction base="xs:` + name + `"/></xs:simpleType>`
+			positiveUses := `<xs:attribute name="builtin" type="xs:` + name + `"/><xs:attribute name="named" type="r:Alias"/>`
+			unsupportedUse := `<xs:attribute ref="r:global"/>`
+			global := `<xs:attribute name="global" type="r:Alias"/>`
+			validModel := `<xs:all><xs:element name="valid" type="xs:integer"/></xs:all>`
+			t.Run(string(policy)+"/"+name+"/named positive", func(t *testing.T) {
+				root := languageUseRoot(languageAnyURIAllOwner(validModel, positiveUses) + alias + global)
+				schema, err := parseIDUseSchema(t, root, nil, policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				owner := requireTestComplexTypeDefinition(t, schema.FindKind(ComponentKindComplexTypeDefinition, mustTestQName(t, "urn:root", "Record"))[0], "Record")
+				uses := owner.AttributeUses()
+				if len(uses) != 2 || uses[0].Name().Local() != "builtin" || uses[1].Name().Local() != "named" {
+					t.Fatalf("positive uses = %v", uses)
+				}
+				use, ok := uses[1].(LocalAttributeUse)
+				if !ok {
+					t.Fatalf("named use = %T", uses[1])
+				}
+				ref, hasRef := use.TypeReference()
+				_, hasID := use.TypeID()
+				if !hasRef || !hasID || !ref.IsNamed() || use.TypeLoc() != elementReferenceTestAttributeLoc(t, root, `type="r:Alias"`) {
+					t.Fatalf("named type = %#v", use)
+				}
+			})
+			t.Run(string(policy)+"/"+name+"/standalone unsupported ref", func(t *testing.T) {
+				root := languageUseRoot(languageAnyURIAllOwner(validModel, positiveUses+unsupportedUse) + alias + global)
+				schema, err := parseIDUseSchema(t, root, nil, policy)
+				checkStringAllDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, elementReferenceTestAttributeLoc(t, root, `ref="r:global"`), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="global"`)}, schemaAttributeUseSpecRef(languageUseVersion(policy)), ErrUnsupported, errSchemaAttributeReferenceUnsupported)
+			})
 			for _, test := range []struct {
 				name, model, extra, primary, related, code string
 				cause                                      error
@@ -423,7 +454,7 @@ func TestDirectAllLanguageAnyURIParticleReferencePrecedence(t *testing.T) {
 				{"wrong kind", `<xs:all><xs:element ref="r:Wrong"/></xs:all>`, `<xs:simpleType name="Wrong"><xs:restriction base="xs:integer"/></xs:simpleType>`, `ref="r:Wrong"`, `<xs:simpleType name="Wrong"`, diagnosticSchemaElementReferenceWrongKindCode, errSchemaElementReferenceWrongKind},
 			} {
 				t.Run(string(policy)+"/"+name+"/"+test.name, func(t *testing.T) {
-					root := languageUseRoot(languageAnyURIAllOwner(test.model, `<xs:attribute name="admitted" type="xs:`+name+`"/><xs:attribute name="excluded" type="r:Alias"/>`) + test.extra + `<xs:simpleType name="Alias"><xs:restriction base="xs:` + name + `"/></xs:simpleType>`)
+					root := languageUseRoot(languageAnyURIAllOwner(test.model, positiveUses+unsupportedUse) + test.extra + alias + global)
 					schema, err := parseIDUseSchema(t, root, nil, policy)
 					assertZeroSchema(t, schema)
 					d := requireDiagnostic(t, err)
