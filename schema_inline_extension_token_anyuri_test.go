@@ -285,7 +285,6 @@ func TestInlineExtensionTokenAnyURIExcludedShapes(t *testing.T) {
 			for _, tc := range []struct {
 				name, member, use, edit, marker, spec string
 			}{
-				{"named extension", `<xs:element ref="t:child"/>`, `<xs:attribute name="value" type="xs:` + kind + `"/>`, "named", `type="xs:` + kind + `"`, schemaAttributeTypeSpecRef(profile.version)},
 				{"inline direct", `<xs:element ref="t:child"/>`, `<xs:attribute name="value" type="xs:` + kind + `"/>`, "direct", `type="xs:` + kind + `"`, schemaAttributeTypeSpecRef(profile.version)},
 				{"anonymous grouped", `<xs:element ref="t:child"/>`, `<xs:attribute name="value" type="xs:` + kind + `"/>`, "grouped", `type="xs:` + kind + `"`, schemaAttributeTypeSpecRef(profile.version)},
 				{"nested choice", `<xs:choice><xs:element ref="t:child"/></xs:choice>`, `<xs:attribute name="value" type="xs:` + kind + `"/>`, "", `<xs:attribute name="value"`, schemaComplexTypeExtensionSpecRef(profile.version)},
@@ -297,15 +296,9 @@ func TestInlineExtensionTokenAnyURIExcludedShapes(t *testing.T) {
 				{"value constraint", `<xs:element ref="t:child"/>`, `<xs:attribute name="value" type="xs:` + kind + `" default="value"/>`, "", `default="value"`, schemaComplexTypeExtensionSpecRef(profile.version)},
 				{"fixed constraint", `<xs:element ref="t:child"/>`, `<xs:attribute name="value" type="xs:` + kind + `" fixed="value"/>`, "", `fixed="value"`, schemaComplexTypeExtensionSpecRef(profile.version)},
 			} {
-				if tc.edit == "named" && kind == "anyURI" {
-					continue
-				}
 				t.Run(profile.name+"/"+kind+"/"+tc.name, func(t *testing.T) {
 					root := inlineTokenURIExtensionSchema("1.0", tc.member, tc.use)
 					switch tc.edit {
-					case "named":
-						root = strings.Replace(root, `<xs:element name="root"><xs:complexType>`, `<xs:complexType name="NamedOwner">`, 1)
-						root = strings.Replace(root, `</xs:complexType></xs:element>`, `</xs:complexType>`, 1)
 					case "direct":
 						root = strings.Replace(root, `<xs:complexContent><xs:extension base="t:Base">`, ``, 1)
 						root = strings.Replace(root, `</xs:extension></xs:complexContent>`, ``, 1)

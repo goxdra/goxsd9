@@ -374,7 +374,6 @@ func TestTokenFamilyLocalAttributeExclusions(t *testing.T) {
 		{"all", `<xs:complexType name="Box"><xs:all><xs:element name="item" type="xs:integer"/></xs:all>`, `</xs:complexType>`, ""},
 		{"group", `<xs:complexType name="Box"><xs:group ref="t:Fields"/>`, `</xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence></xs:group>`},
 		{"simple content", `<xs:complexType name="Box"><xs:simpleContent><xs:extension base="xs:string">`, `</xs:extension></xs:simpleContent></xs:complexType>`, ""},
-		{"sequence extension", `<xs:complexType name="Base"/><xs:complexType name="Box"><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence>`, `</xs:extension></xs:complexContent></xs:complexType>`, ""},
 		{"grouped extension", `<xs:complexType name="Base"/><xs:complexType name="Box"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/>`, `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence></xs:group>`},
 	}
 	for _, profile := range tokenPolicyProfiles() {
