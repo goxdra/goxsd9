@@ -7685,6 +7685,8 @@ func schemaNamedDirectLocalLongAttributeTypeSupported(reference schemaSimpleType
 		}
 		_, ok := body.particle.(*schemaSequenceParticleInput)
 		return ok
+	case *schemaComplexTypeGroupedExtensionBodyInput:
+		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
 	}
 	return false
 }

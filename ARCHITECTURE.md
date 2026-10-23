@@ -81,8 +81,8 @@ Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free
 Empty/choice/sequence/all; named direct-sequence extensions over empty use-free bases: built-in/facet-free named `xs:language`/`xs:anyURI`; grouped extensions: built-ins;
 named empty/choice/sequence: built-in/named `xs:token`/`xs:NMTOKEN`; named grouped/direct-sequence extensions: built-ins over empty use-free bases.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
-Empty/choice/sequence/all and sequence extensions over empty use-free bases: built-in/named `xs:long`; wildcards inherited.
-Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; facets copied.
+`xs:long`: empty/choice/sequence/all, direct-sequence built-in/named; named grouped built-in. Extensions need empty use-free bases; wildcards inherited.
+Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

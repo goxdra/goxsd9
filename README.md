@@ -6,10 +6,10 @@ no partial schemas.
 ## Library
 
 `NewResolvedSource`/`ParseSchema`/`Resolver` resolve mixed XSD 1.0/1.1 graphs.
-Resolvers receive URNs/lexical locations; parsing opens no resources.
+Resolvers receive URNs/locations; parsing opens nothing.
 `ParseSchemaWithPolicy` selects policy; queries/walks deterministic.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named empty/choice/sequence/all/grouped/sequence-extension: NCName/`xs:normalizedString`. Empty/choice/sequence/all and named direct-sequence extensions over empty use-free bases: built-in/named facet-free `xs:language`/`xs:anyURI`; grouped: built-ins. Direct-sequence extensions over empty/use-free bases and empty/choice/sequence/all: built-in/named `xs:long`. Language/anyURI/long: query-only. Empty/choice/sequence: built-in/named effective `xs:token`/`xs:NMTOKEN`; named grouped/direct-sequence extensions: built-ins over empty use-free bases; extension consumers reject. Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`. Attribute-free simpleContent: `xs:normalizedString`/`xs:token`/`xs:NMTOKEN`. Grouped `xs:simpleDerivationSet` `final`: query-only. Enumerated NCName list/union reject.
+Named empty/choice/sequence/all/grouped/sequence-extension: NCName/`xs:normalizedString`. Empty/choice/sequence/all and named direct-sequence extensions: built-in/named facet-free `xs:language`/`xs:anyURI`; grouped: built-ins. Empty/choice/sequence/all and named direct-sequence extensions: built-in/named `xs:long`; named grouped extensions: built-in. Extensions need empty use-free bases. Language/anyURI/long: query-only. Empty/choice/sequence: built-in/named effective `xs:token`/`xs:NMTOKEN`; named grouped/direct-sequence extensions: built-ins over empty use-free bases; extension consumers reject. Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`. Attribute-free simpleContent: `xs:normalizedString`/`xs:token`/`xs:NMTOKEN`. Grouped `xs:simpleDerivationSet` `final`: query-only. Enumerated NCName list/union reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -45,7 +45,7 @@ go run ./cmd/goxsd9 validate schema.xsd instance.xml
 go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
-`parse` summarizes; `validate` succeeds silently; `generate` writes
+`parse` summarizes; `validate` succeeds; `generate` writes
 stdout or `--output`. `--schema-root DIR` bounds resolution and is
 required for stdin. `--diagnostics json` emits machine-readable errors.
 

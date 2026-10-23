@@ -296,6 +296,9 @@ func TestLongSequenceExtensionExcludedOwners(t *testing.T) {
 				{"nested sequence", `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence></xs:sequence>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, "", `<xs:sequence><xs:element`, schemaComplexParticleExtensionSpecRef, ErrUnsupported},
 				{"restriction owner", `<xs:complexType name="Derived"><xs:complexContent><xs:restriction base="t:Base"><xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence>` + use + `</xs:restriction></xs:complexContent></xs:complexType>`, "", `<xs:sequence`, schemaSyntaxSpecRefForVersion, ErrUnsupported},
 			} {
+				if test.name == "grouped" && kind == "builtin" {
+					continue
+				}
 				t.Run(profile.name+"/"+kind+"/"+test.name, func(t *testing.T) {
 					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `">` + test.owner + `<xs:complexType name="Base"/>` + test.extra + typeDefinition + `</xs:schema>`
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)

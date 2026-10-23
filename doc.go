@@ -369,10 +369,11 @@
 // Named empty and direct choice/sequence/all owners, plus named direct-sequence
 // extensions over supported named empty-content bases without effective
 // attribute uses, admit built-in and supported named effective atomic xs:long
-// locals. Copied exact bounds and type provenance remain queryable under every
-// policy; extensions retain representable inherited wildcards. Inline
-// varieties, attribute refs, values, other owners, validation, and generation
-// reject.
+// locals. Named grouped extensions over those bases admit direct built-in
+// xs:long locals. Copied exact bounds and type provenance remain queryable under
+// every policy; extensions retain representable inherited wildcards. Named
+// grouped aliases, inline varieties, attribute refs, values, other owners,
+// validation, and generation reject.
 // Named empty owners also admit built-in and supported named effective atomic
 // xs:short, xs:int, xs:byte, and xs:unsignedLong local declarations with exact
 // bounds, digits, enumeration, and type provenance. Inline/list/union, refs,
