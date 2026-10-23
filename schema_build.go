@@ -7604,13 +7604,13 @@ func schemaNamedDirectLocalTokenFamilyAttributeTypeSupported(reference schemaSim
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
 	case *schemaComplexTypeExtensionBodyInput:
-		return schemaNamedSequenceExtensionBuiltinTokenFamilySupported(body, reference)
+		return schemaNamedSequenceExtensionTokenFamilySupported(body)
 	}
 	return false
 }
 
-func schemaNamedSequenceExtensionBuiltinTokenFamilySupported(body *schemaComplexTypeExtensionBodyInput, reference schemaSimpleTypeReferenceComponent) bool {
-	if body == nil || reference.kind != SimpleTypeReferenceBuiltin {
+func schemaNamedSequenceExtensionTokenFamilySupported(body *schemaComplexTypeExtensionBodyInput) bool {
+	if body == nil {
 		return false
 	}
 	sequence, ok := body.particle.(*schemaSequenceParticleInput)
