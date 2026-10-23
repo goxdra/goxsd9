@@ -124,6 +124,11 @@ remain unsupported. Built-in and facet-free named
 semantics remain unsupported. For a local use, `name` is an
 unqualified NCName and `ref` is an expanded QName; they are mutually exclusive
 and do not share the global-declaration name path.
+Named grouped owners over supported empty use-free bases also query direct
+built-in `xs:token` and `xs:NMTOKEN` uses. Their effective whitespace is
+collapse, and the built-ins have no enumeration or local type ID. Named
+aliases, inline atomic/list/union types, attribute refs, value constraints,
+other owners, and both consumers remain outside this admission.
 
 ## Phase representation and invariants
 
