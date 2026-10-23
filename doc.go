@@ -357,8 +357,9 @@
 // anonymous ref-sequence extension below remain unsupported; consumers reject.
 // Named empty, direct choice, and direct sequence owners also admit built-in
 // and named effective atomic xs:token and xs:NMTOKEN local declarations,
-// retaining copied whitespace and
-// enumeration facts. Global-element inline complexContent extensions over
+// retaining copied whitespace and enumeration facts. Named grouped extensions
+// over supported empty use-free bases admit direct built-ins only.
+// Global-element inline complexContent extensions over
 // supported named empty bases also admit built-in xs:token and xs:anyURI local
 // declarations when the direct sequence contains only global element refs.
 // Their lexical use order, anonymous owner, base, and built-in facts persist;
