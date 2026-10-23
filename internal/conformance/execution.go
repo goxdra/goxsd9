@@ -892,8 +892,8 @@ func writeCaseResult(w io.Writer, index int, result CaseResult) error {
 			cause = diagnostic.Unwrap().Error()
 		}
 		if _, err := fmt.Fprintf(w,
-			"diagnostic case=%d index=%d class=%s code=%q loc=%q spec=%q message=%q cause=%q\n",
-			index, diagnosticIndex+1, diagnostic.Class(), diagnostic.Code(), diagnostic.Loc().String(),
+			"diagnostic case=%d index=%d class=%s code=%q feature=%q loc=%q spec=%q message=%q cause=%q\n",
+			index, diagnosticIndex+1, diagnostic.Class(), diagnostic.Code(), diagnostic.Feature(), diagnostic.Loc().String(),
 			diagnostic.SpecRef(), diagnostic.Message(), cause); err != nil {
 			return fmt.Errorf("write case %d diagnostic %d: %w", index, diagnosticIndex+1, err)
 		}
