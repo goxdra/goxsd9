@@ -381,9 +381,7 @@ func TestSequenceExtensionLanguageAnyURIConsumers(t *testing.T) {
 func TestSequenceExtensionLanguageAnyURIExcludedUses(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, name := range []string{"language", "anyURI"} {
-			alias := `<xs:simpleType name="Alias"><xs:restriction base="xs:` + name + `"/></xs:simpleType>`
 			excluded := append([]directBuiltinExcludedUse{
-				{"named alias", `<xs:attribute name="a" type="t:Alias"/>`, alias, `type="t:Alias"`, "", errSchemaAttributeUseUnsupported, false},
 				{"inline list", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:` + name + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, `<xs:list`, errSchemaAttributeUseUnsupported, true},
 				{"inline union", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="xs:` + name + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, `<xs:union`, errSchemaAttributeUseUnsupported, true},
 			}, directBuiltinExcludedUses(name)...)

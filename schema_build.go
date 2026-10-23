@@ -7571,7 +7571,7 @@ func schemaNamedLanguageAnyURIOwnerSupported(reference schemaSimpleTypeReference
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
 	case *schemaComplexTypeExtensionBodyInput:
-		if body == nil || reference.kind != SimpleTypeReferenceBuiltin {
+		if body == nil {
 			return false
 		}
 		sequence, ok := body.particle.(*schemaSequenceParticleInput)
