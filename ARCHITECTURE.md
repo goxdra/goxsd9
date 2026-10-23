@@ -76,12 +76,13 @@ Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplica
 Models→ordered uses→base resolution.
 `0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
 Compatibility/Strict11 omit false/0 `inheritable` for named empty/all/choice/sequence/group/grouped/sequence-extension locals (ID included) and anonymous global-element inline complexContent grouped/direct-sequence name-bearing non-ID locals; Strict10/true/1/refs/other-owners reject.
+Named complexContent grouped/direct-sequence extensions require empty, use-free named bases; base wildcards inherited.
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
-Empty/choice/sequence/all; named direct-sequence extensions over empty use-free bases: built-in/facet-free named `xs:language`/`xs:anyURI`; grouped extensions: built-ins;
-named empty/choice/sequence; named direct-sequence extensions over empty use-free named bases: built-in/named effective `xs:token`/`xs:NMTOKEN`; named grouped: built-ins, empty use-free bases.
+Empty/choice/sequence/all; named direct-sequence extensions: built-in/facet-free named `xs:language`/`xs:anyURI`; named grouped: built-ins;
+named empty/choice/sequence; named direct-sequence extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`; named grouped: built-ins.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
-`xs:long`: empty/choice/sequence/all, direct-sequence built-in/named; named grouped built-in. Wildcards inherited.
+`xs:long`: empty/choice/sequence/all, direct-sequence built-in/named; named grouped built-in.
 Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
