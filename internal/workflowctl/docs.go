@@ -39,6 +39,7 @@ var documentRules = []documentRule{
 	{path: "docs/decisions/0007-particle-occurrence.md", charter: "exact particle occurrence representation contract", maxLines: 220, maxWords: 2200},
 	{path: "docs/decisions/0008-precision-decimal-instance-evidence.md", charter: "precisionDecimal instance evidence classification and ownership contract", maxLines: 180, maxWords: 1500},
 	{path: "docs/decisions/0009-grouped-extension-attributes.md", charter: "grouped extension and local attribute composition contract", maxLines: 240, maxWords: 2250},
+	{path: "docs/decisions/0010-workflow-capture.md", charter: "workflow capture representation and provenance contract", maxLines: 70, maxWords: 500},
 	{path: "docs/operations.md", charter: "scheduler and operator contract", maxLines: 60, maxWords: 525},
 }
 

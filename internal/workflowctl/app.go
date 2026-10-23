@@ -77,6 +77,8 @@ func (a app) run(args []string) error {
 		return a.runCheck(args[1:])
 	case "claim":
 		return a.runClaim(args[1:])
+	case "capture":
+		return a.runCapture(args[1:])
 	case "coverage":
 		return a.runCoverage(args[1:])
 	case "develop-signals":
@@ -127,6 +129,9 @@ Usage:
   go tool workflowctl claim resume-state
   go tool workflowctl claim release-archived ISSUE --run-id RUN --expected-head SHA [--dry-run]
   go tool workflowctl claim renew
+  go tool workflowctl capture pr PR [--expected-head SHA] [--command-result-file FILE]
+  go tool workflowctl capture artifact NAME --file FILE --base SHA --head SHA
+  go tool workflowctl capture git-object --commit SHA --path PATH
   go tool workflowctl claim verify
   go tool workflowctl coverage --base REF [--format text|json]
   go tool workflowctl develop-signals --base REF [--duration DURATION] [--coverage-explanation-file FILE] [--additional-fuzz PACKAGE:TARGET ...] [--format text|json]
