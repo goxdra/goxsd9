@@ -79,9 +79,9 @@ Compatibility/Strict11 omit false/0 `inheritable` for supported named empty/all/
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
 Empty/choice/sequence/all; named direct-sequence extensions over empty use-free bases: built-in/facet-free named `xs:language`/`xs:anyURI`; grouped extensions: built-ins;
-named empty/choice/sequence: built-in/named `xs:token`/`xs:NMTOKEN`; named grouped/direct-sequence extensions: built-ins over empty use-free bases.
+named empty/choice/sequence/direct-sequence extension owners: built-in/named effective `xs:token`/`xs:NMTOKEN`; named grouped extensions: built-ins over empty use-free bases.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
-`xs:long`: empty/choice/sequence/all, direct-sequence built-in/named; named grouped built-in. Extensions need empty use-free bases; wildcards inherited.
+`xs:long`: empty/choice/sequence/all, direct-sequence built-in/named; named grouped built-in. Extensions inherit wildcards.
 Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.

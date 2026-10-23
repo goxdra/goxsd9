@@ -141,7 +141,6 @@ func TestSequenceExtensionTokenFamilyExcludedUseForms(t *testing.T) {
 				name, use, extra, marker, related string
 				spec, cause                       string
 			}{
-				{"named alias", `<xs:attribute name="a" type="t:Alias"/>`, alias, `type="t:Alias"`, "", "type", "unsupported-use"},
 				{"inline atomic", `<xs:attribute name="a">` + inline + `</xs:attribute>`, "", `<xs:simpleType`, "", "type", "unsupported-type"},
 				{"inline list", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:` + kind + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", "type", "unsupported-type"},
 				{"inline union", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="xs:` + kind + ` xs:` + kind + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", "type", "unsupported-type"},
