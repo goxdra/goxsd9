@@ -129,6 +129,10 @@ built-in `xs:token` and `xs:NMTOKEN` uses. Their effective whitespace is
 collapse, and the built-ins have no enumeration or local type ID. Named
 aliases, inline atomic/list/union types, attribute refs, value constraints,
 other owners, and both consumers remain outside this admission.
+The same named grouped owners query direct built-in `xs:long` uses with exact
+intrinsic inclusive bounds. Named long aliases, anonymous owners, inline
+atomic/list/union types, attribute refs, value constraints, richer bases, and
+both consumers remain outside this long admission.
 
 ## Phase representation and invariants
 

@@ -175,7 +175,6 @@ func TestLongLocalAttributeGraphFacts(t *testing.T) {
 //nolint:gocognit,funlen // One matrix checks excluded forms across owners and policies.
 func TestLongLocalAttributeExcludedShapes(t *testing.T) {
 	named := `<xs:simpleType name="Named"><xs:restriction base="xs:long"/></xs:simpleType>`
-	//nolint:prealloc // Additional shape rows are built by the matrices below.
 	cases := []struct {
 		name, body, extra, primary, related string
 		spec                                func(XSDVersion) string
@@ -226,6 +225,9 @@ func TestLongLocalAttributeExcludedShapes(t *testing.T) {
 		{"simple content", `<xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="a" type="xs:long"/></xs:extension></xs:simpleContent>`, ""},
 	} {
 		for _, target := range []struct{ name, lexical, extra string }{{"direct", "xs:long", ""}, {"named", "r:Named", named}} {
+			if owner.name == "grouped extension" && target.name == "direct" {
+				continue
+			}
 			body := owner.body
 			if !strings.Contains(body, `<xs:attribute name="a"`) {
 				body += `<xs:attribute name="a" type="` + target.lexical + `"/>`
