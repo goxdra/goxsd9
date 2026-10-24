@@ -356,8 +356,8 @@
 // facts apply under every language policy. Inline restrictions, attribute
 // refs, local default/fixed values, and owners beyond these named cases and the
 // anonymous ref-sequence extension below remain unsupported; consumers reject.
-// Named empty, direct choice, and direct sequence owners also admit built-in
-// and named effective atomic xs:token and xs:NMTOKEN local declarations,
+// Named empty, direct choice, direct sequence, and direct all owners also admit
+// built-in and named effective atomic xs:token and xs:NMTOKEN local declarations,
 // retaining copied whitespace and enumeration facts. Named direct-sequence
 // extensions over supported empty use-free bases admit these same types;
 // named grouped extensions admit direct built-ins only.

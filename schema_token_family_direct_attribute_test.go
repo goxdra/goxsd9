@@ -16,6 +16,8 @@ func tokenFamilyDirectParticle(shape string) string {
 		return `<xs:choice><xs:element name="first" type="xs:integer" minOccurs="2" maxOccurs="3"/><xs:element name="gone" type="xs:integer" minOccurs="0" maxOccurs="0"/></xs:choice>`
 	case "sequence":
 		return `<xs:sequence><xs:element name="first" type="xs:integer" minOccurs="2" maxOccurs="3"/><xs:element name="gone" type="xs:integer" minOccurs="0" maxOccurs="0"/></xs:sequence>`
+	case "all":
+		return `<xs:all><xs:element name="first" type="xs:integer" minOccurs="0"/><xs:element name="gone" type="xs:integer" minOccurs="0" maxOccurs="0"/></xs:all>`
 	}
 	panic("unknown test shape")
 }
@@ -191,7 +193,7 @@ func TestTokenFamilyDirectAttributeConsumersReject(t *testing.T) {
 //nolint:gocognit // Each direct owner and excluded authored use is checked separately.
 func TestTokenFamilyDirectAttributeInlineAndReferenceExclusions(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []string{"choice", "sequence"} {
+		for _, ownerShape := range []string{"choice", "sequence", "all"} {
 			for _, kind := range []string{"token", "NMTOKEN"} {
 				for _, shape := range []string{"inline", "ref"} {
 					t.Run(profile.name+"/"+ownerShape+"/"+kind+"/"+shape, func(t *testing.T) {
@@ -255,7 +257,7 @@ func TestTokenFamilyDirectAttributeOmissionAndResolutionOrder(t *testing.T) {
 //nolint:gocognit // Authored named facets must fail before owner admission for both derivation depths.
 func TestTokenFamilyDirectAttributeNewFacetExclusions(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []string{"choice", "sequence"} {
+		for _, ownerShape := range []string{"choice", "sequence", "all"} {
 			for _, kind := range []string{"token", "NMTOKEN"} {
 				for _, facet := range []string{"pattern", "length", "minLength", "maxLength"} {
 					for _, depth := range []string{"direct", "inherited"} {
@@ -279,7 +281,7 @@ func TestTokenFamilyDirectAttributeNewFacetExclusions(t *testing.T) {
 	}
 }
 
-func TestTokenFamilyExcludedOwnerResolvesTypeBeforeGate(t *testing.T) {
+func TestTokenFamilyMissingTypePrecedesOwnerGate(t *testing.T) {
 	owners := []struct{ name, before, after string }{
 		{"all", `<xs:complexType name="Box"><xs:all><xs:element name="item" type="xs:integer"/></xs:all>`, `</xs:complexType>`},
 		{"anonymous choice", `<xs:element name="root"><xs:complexType><xs:choice><xs:element name="item" type="xs:integer"/></xs:choice>`, `</xs:complexType></xs:element>`},
@@ -297,7 +299,7 @@ func TestTokenFamilyExcludedOwnerResolvesTypeBeforeGate(t *testing.T) {
 
 func TestTokenDirectAttributeReferenceValueConstraintsStayExcluded(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []string{"choice", "sequence"} {
+		for _, ownerShape := range []string{"choice", "sequence", "all"} {
 			for _, constraint := range []string{"default", "fixed"} {
 				t.Run(profile.name+"/"+ownerShape+"/"+constraint, func(t *testing.T) {
 					root := tokenFamilyLocalRoot(`<xs:complexType name="Box">` + tokenFamilyDirectParticle(ownerShape) + `<xs:attribute ref="t:a" ` + constraint + `="one"/></xs:complexType><xs:attribute name="a" type="xs:token"/>`)
@@ -312,7 +314,7 @@ func TestTokenDirectAttributeReferenceValueConstraintsStayExcluded(t *testing.T)
 //nolint:gocognit // Facet diagnostics precede inline/ref exclusion at each authored source.
 func TestTokenFamilyDirectAttributeFacetShapePrecedence(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []string{"choice", "sequence"} {
+		for _, ownerShape := range []string{"choice", "sequence", "all"} {
 			for _, kind := range []string{"token", "NMTOKEN"} {
 				for _, facet := range []string{"pattern", "length", "minLength", "maxLength"} {
 					for _, typeShape := range []string{"inline", "ref"} {
