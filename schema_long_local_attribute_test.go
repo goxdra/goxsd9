@@ -340,6 +340,9 @@ func TestLongLocalAttributeCompositionAndConsumers(t *testing.T) {
 				if tc.spec == "use" {
 					spec = schemaAttributeUseSpecRef(profile.version)
 				}
+				if tc.name == "attribute then model" {
+					spec = schemaComplexTypeGrammarSpecRef(profile.version)
+				}
 				if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != elementReferenceTestAttributeLoc(t, root, tc.primary) || d.SpecRef() != spec || len(d.Related()) != 0 {
 					t.Fatalf("composition = %v related=%v", err, d.Related())
 				}

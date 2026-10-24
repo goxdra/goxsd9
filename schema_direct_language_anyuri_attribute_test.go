@@ -417,6 +417,9 @@ func TestDirectLanguageAnyURIAttributeBoundaryDiagnostics(t *testing.T) {
 				if boundary.spec == "composition" {
 					wantSpec = ""
 				}
+				if boundary.name == "model after attribute" {
+					wantSpec = schemaComplexTypeGrammarSpecRef(languageUseVersion(test.policy))
+				}
 				if boundary.spec == "global" {
 					wantSpec = schemaGlobalDuplicateSpecRef(languageUseVersion(test.policy))
 				}

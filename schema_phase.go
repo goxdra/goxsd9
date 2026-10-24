@@ -2716,13 +2716,14 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			}
 		case "group":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+				return newSchemaComplexTypeModelOrderDiagnostic(child.loc, version)
 			}
 			modelSeen = true
 			groupErr := validateUnsupportedModelParticle(child, version)
 			if len(syntaxAttributesByLocal(parent, "name")) == 1 {
 				groupErr = validateSupportedGroupParticle(child, version)
 			}
+			groupErr = schemaInvalidWithSpecRef(groupErr, schemaGroupParticleSpecRef(version))
 			if err := groupErr; err != nil {
 				if !candidate.considerError(err) {
 					return err
@@ -2733,7 +2734,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			}
 		case "all":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+				return newSchemaComplexTypeModelOrderDiagnostic(child.loc, version)
 			}
 			modelSeen = true
 			allErr := validateSupportedAllParticle(child, version)
@@ -2750,7 +2751,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			}
 		case "sequence":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+				return newSchemaComplexTypeModelOrderDiagnostic(child.loc, version)
 			}
 			modelSeen = true
 			sequenceErr := validateSupportedSequenceParticle(child, version)
@@ -2759,7 +2760,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			}
 		case "choice":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+				return newSchemaComplexTypeModelOrderDiagnostic(child.loc, version)
 			}
 			modelSeen = true
 			allowDirectChoicePolicies := len(syntaxAttributesByLocal(parent, "name")) == 1
@@ -2805,6 +2806,19 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 		}
 	}
 	return candidate.err()
+}
+
+func newSchemaComplexTypeModelOrderDiagnostic(loc Loc, version XSDVersion) Diagnostic {
+	diagnostic := newSchemaCompositionDiagnostic(loc, "complexType model child must be unique and precede attributes")
+	diagnostic.specRef = schemaComplexTypeGrammarSpecRef(version)
+	return diagnostic
+}
+
+func schemaComplexTypeGrammarSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return "xsd10-structures#element-complexType"
+	}
+	return "xsd11-structures#element-complexType"
 }
 
 func validateComplexTypeMixedAgreement(parent, content *syntaxElement) error {
