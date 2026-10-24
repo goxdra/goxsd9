@@ -126,8 +126,8 @@ unqualified NCName and `ref` is an expanded QName; they are mutually exclusive
 and do not share the global-declaration name path.
 Named grouped owners over supported empty use-free bases also query direct
 built-in `xs:token` and `xs:NMTOKEN` uses and named effective atomic `xs:token`
-uses. Their effective whitespace is collapse; named token uses retain copied
-enumeration facts and type identity. Named `xs:NMTOKEN` aliases, inline
+and `xs:NMTOKEN` uses. Their effective whitespace is collapse; named uses retain copied
+enumeration facts and type identity. Inline
 atomic/list/union types, attribute refs, value constraints, other owners, and
 both consumers remain outside this admission.
 The same named grouped owners query direct built-in and supported named
