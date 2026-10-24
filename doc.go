@@ -357,10 +357,14 @@
 // refs, local default/fixed values, and owners beyond these named cases and the
 // anonymous ref-sequence extension below remain unsupported; consumers reject.
 // Named empty, direct choice, direct sequence, and direct all owners also admit
-// built-in and named effective atomic xs:token and xs:NMTOKEN local declarations,
-// retaining copied whitespace and enumeration facts. Named direct-sequence
-// extensions over supported empty use-free bases admit these same types;
-// named grouped extensions admit direct built-ins only.
+// built-in and supported named effective atomic xs:token and xs:NMTOKEN local
+// declarations, retaining copied whitespace and enumeration facts. For direct
+// all, local inline simple types, attribute refs, and default/fixed values
+// remain unsupported.
+// These direct-all uses are query-only under every policy: ValidateInstance and
+// GenerateGo return located unsupported diagnostics, with no generated output.
+// Named direct-sequence extensions over supported empty use-free bases admit
+// these same types; named grouped extensions admit direct built-ins only.
 // Global-element inline complexContent extensions over
 // supported named empty bases also admit built-in xs:token and xs:anyURI local
 // declarations when the direct sequence contains only global element refs.
