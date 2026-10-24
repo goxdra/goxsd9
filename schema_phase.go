@@ -1507,6 +1507,10 @@ func (candidate *schemaChildUnsupportedCandidate) consider(child *syntaxElement,
 	candidate.considerAt(child.loc, fmt.Sprintf("global %s child <%s> is not implemented", parent, child.name.local))
 }
 
+func (candidate *schemaChildUnsupportedCandidate) considerForVersion(child *syntaxElement, parent string, version XSDVersion) {
+	candidate.considerAtVersion(child.loc, fmt.Sprintf("global %s child <%s> is not implemented", parent, child.name.local), version)
+}
+
 func (candidate *schemaChildUnsupportedCandidate) considerAt(loc Loc, message string) {
 	candidate.considerAtVersion(loc, message, "")
 }
@@ -2712,24 +2716,25 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			}
 		case "group":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+				return newSchemaComplexTypeModelOrderDiagnostic(child.loc, version)
 			}
 			modelSeen = true
 			groupErr := validateUnsupportedModelParticle(child, version)
 			if len(syntaxAttributesByLocal(parent, "name")) == 1 {
 				groupErr = validateSupportedGroupParticle(child, version)
 			}
+			groupErr = schemaInvalidWithSpecRef(groupErr, schemaGroupParticleSpecRef(version))
 			if err := groupErr; err != nil {
 				if !candidate.considerError(err) {
 					return err
 				}
 			}
 			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
-				candidate.consider(child, parent.name.local)
+				candidate.considerForVersion(child, parent.name.local, version)
 			}
 		case "all":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+				return newSchemaComplexTypeModelOrderDiagnostic(child.loc, version)
 			}
 			modelSeen = true
 			allErr := validateSupportedAllParticle(child, version)
@@ -2742,11 +2747,11 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				}
 			}
 			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
-				candidate.consider(child, parent.name.local)
+				candidate.considerForVersion(child, parent.name.local, version)
 			}
 		case "sequence":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+				return newSchemaComplexTypeModelOrderDiagnostic(child.loc, version)
 			}
 			modelSeen = true
 			sequenceErr := validateSupportedSequenceParticle(child, version)
@@ -2755,7 +2760,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			}
 		case "choice":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
-				return newSchemaCompositionDiagnostic(child.loc, "complexType model child must be unique and precede attributes")
+				return newSchemaComplexTypeModelOrderDiagnostic(child.loc, version)
 			}
 			modelSeen = true
 			allowDirectChoicePolicies := len(syntaxAttributesByLocal(parent, "name")) == 1
@@ -2797,10 +2802,23 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			if err := forbiddenGlobalSchemaChild(parent.name.local, child); err != nil {
 				return err
 			}
-			candidate.consider(child, parent.name.local)
+			candidate.considerForVersion(child, parent.name.local, version)
 		}
 	}
 	return candidate.err()
+}
+
+func newSchemaComplexTypeModelOrderDiagnostic(loc Loc, version XSDVersion) Diagnostic {
+	diagnostic := newSchemaCompositionDiagnostic(loc, "complexType model child must be unique and precede attributes")
+	diagnostic.specRef = schemaComplexTypeGrammarSpecRef(version)
+	return diagnostic
+}
+
+func schemaComplexTypeGrammarSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return "xsd10-structures#element-complexType"
+	}
+	return "xsd11-structures#element-complexType"
 }
 
 func validateComplexTypeMixedAgreement(parent, content *syntaxElement) error {
@@ -4998,11 +5016,11 @@ func validateGroupParticleWithOptions(element *syntaxElement, version XSDVersion
 			}
 			refSeen = true
 			if !allowOccurrences {
-				candidate.considerAt(attribute.loc, "group reference particles are not implemented")
+				candidate.considerAtVersion(attribute.loc, "group reference particles are not implemented", version)
 			}
 		case "minOccurs", "maxOccurs":
 			if !allowOccurrences {
-				candidate.considerAt(attribute.loc, fmt.Sprintf("group attribute %q is not implemented", attribute.name.local))
+				candidate.considerAtVersion(attribute.loc, fmt.Sprintf("group attribute %q is not implemented", attribute.name.local), version)
 			}
 		default:
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("group has forbidden attribute %q", attribute.name.local))

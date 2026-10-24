@@ -278,7 +278,7 @@ func TestDirectAllNamedSignIntegerExcludedOwners(t *testing.T) {
 				name, body, marker, spec string
 				occurrence               int
 			}{
-				{"inline owner", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="r:Named"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(XSDVersion10), 1},
+				{"inline owner", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="r:Named"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(profile.version), 1},
 				{"named group", `<xs:group name="Group"><xs:all><xs:element name="v" type="r:Named"/></xs:all></xs:group>`, `<xs:all>`, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef(), 1},
 				{"extension", `<xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="v" type="r:Named"/></xs:all></xs:extension></xs:complexContent></xs:complexType>`, `<xs:extension`, extensionSpec, 1},
 				{"local attribute", `<xs:complexType name="Record"><xs:all><xs:element name="v" type="r:Named"/></xs:all><xs:attribute name="a" type="r:Named"/></xs:complexType>`, `type="r:Named"`, schemaAttributeTypeSpecRef(profile.version), 2},

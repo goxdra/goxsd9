@@ -249,7 +249,7 @@ func assertAllIntegerExcludedOwners(t *testing.T, atomic string) {
 		{Compatibility, XSDVersion11}, {Strict10, XSDVersion10}, {Strict11, XSDVersion11},
 	} {
 		for _, owner := range []struct{ name, format, marker, spec10, spec11 string }{
-			{"inline complex", `<xs:element name="root"><xs:complexType><xs:all>%s</xs:all></xs:complexType></xs:element>`, `<xs:all>`, "xsd10-structures#schema-document", "xsd10-structures#schema-document"},
+			{"inline complex", `<xs:element name="root"><xs:complexType><xs:all>%s</xs:all></xs:complexType></xs:element>`, `<xs:all>`, "xsd10-structures#schema-document", "xsd11-structures#cSchemaDocument"},
 			{"extension", `<xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="r:Base"><xs:all>%s</xs:all></xs:extension></xs:complexContent></xs:complexType>`, `<xs:extension`, "xsd10-structures#cos-ct-extends", "xsd11-structures#cos-ct-extends"},
 			{"named group", `<xs:group name="Group"><xs:all>%s</xs:all></xs:group>`, `<xs:all>`, "xsd10-structures#schema-document", "xsd11-structures#cSchemaDocument"},
 		} {

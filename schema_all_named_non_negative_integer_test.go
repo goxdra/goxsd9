@@ -296,7 +296,7 @@ func TestNamedNonNegativeIntegerAllOtherOwnersStayExcluded(t *testing.T) {
 			extensionSpec = "xsd10-structures#cos-ct-extends"
 		}
 		for _, test := range []struct{ name, body, primary, spec string }{
-			{"inline owner", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, "xsd10-structures#schema-document"},
+			{"inline owner", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(version)},
 			{"extension owner", `<xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:extension></xs:complexContent></xs:complexType>`, `<xs:extension`, extensionSpec},
 			{"named group", `<xs:group name="Group"><xs:all><xs:element name="v" type="r:Count"/></xs:all></xs:group>`, `<xs:all>`, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", version).SpecRef()},
 		} {

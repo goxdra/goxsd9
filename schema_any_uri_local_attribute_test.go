@@ -256,6 +256,9 @@ func TestAnyURILocalAttributeInvalidCompositionAndAdjacentType(t *testing.T) {
 				if test.spec == "composition" {
 					wantSpec = ""
 				}
+				if test.name == "model after attribute" {
+					wantSpec = schemaComplexTypeGrammarSpecRef(anyURIUseVersion(policy))
+				}
 				if d.Class() != test.class || d.Code() != test.code || d.Loc() != elementReferenceTestAttributeLoc(t, root, test.marker) || d.SpecRef() != wantSpec || len(d.Related()) != 0 {
 					t.Fatalf("%s diagnostic = %v, related=%v", test.name, err, d.Related())
 				}

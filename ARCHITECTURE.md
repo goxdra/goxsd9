@@ -80,7 +80,7 @@ Named complexContent grouped/direct-sequence extensions require empty, use-free 
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
 Empty/choice/sequence/all; named direct-sequence extensions: built-in/facet-free named `xs:language`/`xs:anyURI`; named grouped: built-ins;
-named empty/choice/sequence; named direct-sequence extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`; named grouped: built-ins.
+named empty/choice/sequence/all; named direct-sequence extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`; named grouped: built-ins.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
 `xs:long`: empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/named atomic uses.
 Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`.

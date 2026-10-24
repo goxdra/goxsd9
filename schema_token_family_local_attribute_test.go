@@ -17,7 +17,7 @@ func tokenFamilyLocalRoot(body string) string {
 func TestTokenFamilyLocalAttributeGraphFacts(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		for _, kind := range []string{"token", "NMTOKEN"} {
-			for _, shape := range []string{"empty", "choice", "sequence"} {
+			for _, shape := range []string{"empty", "choice", "sequence", "all"} {
 				t.Run(profile.name+"/"+kind+"/"+shape, func(t *testing.T) {
 					root := tokenFamilyLocalRoot(`<xs:include schemaLocation="part.xsd"/><xs:include schemaLocation="part.xsd"/><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/><xs:complexType name="Box">` + tokenFamilyDirectParticle(shape) + `<xs:attribute name="forward" type="t:Forward"/><xs:attribute name="included" type="t:Included"/><xs:attribute name="adopted" type="t:Adopted"/><xs:attribute name="foreign" type="o:Foreign"/></xs:complexType><xs:simpleType name="Forward"><xs:restriction base="xs:` + kind + `"><xs:enumeration value="forward"/></xs:restriction></xs:simpleType>`)
 					root = strings.Replace(root, `xmlns:t="urn:token-local"`, `xmlns:t="urn:token-local" xmlns:o="urn:other"`, 1)
@@ -83,7 +83,7 @@ func TestTokenFamilyLocalAttributeGraphFacts(t *testing.T) {
 //nolint:gocognit // Keep independent phase exits beside their exact location and cause assertions.
 func TestTokenFamilyLocalAttributeDiagnosticExits(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []string{"empty", "choice", "sequence"} {
+		for _, ownerShape := range []string{"empty", "choice", "sequence", "all"} {
 			for _, test := range []struct {
 				name, use, extra, primary, related, code, spec string
 				class                                          FailureClass
@@ -128,7 +128,7 @@ func TestTokenFamilyLocalAttributeDiagnosticExits(t *testing.T) {
 }
 
 func TestTokenFamilyLocalAttributeResolverCause(t *testing.T) {
-	for _, ownerShape := range []string{"empty", "choice", "sequence"} {
+	for _, ownerShape := range []string{"empty", "choice", "sequence", "all"} {
 		root := tokenFamilyLocalRoot(`<xs:include schemaLocation="missing.xsd"/><xs:complexType name="Box">` + tokenFamilyDirectParticle(ownerShape) + `<xs:attribute name="a" type="xs:token"/></xs:complexType>`)
 		for _, profile := range tokenPolicyProfiles() {
 			source, sourceErr := NewResolvedSource(context.Background(), "root.xsd", io.NopCloser(strings.NewReader(root)))
@@ -146,7 +146,7 @@ func TestTokenFamilyLocalAttributeResolverCause(t *testing.T) {
 func TestTokenFamilyLocalAttributeValueAndVarietyExclusions(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		for _, kind := range []string{"token", "NMTOKEN"} {
-			for _, ownerShape := range []string{"empty", "choice", "sequence"} {
+			for _, ownerShape := range []string{"empty", "choice", "sequence", "all"} {
 				for _, shape := range []string{"direct", "named", "inline"} {
 					for _, constraint := range []string{"default", "fixed"} {
 						t.Run(profile.name+"/"+kind+"/"+ownerShape+"/"+shape+"/"+constraint, func(t *testing.T) {
@@ -198,7 +198,7 @@ func tokenFamilyLocalValueUse(kind, shape, constraint string) (use, extra string
 
 func TestTokenFamilyLocalAttributeFacetFailuresAndVisibility(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []string{"empty", "choice", "sequence"} {
+		for _, ownerShape := range []string{"empty", "choice", "sequence", "all"} {
 			for _, test := range []struct {
 				name, extra, primary, related, code, spec string
 				class                                     FailureClass
@@ -234,7 +234,7 @@ func TestTokenFamilyLocalAttributeFacetFailuresAndVisibility(t *testing.T) {
 
 func TestTokenFamilyLocalAttributeDuplicateTypePrecedesAmbiguousUse(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, ownerShape := range []string{"empty", "choice", "sequence"} {
+		for _, ownerShape := range []string{"empty", "choice", "sequence", "all"} {
 			root := tokenFamilyLocalRoot(`<xs:complexType name="Box">` + tokenFamilyDirectParticle(ownerShape) + `<xs:attribute name="a" type="t:Alias"/></xs:complexType><xs:simpleType name="Alias"><xs:restriction base="xs:token"/></xs:simpleType><xs:simpleType name="Alias" id="second"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>`)
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			assertNCNameDiagnostic(t, schema, err, FailureInvalid, diagnosticSchemaGlobalDuplicateCode, elementReferenceTestAttributeLoc(t, root, `<xs:simpleType name="Alias" id="second"`), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:simpleType name="Alias"><xs:restriction`)}, schemaGlobalDuplicateSpecRef(profile.version), errSchemaGlobalDeclarationDuplicate)
@@ -246,7 +246,7 @@ func TestTokenFamilyLocalAttributeDuplicateTypePrecedesAmbiguousUse(t *testing.T
 func TestTokenFamilyLocalAttributeReferencedTargetsStayExcluded(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		for _, kind := range []string{"token", "NMTOKEN"} {
-			for _, ownerShape := range []string{"empty", "choice", "sequence"} {
+			for _, ownerShape := range []string{"empty", "choice", "sequence", "all"} {
 				for _, targetShape := range []string{"direct", "named", "inline"} {
 					t.Run(profile.name+"/"+kind+"/"+ownerShape+"/"+targetShape, func(t *testing.T) {
 						target := `<xs:attribute name="a" type="t:Alias"/><xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType>`
@@ -371,7 +371,6 @@ func TestTokenFamilyLocalAttributeExclusions(t *testing.T) {
 		{"empty inline", `<xs:element name="root"><xs:complexType>`, `</xs:complexType></xs:element>`, ""},
 		{"choice inline", `<xs:element name="root"><xs:complexType><xs:choice><xs:element name="item" type="xs:integer"/></xs:choice>`, `</xs:complexType></xs:element>`, ""},
 		{"sequence inline", `<xs:element name="root"><xs:complexType><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence>`, `</xs:complexType></xs:element>`, ""},
-		{"all", `<xs:complexType name="Box"><xs:all><xs:element name="item" type="xs:integer"/></xs:all>`, `</xs:complexType>`, ""},
 		{"group", `<xs:complexType name="Box"><xs:group ref="t:Fields"/>`, `</xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence></xs:group>`},
 		{"simple content", `<xs:complexType name="Box"><xs:simpleContent><xs:extension base="xs:string">`, `</xs:extension></xs:simpleContent></xs:complexType>`, ""},
 		{"grouped extension", `<xs:complexType name="Base"/><xs:complexType name="Box"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/>`, `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element name="item" type="xs:integer"/></xs:sequence></xs:group>`},

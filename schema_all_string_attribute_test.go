@@ -422,7 +422,7 @@ func TestDirectAllStringAttributeExcludedOwners(t *testing.T) {
 				}
 				attribute := `<xs:attribute name="a" type="` + lexical + `"/>`
 				for _, shape := range []struct{ name, body, extra, marker, spec string }{
-					{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="field" type="xs:integer"/></xs:all>` + attribute + `</xs:complexType></xs:element>`, "", `<xs:all>`, schemaSyntaxSpecRefForVersion(XSDVersion10)},
+					{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="field" type="xs:integer"/></xs:all>` + attribute + `</xs:complexType></xs:element>`, "", `<xs:all>`, schemaSyntaxSpecRefForVersion(profile.version)},
 					{"grouped direct", `<xs:complexType name="Record"><xs:group ref="r:Fields"/>` + attribute + `</xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="r:field"/></xs:sequence></xs:group><xs:element name="field" type="xs:integer"/>`, `type="` + lexical + `"`, schemaAttributeTypeSpecRef(profile.version)},
 					{"direct all extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="field" type="xs:integer"/></xs:all>` + attribute + `</xs:extension></xs:complexContent></xs:complexType>`, "", `<xs:attribute name="a"`, extensionSpecForNormalizedAll(profile.version)},
 				} {

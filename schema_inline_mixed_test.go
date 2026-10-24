@@ -331,15 +331,15 @@ func TestInlineMixedFalseKeepsExcludedShapes(t *testing.T) {
 	}{
 		{
 			name: "direct group inline owner", body: `<xs:element name="root"><xs:complexType mixed="false"><xs:group ref="t:Fields"/></xs:complexType></xs:element><xs:group name="Fields"><xs:sequence/></xs:group>`,
-			marker: `ref="t:Fields"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
+			marker: `ref="t:Fields"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: schemaSyntaxSpecRefForVersion,
 		},
 		{
 			name: "direct zero group inline owner", body: `<xs:element name="root"><xs:complexType mixed="false"><xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"/></xs:complexType></xs:element><xs:group name="Fields"><xs:sequence/></xs:group>`,
-			marker: `ref="t:Fields"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
+			marker: `ref="t:Fields"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: schemaSyntaxSpecRefForVersion,
 		},
 		{
 			name: "direct all inline owner", body: `<xs:element name="root"><xs:complexType mixed="false"><xs:all><xs:element name="v" type="xs:integer"/></xs:all></xs:complexType></xs:element>`,
-			marker: `<xs:all>`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
+			marker: `<xs:all>`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, spec: schemaSyntaxSpecRefForVersion,
 		},
 		{
 			name: "local inline child sequence", body: `<xs:complexType name="Owner"><xs:sequence><xs:element name="child"><xs:complexType mixed="false"/></xs:element></xs:sequence></xs:complexType>`,

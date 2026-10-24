@@ -277,7 +277,7 @@ func TestDirectAllByteOtherOwnerShapesRemainUnsupported(t *testing.T) {
 		version XSDVersion
 	}{{Compatibility, XSDVersion11}, {Strict10, XSDVersion10}, {Strict11, XSDVersion11}} {
 		for _, test := range []struct{ name, body, primary, spec10, spec11 string }{
-			{"inline complex owner", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="xs:byte"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, "xsd10-structures#schema-document", "xsd10-structures#schema-document"},
+			{"inline complex owner", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="xs:byte"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, "xsd10-structures#schema-document", "xsd11-structures#cSchemaDocument"},
 			{"extension owner", `<xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="v" type="xs:byte"/></xs:all></xs:extension></xs:complexContent></xs:complexType>`, `<xs:extension`, "xsd10-structures#cos-ct-extends", "xsd11-structures#cos-ct-extends"},
 			{"named group", `<xs:group name="Group"><xs:all><xs:element name="v" type="xs:byte"/></xs:all></xs:group>`, `<xs:all>`, "xsd10-structures#schema-document", "xsd11-structures#cSchemaDocument"},
 		} {

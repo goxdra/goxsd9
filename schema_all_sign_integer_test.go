@@ -282,7 +282,7 @@ func TestDirectAllSignIntegerOtherOwnersRemainExcluded(t *testing.T) {
 				extensionSpec = "xsd10-structures#cos-ct-extends"
 			}
 			for _, test := range []struct{ name, body, marker, spec string }{
-				{"inline complex", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="xs:` + scalar + `"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, "xsd10-structures#schema-document"},
+				{"inline complex", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="v" type="xs:` + scalar + `"/></xs:all></xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(profile.version)},
 				{"extension", `<xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="v" type="xs:` + scalar + `"/></xs:all></xs:extension></xs:complexContent></xs:complexType>`, `<xs:extension`, extensionSpec},
 				{"named group", `<xs:group name="Group"><xs:all><xs:element name="v" type="xs:` + scalar + `"/></xs:all></xs:group>`, `<xs:all>`, newSchemaSyntaxUnsupportedForVersion(Loc{}, "", profile.version).SpecRef()},
 			} {

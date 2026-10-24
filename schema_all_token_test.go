@@ -120,12 +120,10 @@ func TestDirectAllTokenAdmissionExclusions(t *testing.T) {
 }
 
 //nolint:gocognit // Attribute type forms must remain outside the all-member admission change.
-func TestDirectAllNMTOKENAttributeFormsRemainUnsupported(t *testing.T) {
+func TestDirectAllNMTOKENAttributeInlineAndRefRemainUnsupported(t *testing.T) {
 	tests := []struct {
 		name, attribute, extra, primary string
 	}{
-		{"local direct", `<xs:attribute name="a" type="xs:NMTOKEN"/>`, "", `type="xs:NMTOKEN"`},
-		{"local named", `<xs:attribute name="a" type="r:Named"/>`, `<xs:simpleType name="Named"><xs:restriction base="xs:NMTOKEN"/></xs:simpleType>`, `type="r:Named"`},
 		{"local inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:NMTOKEN"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType>`},
 		{"global ref", `<xs:attribute ref="r:a"/>`, `<xs:attribute name="a" type="xs:NMTOKEN"/>`, `type="xs:NMTOKEN"`},
 	}
@@ -143,7 +141,7 @@ func TestDirectAllNMTOKENAttributeFormsRemainUnsupported(t *testing.T) {
 				assertZeroSchema(t, schema)
 				diagnostic := requireDiagnostic(t, err)
 				primaryOccurrence := 1
-				if test.name == "local direct" || test.name == "global ref" {
+				if test.name == "global ref" {
 					primaryOccurrence = 2
 				}
 				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != allParticleTestTokenLoc(t, "root.xsd", root, test.primary, primaryOccurrence) || !errors.Is(err, ErrUnsupported) {
@@ -156,7 +154,7 @@ func TestDirectAllNMTOKENAttributeFormsRemainUnsupported(t *testing.T) {
 				if !errors.Is(err, errSchemaAttributeTypeUnsupported) {
 					t.Fatalf("attribute failure lost type cause: %v", err)
 				}
-				if test.name != "global ref" && !errors.Is(err, errSchemaAttributeUseUnsupported) {
+				if test.name == "local inline" && !errors.Is(err, errSchemaAttributeUseUnsupported) {
 					t.Fatalf("local attribute failure lost use cause: %v", err)
 				}
 			})
