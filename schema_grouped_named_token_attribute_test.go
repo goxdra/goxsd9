@@ -122,23 +122,28 @@ func TestGroupedNamedTokenPublicFacts(t *testing.T) {
 func TestGroupedNamedTokenConsumers(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		root := groupedNamedTokenSchema(string(profile.version), "", `<xs:attribute name="named" type="t:Child"/>`)
-		schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-		if err != nil {
-			t.Fatal(err)
-		}
-		useLoc := complexContentTestLoc(t, root, `<xs:attribute name="named"`)
-		ownerLoc := complexContentTestLoc(t, root, `<xs:complexType name="Derived"`)
-		rootLoc := complexContentTestLoc(t, root, `<xs:element name="root"`)
-		instanceErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root"/>`)))
-		vd := requireDiagnostic(t, instanceErr)
-		if vd.Class() != FailureUnsupported || vd.Code() != UnsupportedInstanceValidationCode || vd.Loc() != useLoc || vd.SpecRef() != instanceValidationSpecRef(profile.version) || !reflect.DeepEqual(vd.Related(), []Loc{rootLoc, ownerLoc, useLoc}) || !errors.Is(instanceErr, ErrUnsupported) || !errors.Is(instanceErr, errInstanceAttributes) {
-			t.Fatalf("validation = %v", instanceErr)
-		}
-		output, generationErr := GenerateGo(schema, "generated")
-		gd := requireDiagnostic(t, generationErr)
-		if output != nil || gd.Class() != FailureUnsupported || gd.Code() != diagnosticCodegenUnsupported || gd.Loc() != useLoc || gd.SpecRef() != codegenDirectSequenceSpecReference(profile.version, codegenDirectSequenceParticlesReference) || !reflect.DeepEqual(gd.Related(), []Loc{ownerLoc, useLoc}) || !errors.Is(generationErr, ErrUnsupported) || !errors.Is(generationErr, errCodegenUnsupported) {
-			t.Fatalf("generation = %v/%v", output, generationErr)
-		}
+		testGroupedNamedTokenFamilyConsumers(t, root, profile)
+	}
+}
+
+func testGroupedNamedTokenFamilyConsumers(t *testing.T, root string, profile tokenPolicyProfile) {
+	t.Helper()
+	schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	useLoc := complexContentTestLoc(t, root, `<xs:attribute name="named"`)
+	ownerLoc := complexContentTestLoc(t, root, `<xs:complexType name="Derived"`)
+	rootLoc := complexContentTestLoc(t, root, `<xs:element name="root"`)
+	instanceErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root"/>`)))
+	vd := requireDiagnostic(t, instanceErr)
+	if vd.Class() != FailureUnsupported || vd.Code() != UnsupportedInstanceValidationCode || vd.Loc() != useLoc || vd.SpecRef() != instanceValidationSpecRef(profile.version) || !reflect.DeepEqual(vd.Related(), []Loc{rootLoc, ownerLoc, useLoc}) || !errors.Is(instanceErr, ErrUnsupported) || !errors.Is(instanceErr, errInstanceAttributes) {
+		t.Fatalf("validation = %v", instanceErr)
+	}
+	output, generationErr := GenerateGo(schema, "generated")
+	gd := requireDiagnostic(t, generationErr)
+	if output != nil || gd.Class() != FailureUnsupported || gd.Code() != diagnosticCodegenUnsupported || gd.Loc() != useLoc || gd.SpecRef() != codegenDirectSequenceSpecReference(profile.version, codegenDirectSequenceParticlesReference) || !reflect.DeepEqual(gd.Related(), []Loc{ownerLoc, useLoc}) || !errors.Is(generationErr, ErrUnsupported) || !errors.Is(generationErr, errCodegenUnsupported) {
+		t.Fatalf("generation = %v/%v", output, generationErr)
 	}
 }
 

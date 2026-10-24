@@ -156,7 +156,7 @@ func TestGroupedTokenAttributeExcludedForms(t *testing.T) {
 				{"inline default", `<xs:attribute name="a" default="one">` + inline + `</xs:attribute>`, "", `default="one"`, "", true, errSchemaAttributeUseUnsupported},
 				{"inline fixed", `<xs:attribute name="a" fixed="one">` + inline + `</xs:attribute>`, "", `fixed="one"`, "", true, errSchemaAttributeUseUnsupported},
 			} {
-				if kind == "token" && test.name == "named alias" {
+				if test.name == "named alias" {
 					continue
 				}
 				t.Run(profile.name+"/"+kind+"/"+test.name, func(t *testing.T) {

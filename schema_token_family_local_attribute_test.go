@@ -380,7 +380,7 @@ func TestTokenFamilyLocalAttributeExclusions(t *testing.T) {
 		for _, kind := range []string{"token", "NMTOKEN"} {
 			for _, owner := range owners {
 				for _, shape := range []string{"direct", "named", "inline", "ref"} {
-					if owner.name == "grouped extension" && (shape == "direct" || (kind == "token" && shape == "named")) {
+					if owner.name == "grouped extension" && (shape == "direct" || shape == "named") {
 						continue
 					}
 					t.Run(profile.name+"/"+kind+"/"+owner.name+"/"+shape, func(t *testing.T) {

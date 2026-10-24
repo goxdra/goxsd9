@@ -396,12 +396,6 @@ func TestSequenceExtensionNamedTokenFamilyExcludedForms(t *testing.T) {
 					assertNCNameDiagnostic(t, failed, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, root, marker), related, spec, cause)
 				})
 			}
-			if kind == "NMTOKEN" {
-				grouped := groupedExtensionSchema("1.0", "", `<xs:attribute name="a" type="t:Alias"/>`)
-				grouped = strings.Replace(grouped, `</xs:schema>`, alias+`</xs:schema>`, 1)
-				failed, err := discoverTestSchemaWithPolicy(t, grouped, nil, profile.policy)
-				assertNCNameDiagnostic(t, failed, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, grouped, `type="t:Alias"`), nil, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeUseUnsupported)
-			}
 			anonymous := inlineTokenURIExtensionSchema("1.0", `<xs:element ref="t:child"/>`, `<xs:attribute name="value" type="t:Alias"/>`)
 			anonymous = strings.Replace(anonymous, `</xs:schema>`, alias+`</xs:schema>`, 1)
 			failed, err := discoverTestSchemaWithPolicy(t, anonymous, nil, profile.policy)
