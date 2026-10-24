@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -44,6 +45,11 @@ type mergePullRequestRequest struct {
 }
 
 const sessionSummaryLimit = 8 * 1024
+
+const (
+	prHeadObservationAttempts = 5
+	prHeadObservationInterval = time.Second
+)
 
 type mergePullRequestResponse struct {
 	Merged  bool   `json:"merged"`
@@ -145,6 +151,10 @@ func (a app) createPullRequest(issue int, title, body string) error {
 	if verifyErr := a.verifyClaimForPush(root, localBranch, claimedIssue); verifyErr != nil {
 		return verifyErr
 	}
+	previousPR, hadPR, err := a.verifiedOpenPRBeforePublication(root, branch, issue)
+	if err != nil {
+		return err
+	}
 	canonicalBody, lifecycleErr := replacePRReviewState(body, prReviewStatePending)
 	if lifecycleErr != nil {
 		return stateError("cannot open PR: invalid review-state lifecycle: %v", lifecycleErr)
@@ -163,65 +173,142 @@ func (a app) createPullRequest(issue int, title, body string) error {
 	if !validExactCommitSHA(head) {
 		return stateError("published PR head %q is not an exact commit SHA", head)
 	}
-	url, found, err := a.existingOpenPullRequest(root, branch, issue, head)
-	if err != nil {
-		return err
-	}
-	if found {
-		return writeLine(a.stdout, "%s", url)
-	}
-	url, err = a.createDraftPullRequest(root, branch, title, body)
+	url, err := a.resolvePublishedPullRequest(root, branch, issue, title, body, head, previousPR, hadPR)
 	if err != nil {
 		return err
 	}
 	return writeLine(a.stdout, "%s", url)
 }
 
+func (a app) resolvePublishedPullRequest(root, branch string, issue int, title, body, head string, previousPR pullRequestAPI, hadPR bool) (string, error) {
+	currentPR, found, err := a.lookupOpenPullRequest(root, branch, issue)
+	if err != nil {
+		return "", err
+	}
+	if hadPR {
+		if !found || currentPR.Number != previousPR.Number {
+			return "", stateError("open PR #%d changed identity after publication on claim branch %s", previousPR.Number, branch)
+		}
+		return a.observePublishedPRHead(root, branch, issue, previousPR, currentPR, head)
+	}
+	if found {
+		if currentPR.Head.SHA != head {
+			return "", stateError("open PR #%d head %s differs from published head %s", currentPR.Number, currentPR.Head.SHA, head)
+		}
+		return currentPR.URL, nil
+	}
+	return a.createDraftPullRequest(root, branch, title, body)
+}
+
+func (a app) verifiedOpenPRBeforePublication(root, branch string, issue int) (pullRequestAPI, bool, error) {
+	previousRemoteHead, err := a.command(root, "git", "rev-parse", "origin/"+branch)
+	if err != nil {
+		return pullRequestAPI{}, false, fmt.Errorf("read verified claim branch head before publication: %w", err)
+	}
+	if !validExactCommitSHA(previousRemoteHead) {
+		return pullRequestAPI{}, false, stateError("claim branch head %q before publication is not an exact commit SHA", previousRemoteHead)
+	}
+	pr, found, err := a.lookupOpenPullRequest(root, branch, issue)
+	if err != nil || !found {
+		return pr, found, err
+	}
+	if _, ancestorErr := a.command(root, "git", "merge-base", "--is-ancestor", pr.Head.SHA, previousRemoteHead); ancestorErr != nil {
+		if isGitNonAncestor(ancestorErr) {
+			return pullRequestAPI{}, false, stateError("open PR #%d head %s is outside verified claim branch history at %s", pr.Number, pr.Head.SHA, previousRemoteHead)
+		}
+		return pullRequestAPI{}, false, retryableOperation("verify PR head ancestry", fmt.Errorf("prove open PR #%d head belongs to verified claim branch history: %w", pr.Number, ancestorErr))
+	}
+	return pr, true, nil
+}
+
 func (a app) existingOpenPullRequest(root, branch string, issue int, head string) (string, bool, error) {
-	endpoint := "repos/" + repositoryKey + "/pulls?state=open&head=" + owner + ":" + branch + "&per_page=100"
-	output, err := a.command(root, "gh", "api", endpoint)
-	if err != nil {
-		return "", false, fmt.Errorf("find open PR for claim branch %s: %w", branch, err)
-	}
-	if strings.TrimSpace(output) == "" || strings.TrimSpace(output) == "null" {
-		return "", false, stateError("open PR lookup for claim branch %s returned no list", branch)
-	}
-	var prs []pullRequestAPI
-	if decodeErr := json.Unmarshal([]byte(output), &prs); decodeErr != nil {
-		return "", false, stateError("decode open PRs for claim branch %s: %v", branch, decodeErr)
-	}
-	if len(prs) == 0 {
-		return "", false, nil
-	}
-	if len(prs) != 1 {
-		return "", false, stateError("claim branch %s has %d open PRs; resolve ambiguity before opening", branch, len(prs))
-	}
-	if prs[0].Number < 1 {
-		return "", false, stateError("open PR for claim branch %s has no valid number", branch)
-	}
-	output, err = a.command(root, "gh", "api", "repos/"+repositoryKey+"/pulls/"+strconv.Itoa(prs[0].Number))
-	if err != nil {
-		return "", false, fmt.Errorf("read open PR #%d for claim branch %s: %w", prs[0].Number, branch, err)
-	}
-	var pr pullRequestAPI
-	if decodeErr := json.Unmarshal([]byte(output), &pr); decodeErr != nil {
-		return "", false, stateError("decode open PR #%d: %v", prs[0].Number, decodeErr)
-	}
-	if pr.Number != prs[0].Number || pr.URL == "" || pr.State != "open" || pr.Merged || pr.MergedAt != nil ||
-		pr.Base.Ref != "main" || pr.Base.Repo.FullName != repositoryKey ||
-		pr.Head.Ref != branch || pr.Head.Repo.FullName != repositoryKey {
-		return "", false, stateError("open PR #%d has conflicting identity or base for claim branch %s", prs[0].Number, branch)
+	pr, found, err := a.lookupOpenPullRequest(root, branch, issue)
+	if err != nil || !found {
+		return "", found, err
 	}
 	if pr.Head.SHA != head {
 		return "", false, stateError("open PR #%d head %s differs from published head %s", pr.Number, pr.Head.SHA, head)
 	}
+	return pr.URL, true, nil
+}
+
+func (a app) lookupOpenPullRequest(root, branch string, issue int) (pullRequestAPI, bool, error) {
+	endpoint := "repos/" + repositoryKey + "/pulls?state=open&head=" + owner + ":" + branch + "&per_page=100"
+	output, err := a.command(root, "gh", "api", endpoint)
+	if err != nil {
+		return pullRequestAPI{}, false, fmt.Errorf("find open PR for claim branch %s: %w", branch, err)
+	}
+	if strings.TrimSpace(output) == "" || strings.TrimSpace(output) == "null" {
+		return pullRequestAPI{}, false, stateError("open PR lookup for claim branch %s returned no list", branch)
+	}
+	var prs []pullRequestAPI
+	if decodeErr := json.Unmarshal([]byte(output), &prs); decodeErr != nil {
+		return pullRequestAPI{}, false, stateError("decode open PRs for claim branch %s: %v", branch, decodeErr)
+	}
+	if len(prs) == 0 {
+		return pullRequestAPI{}, false, nil
+	}
+	if len(prs) != 1 {
+		return pullRequestAPI{}, false, stateError("claim branch %s has %d open PRs; resolve ambiguity before opening", branch, len(prs))
+	}
+	if prs[0].Number < 1 {
+		return pullRequestAPI{}, false, stateError("open PR for claim branch %s has no valid number", branch)
+	}
+	pr, err := a.readVerifiedOpenPullRequest(root, branch, issue, prs[0].Number)
+	if err != nil {
+		return pullRequestAPI{}, false, err
+	}
+	return pr, true, nil
+}
+
+func (a app) readVerifiedOpenPullRequest(root, branch string, issue, number int) (pullRequestAPI, error) {
+	output, err := a.command(root, "gh", "api", "repos/"+repositoryKey+"/pulls/"+strconv.Itoa(number))
+	if err != nil {
+		return pullRequestAPI{}, fmt.Errorf("read open PR #%d for claim branch %s: %w", number, branch, err)
+	}
+	var pr pullRequestAPI
+	if decodeErr := json.Unmarshal([]byte(output), &pr); decodeErr != nil {
+		return pullRequestAPI{}, stateError("decode open PR #%d: %v", number, decodeErr)
+	}
+	if pr.Number != number || pr.URL == "" || pr.State != "open" || pr.Merged || pr.MergedAt != nil ||
+		pr.Base.Ref != "main" || pr.Base.Repo.FullName != repositoryKey ||
+		pr.Head.Ref != branch || pr.Head.Repo.FullName != repositoryKey || !validExactCommitSHA(pr.Head.SHA) {
+		return pullRequestAPI{}, stateError("open PR #%d has conflicting identity or base for claim branch %s", number, branch)
+	}
 	if err := validateCommitTitle(pr.Title); err != nil {
-		return "", false, stateError("PR #%d has invalid title %q: %v", pr.Number, pr.Title, err)
+		return pullRequestAPI{}, stateError("PR #%d has invalid title %q: %v", pr.Number, pr.Title, err)
 	}
 	if !containsNumber(closingIssueNumbers(pr.Body), issue) {
-		return "", false, stateError("PR #%d body does not close issue #%d", pr.Number, issue)
+		return pullRequestAPI{}, stateError("PR #%d body does not close issue #%d", pr.Number, issue)
 	}
-	return pr.URL, true, nil
+	return pr, nil
+}
+
+func (a app) observePublishedPRHead(root, branch string, issue int, previous, current pullRequestAPI, head string) (string, error) {
+	for attempt := 0; attempt < prHeadObservationAttempts; attempt++ {
+		if attempt != 0 {
+			var err error
+			current, err = a.readVerifiedOpenPullRequest(root, branch, issue, previous.Number)
+			if err != nil {
+				return "", err
+			}
+		}
+		if current.Head.SHA == head {
+			return current.URL, nil
+		}
+		if current.Head.SHA != previous.Head.SHA {
+			return "", stateError("open PR #%d head %s differs from published head %s and previously verified head %s", current.Number, current.Head.SHA, head, previous.Head.SHA)
+		}
+		if attempt+1 == prHeadObservationAttempts {
+			break
+		}
+		if a.prHeadObservationWait != nil {
+			a.prHeadObservationWait(prHeadObservationInterval)
+			continue
+		}
+		time.Sleep(prHeadObservationInterval)
+	}
+	return "", retryableOperation("PR head observation", fmt.Errorf("open PR #%d still reports previously verified head %s after %d observations; published head %s has not appeared", previous.Number, previous.Head.SHA, prHeadObservationAttempts, head))
 }
 
 func (a app) createDraftPullRequest(root, branch, title, body string) (string, error) {
