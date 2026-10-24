@@ -210,7 +210,7 @@ func TestDirectAllTokenFamilyAttributeExcludedOwners(t *testing.T) {
 				for _, owner := range []struct {
 					name, body, marker, spec string
 				}{
-					{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="item" type="xs:integer"/></xs:all>` + use + `</xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(XSDVersion10)},
+					{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="item" type="xs:integer"/></xs:all>` + use + `</xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(profile.version)},
 					{"extension all", `<xs:complexType name="Base"/><xs:complexType name="Box"><xs:complexContent><xs:extension base="t:Base"><xs:all><xs:element name="item" type="xs:integer"/></xs:all>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:attribute name="a"`, extensionSpecForNormalizedAll(profile.version)},
 				} {
 					t.Run(profile.name+"/"+kind+"/"+shape+"/"+owner.name, func(t *testing.T) {
@@ -219,6 +219,40 @@ func TestDirectAllTokenFamilyAttributeExcludedOwners(t *testing.T) {
 						assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, elementReferenceTestAttributeLoc(t, root, owner.marker), nil, owner.spec, ErrUnsupported)
 					})
 				}
+			}
+		}
+	}
+}
+
+func TestDirectAllTokenFamilyAttributeExcludedOwnerSiblingDiagnostics(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, kind := range []string{"token", "NMTOKEN"} {
+			for _, shape := range []string{"builtin", "named"} {
+				lexical, extra := "xs:"+kind, ""
+				if shape == "named" {
+					lexical = "t:Alias"
+					extra = `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType>`
+				}
+				use := `<xs:attribute name="a" type="` + lexical + `"/>`
+				for _, test := range []struct {
+					name, child, marker string
+				}{
+					{"group reference first", `<xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"/>`, `ref="t:Fields"`},
+					{"group minimum first", `<xs:group minOccurs="0" ref="t:Fields"/>`, `minOccurs="0"`},
+					{"group maximum first", `<xs:group maxOccurs="1" ref="t:Fields"/>`, `maxOccurs="1"`},
+					{"unknown child", `<xs:future/>`, `<xs:future/>`},
+				} {
+					t.Run(profile.name+"/"+kind+"/"+shape+"/"+test.name, func(t *testing.T) {
+						root := tokenFamilyLocalRoot(`<xs:element name="root"><xs:complexType>` + test.child + use + `</xs:complexType></xs:element>` + extra + `<xs:group name="Fields"><xs:sequence/></xs:group>`)
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+						assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, elementReferenceTestAttributeLoc(t, root, test.marker), nil, schemaSyntaxSpecRefForVersion(profile.version), ErrUnsupported)
+					})
+				}
+				t.Run(profile.name+"/"+kind+"/"+shape+"/invalid group bounds precede unsupported", func(t *testing.T) {
+					root := tokenFamilyLocalRoot(`<xs:element name="root"><xs:complexType><xs:group maxOccurs="0" ref="t:Fields"/>` + use + `</xs:complexType></xs:element>` + extra)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					checkStringAllDiagnostic(t, schema, err, FailureInvalid, invalidSchemaCompositionCode, elementReferenceTestAttributeLoc(t, root, `<xs:group`), []Loc{elementReferenceTestAttributeLoc(t, root, `maxOccurs="0"`)}, schemaParticleCorrectSpecRef(profile.version), errParticleOccurrenceMinimumExceedsMaximum)
+				})
 			}
 		}
 	}

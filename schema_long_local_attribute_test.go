@@ -548,7 +548,7 @@ func TestLongDirectAllOtherOwnersRemainUnsupported(t *testing.T) {
 			}
 			use := `<xs:attribute name="a" type="` + lexical + `"/>`
 			for _, shape := range []struct{ name, body, marker, spec string }{
-				{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="x" type="xs:integer"/></xs:all>` + use + `</xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(XSDVersion10)},
+				{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="x" type="xs:integer"/></xs:all>` + use + `</xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(profile.version)},
 				{"direct all extension", `<xs:complexType name="Base"/><xs:complexType name="Box"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="x" type="xs:integer"/></xs:all>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:attribute name="a"`, extensionSpecForNormalizedAll(profile.version)},
 			} {
 				t.Run(profile.name+"/"+kind+"/"+shape.name, func(t *testing.T) {

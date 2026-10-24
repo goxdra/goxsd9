@@ -158,7 +158,7 @@ func TestNamedGroupLocalConsumersRejectOpaqueGroup(t *testing.T) { //nolint:goco
 				root := namedGroupLocalRoot("1.1", "", shape.terms, declarations)
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
 				if owner == "inline" {
-					assertNamedGroupLocalFailure(t, schema, err, UnsupportedSchemaSyntaxCode, FailureUnsupported, namedGroupChoiceLoc(t, root, `ref="g:Outer"`), nil, schemaSyntaxSpecRefForVersion(XSDVersion10), nil)
+					assertNamedGroupLocalFailure(t, schema, err, UnsupportedSchemaSyntaxCode, FailureUnsupported, namedGroupChoiceLoc(t, root, `ref="g:Outer"`), nil, schemaSyntaxSpecRefForVersion(XSDVersion11), nil)
 					return
 				}
 				if err != nil {

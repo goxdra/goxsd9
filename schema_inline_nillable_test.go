@@ -363,17 +363,17 @@ func TestInlineNillableFalseKeepsBroaderInlineShapesExcluded(t *testing.T) {
 		{
 			name: "group reference", element: `<xs:element name="root" nillable="false"><xs:complexType><xs:group ref="t:Fields"/></xs:complexType></xs:element>`,
 			trailing: `<xs:group name="Fields"><xs:sequence/></xs:group>`, marker: `ref="t:Fields"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode,
-			spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
+			spec: schemaSyntaxSpecRefForVersion,
 		},
 		{
 			name: "zero group reference", element: `<xs:element name="root" nillable="0"><xs:complexType><xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"/></xs:complexType></xs:element>`,
 			trailing: `<xs:group name="Fields"><xs:sequence/></xs:group>`, marker: `ref="t:Fields"`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode,
-			spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
+			spec: schemaSyntaxSpecRefForVersion,
 		},
 		{
 			name: "all", element: `<xs:element name="root" nillable="0"><xs:complexType><xs:all><xs:element name="v" type="xs:integer"/></xs:all></xs:complexType></xs:element>`,
 			marker: `<xs:all>`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode,
-			spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() },
+			spec: schemaSyntaxSpecRefForVersion,
 		},
 		{
 			name: "named plus inline", element: `<xs:element name="root" type="t:Base" nillable="false"><xs:complexType/></xs:element>`,
@@ -432,7 +432,7 @@ func TestInlineNillableFalseKeepsSiblingAndReferencePrecedence(t *testing.T) {
 		}},
 		{name: "malformed before unsupported group", value: "maybe", body: `<xs:group ref="t:Missing"/>`, marker: `nillable="maybe"`, code: invalidSchemaCompositionCode, class: FailureInvalid},
 		{name: "false with invalid child", value: "false", body: `<xs:sequence><xs:element name="bad" type="xs:integer" abstract="true"/></xs:sequence>`, marker: `abstract="true"/>`, code: invalidSchemaCompositionCode, class: FailureInvalid},
-		{name: "false with unsupported group", value: "false", body: `<xs:group ref="t:Missing"/>`, marker: `ref="t:Missing"`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, spec: func(XSDVersion) string { return newSchemaSyntaxUnsupported(Loc{}, "").SpecRef() }},
+		{name: "false with unsupported group", value: "false", body: `<xs:group ref="t:Missing"/>`, marker: `ref="t:Missing"`, code: UnsupportedSchemaSyntaxCode, class: FailureUnsupported, spec: schemaSyntaxSpecRefForVersion},
 		{name: "false with invalid occurrence", value: "false", body: `<xs:sequence><xs:element ref="t:target" maxOccurs="many"/></xs:sequence>`, marker: `maxOccurs="many"`, code: invalidSchemaCompositionCode, class: FailureInvalid, spec: func(version XSDVersion) string {
 			if version == XSDVersion10 {
 				return "xsd10-datatypes#nonNegativeInteger"

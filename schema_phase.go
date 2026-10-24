@@ -1507,6 +1507,10 @@ func (candidate *schemaChildUnsupportedCandidate) consider(child *syntaxElement,
 	candidate.considerAt(child.loc, fmt.Sprintf("global %s child <%s> is not implemented", parent, child.name.local))
 }
 
+func (candidate *schemaChildUnsupportedCandidate) considerForVersion(child *syntaxElement, parent string, version XSDVersion) {
+	candidate.considerAtVersion(child.loc, fmt.Sprintf("global %s child <%s> is not implemented", parent, child.name.local), version)
+}
+
 func (candidate *schemaChildUnsupportedCandidate) considerAt(loc Loc, message string) {
 	candidate.considerAtVersion(loc, message, "")
 }
@@ -2725,7 +2729,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				}
 			}
 			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
-				candidate.consider(child, parent.name.local)
+				candidate.considerForVersion(child, parent.name.local, version)
 			}
 		case "all":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
@@ -2742,7 +2746,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				}
 			}
 			if len(syntaxAttributesByLocal(parent, "name")) != 1 && !candidate.present {
-				candidate.consider(child, parent.name.local)
+				candidate.considerForVersion(child, parent.name.local, version)
 			}
 		case "sequence":
 			if specialSeen || modelSeen || attributesSeen || anyAttributeSeen || assertSeen {
@@ -2797,7 +2801,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			if err := forbiddenGlobalSchemaChild(parent.name.local, child); err != nil {
 				return err
 			}
-			candidate.consider(child, parent.name.local)
+			candidate.considerForVersion(child, parent.name.local, version)
 		}
 	}
 	return candidate.err()
@@ -4998,11 +5002,11 @@ func validateGroupParticleWithOptions(element *syntaxElement, version XSDVersion
 			}
 			refSeen = true
 			if !allowOccurrences {
-				candidate.considerAt(attribute.loc, "group reference particles are not implemented")
+				candidate.considerAtVersion(attribute.loc, "group reference particles are not implemented", version)
 			}
 		case "minOccurs", "maxOccurs":
 			if !allowOccurrences {
-				candidate.considerAt(attribute.loc, fmt.Sprintf("group attribute %q is not implemented", attribute.name.local))
+				candidate.considerAtVersion(attribute.loc, fmt.Sprintf("group attribute %q is not implemented", attribute.name.local), version)
 			}
 		default:
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("group has forbidden attribute %q", attribute.name.local))

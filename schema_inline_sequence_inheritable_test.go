@@ -405,7 +405,7 @@ func TestAnonymousDirectFalseInheritableSiblingExits(t *testing.T) {
 		}
 		root := anonymousDirectInheritableSchema(`<xs:all/>`, `<xs:attribute name="a" type="xs:boolean" inheritable="false"/>`)
 		for _, candidate := range []string{root, strings.Replace(root, ` inheritable="false"`, "", 1)} {
-			assertInlineInheritableDiagnostic(t, candidate, policy, `<xs:all/>`, FailureUnsupported, UnsupportedSchemaSyntaxCode, "xsd10-structures#schema-document", ErrUnsupported)
+			assertInlineInheritableDiagnostic(t, candidate, policy, `<xs:all/>`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaSyntaxSpecRefForVersion(XSDVersion11), ErrUnsupported)
 		}
 	}
 }

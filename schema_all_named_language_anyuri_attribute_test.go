@@ -76,7 +76,7 @@ func TestNamedLanguageAnyURIDirectAllOtherOwnersExcluded(t *testing.T) {
 			use := `<xs:attribute name="value" type="r:Alias"/>`
 			for _, test := range []struct{ name, body, marker, spec string }{
 				{"all extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="item" type="xs:integer"/></xs:all>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:attribute name="value"`, extensionSpecForNormalizedAll(languageUseVersion(policy))},
-				{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="item" type="xs:integer"/></xs:all>` + use + `</xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(XSDVersion10)},
+				{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="item" type="xs:integer"/></xs:all>` + use + `</xs:complexType></xs:element>`, `<xs:all>`, schemaSyntaxSpecRefForVersion(languageUseVersion(policy))},
 			} {
 				t.Run(string(policy)+"/"+kind+"/"+test.name, func(t *testing.T) {
 					root := languageUseRoot(test.body + alias)
