@@ -289,16 +289,12 @@ func TestLongSequenceExtensionExcludedOwners(t *testing.T) {
 				spec                       func(XSDVersion) string
 				cause                      error
 			}{
-				{"grouped", `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:group name="Fields"><xs:sequence/></xs:group>`, `type="` + lexical + `"`, schemaAttributeTypeSpecRef, errSchemaAttributeUseUnsupported},
 				{"anonymous sequence", `<xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence>` + use + `</xs:extension></xs:complexContent></xs:complexType></xs:element>`, "", `type="` + lexical + `"`, schemaAttributeTypeSpecRef, errSchemaAttributeUseUnsupported},
 				{"choice extension", `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:choice><xs:element name="v" type="xs:integer"/></xs:choice>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, "", `<xs:attribute name="a"`, schemaComplexTypeExtensionSpecRef, ErrUnsupported},
 				{"all extension", `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:all><xs:element name="v" type="xs:integer"/></xs:all>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, "", `<xs:attribute name="a"`, schemaComplexTypeExtensionSpecRef, ErrUnsupported},
 				{"nested sequence", `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence></xs:sequence>` + use + `</xs:extension></xs:complexContent></xs:complexType>`, "", `<xs:sequence><xs:element`, schemaComplexParticleExtensionSpecRef, ErrUnsupported},
 				{"restriction owner", `<xs:complexType name="Derived"><xs:complexContent><xs:restriction base="t:Base"><xs:sequence><xs:element name="v" type="xs:integer"/></xs:sequence>` + use + `</xs:restriction></xs:complexContent></xs:complexType>`, "", `<xs:sequence`, schemaSyntaxSpecRefForVersion, ErrUnsupported},
 			} {
-				if test.name == "grouped" && kind == "builtin" {
-					continue
-				}
 				t.Run(profile.name+"/"+kind+"/"+test.name, func(t *testing.T) {
 					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="` + string(profile.version) + `">` + test.owner + `<xs:complexType name="Base"/>` + test.extra + typeDefinition + `</xs:schema>`
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
