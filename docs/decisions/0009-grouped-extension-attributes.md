@@ -125,10 +125,11 @@ semantics remain unsupported. For a local use, `name` is an
 unqualified NCName and `ref` is an expanded QName; they are mutually exclusive
 and do not share the global-declaration name path.
 Named grouped owners over supported empty use-free bases also query direct
-built-in `xs:token` and `xs:NMTOKEN` uses. Their effective whitespace is
-collapse, and the built-ins have no enumeration or local type ID. Named
-aliases, inline atomic/list/union types, attribute refs, value constraints,
-other owners, and both consumers remain outside this admission.
+built-in `xs:token` and `xs:NMTOKEN` uses and named effective atomic `xs:token`
+uses. Their effective whitespace is collapse; named token uses retain copied
+enumeration facts and type identity. Named `xs:NMTOKEN` aliases, inline
+atomic/list/union types, attribute refs, value constraints, other owners, and
+both consumers remain outside this admission.
 The same named grouped owners query direct built-in and supported named
 effective atomic `xs:long` uses. They retain intrinsic inclusive bounds and
 effective inherited or narrowed inclusive/exclusive bounds with facet values
