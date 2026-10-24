@@ -242,7 +242,6 @@ func TestBoundedLocalAttributeExcludedShapes(t *testing.T) {
 			for _, owner := range []struct{ name, before, after, extra string }{
 				{"choice", `<xs:complexType name="Box"><xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>`, `</xs:complexType>`, ""},
 				{"sequence", `<xs:complexType name="Box"><xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`, `</xs:complexType>`, ""},
-				{"all", `<xs:complexType name="Box"><xs:all><xs:element name="x" type="xs:integer"/></xs:all>`, `</xs:complexType>`, ""},
 				{"group", `<xs:complexType name="Box"><xs:group ref="r:Fields"/>`, `</xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
 				{"grouped extension", `<xs:complexType name="Box"><xs:complexContent><xs:extension base="r:Base"><xs:group ref="r:Fields"/>`, `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:complexType name="Base"/><xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
 				{"sequence extension", `<xs:complexType name="Box"><xs:complexContent><xs:extension base="r:Base"><xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`, `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:complexType name="Base"/>`},
@@ -255,6 +254,12 @@ func TestBoundedLocalAttributeExcludedShapes(t *testing.T) {
 						assertBoundedLocalExcluded(t, root, shape, profile)
 					})
 				}
+			}
+			for _, shape := range shapes[2:] {
+				t.Run(profile.name+"/"+family.name+"/all/"+shape.name, func(t *testing.T) {
+					root := boundedLocalRoot(string(profile.version), `<xs:complexType name="Box"><xs:all><xs:element name="x" type="xs:integer"/></xs:all>`+shape.body+`</xs:complexType>`+shape.extra)
+					assertBoundedLocalExcluded(t, root, shape, profile)
+				})
 			}
 			for _, variety := range []struct{ name, body string }{
 				{"named list", `<xs:attribute name="a" type="r:T"/></xs:complexType><xs:simpleType name="T"><xs:list itemType="xs:` + family.name + `"/></xs:simpleType>`},

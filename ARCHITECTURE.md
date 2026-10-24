@@ -8,7 +8,7 @@ flowchart LR
   B --> C["Document discovery queue"]
   C --> D["Component declarations and identities"]
   D --> E["Reference and derivation ordering"]
-  E --> F["Schema constraints and facets"]
+  E --> F["Constraints and facets"]
   F --> G["Immutable Schema"]
   G --> H["Instance validator"]
   G --> I["Go code generator"]
@@ -58,7 +58,7 @@ unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free simpleContent extensions query selected atomic bases; restrictions reject.
-Direct/extension particles model selected integer-family locals; named direct
+Direct/extension particles model selected integers; named direct
 adds sign restrictions. Built-in/named integers validate; other derivatives/
 extensions remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
@@ -83,7 +83,7 @@ Empty/choice/sequence/all; named direct-sequence extensions: built-in/facet-free
 named empty/choice/sequence; named direct-sequence extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`; named grouped: built-ins.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
 `xs:long`: empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/named atomic uses.
-Empty: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`.
+Named empty/all: built-in/named effective `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
