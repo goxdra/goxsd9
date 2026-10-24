@@ -7602,7 +7602,7 @@ func schemaNamedDirectLocalTokenFamilyAttributeTypeSupported(reference schemaSim
 			return true
 		}
 	case *schemaComplexTypeGroupedExtensionBodyInput:
-		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
+		return body != nil && (reference.kind == SimpleTypeReferenceBuiltin || (reference.kind == SimpleTypeReferenceNamed && reference.atomicKind == schemaSimpleTypeAtomicToken))
 	case *schemaComplexTypeExtensionBodyInput:
 		return schemaNamedSequenceExtensionTokenFamilySupported(body)
 	}
