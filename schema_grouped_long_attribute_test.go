@@ -142,7 +142,6 @@ func TestGroupedLongExcludedForms(t *testing.T) {
 			spec                              func(XSDVersion) string
 			cause                             error
 		}{
-			{"named alias", `<xs:attribute name="a" type="t:Alias"/>`, alias, `type="t:Alias"`, "", schemaAttributeTypeSpecRef, errSchemaAttributeUseUnsupported},
 			{"inline atomic", `<xs:attribute name="a">` + inline + `</xs:attribute>`, "", `<xs:simpleType`, "", schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnsupported},
 			{"inline list", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:long"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnsupported},
 			{"inline union", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="xs:long xs:int"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnsupported},
@@ -172,10 +171,13 @@ func TestGroupedLongExcludedForms(t *testing.T) {
 		anonymous := anonymousGroupedExtensionSchema(string(profile.version), "", groupedLongUse)
 		schema, err := discoverTestSchemaWithPolicy(t, anonymous, nil, profile.policy)
 		assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, anonymous, `type="xs:long"`), nil, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeUseUnsupported)
+		anonymous = anonymousGroupedExtensionSchema(string(profile.version), "", `<xs:attribute name="a" type="t:Alias"/>`)
+		anonymous = strings.Replace(anonymous, `</xs:schema>`, alias+`</xs:schema>`, 1)
+		schema, err = discoverTestSchemaWithPolicy(t, anonymous, nil, profile.policy)
+		assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, anonymous, `type="t:Alias"`), nil, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeUseUnsupported)
 	}
 }
 
-//nolint:gocognit // Alternate exits retain classification, location, cause, and edition reference.
 func TestGroupedLongOmissionAndAlternateExits(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		zero := groupedExtensionSchema(string(profile.version), ` minOccurs="0" maxOccurs="0"`, groupedLongUse+`<xs:attribute name="gone" type="xs:long" use="prohibited"/>`)
@@ -187,12 +189,7 @@ func TestGroupedLongOmissionAndAlternateExits(t *testing.T) {
 		if owner.Particle() != nil || len(owner.AttributeUses()) != 1 || owner.AttributeUses()[0].Name().Local() != "long" {
 			t.Fatalf("omissions = %#v/%#v", owner.Particle(), owner.AttributeUses())
 		}
-		for _, test := range []struct {
-			name, from, to, marker, related, code string
-			class                                 FailureClass
-			cause                                 error
-			spec                                  func(XSDVersion) string
-		}{
+		testGroupedLongExits(t, profile, zero, []groupedLongExit{
 			{"missing group", `ref="t:Fields"`, `ref="t:Missing"`, `ref="t:Missing"`, "", diagnosticSchemaModelGroupReferenceUnresolvedCode, FailureInvalid, errSchemaModelGroupReferenceUnresolved, schemaModelGroupReferenceSpecRef},
 			{"wrong group kind", `ref="t:Fields"`, `ref="t:root"`, `ref="t:root"`, `<xs:element name="root"`, diagnosticSchemaModelGroupReferenceWrongKindCode, FailureInvalid, errSchemaModelGroupReferenceWrongKind, schemaModelGroupReferenceSpecRef},
 			{"wrong base kind", `base="t:Base"`, `base="t:Fields"`, `base="t:Fields"`, `<xs:group name="Fields"`, invalidSchemaCompositionCode, FailureInvalid, errSchemaComplexTypeBaseWrongKind, schemaComplexTypeExtensionSpecRef},
@@ -200,20 +197,7 @@ func TestGroupedLongOmissionAndAlternateExits(t *testing.T) {
 			{"nonempty base", `<xs:complexType name="Base"/>`, `<xs:complexType name="Base"><xs:sequence><xs:element ref="t:root"/></xs:sequence></xs:complexType>`, `base="t:Base"`, `<xs:complexType name="Base"`, UnsupportedSchemaSyntaxCode, FailureUnsupported, errSchemaComplexTypeBaseNonEmpty, schemaComplexTypeExtensionSpecRef},
 			{"final base", `<xs:complexType name="Base"/>`, `<xs:complexType name="Base" final="extension"/>`, `base="t:Base"`, `final="extension"`, invalidSchemaCompositionCode, FailureInvalid, errSchemaComplexTypeBaseUnsupported, schemaComplexTypeExtensionSpecRef},
 			{"prohibited unresolved type", `type="xs:long" use="prohibited"`, `type="t:MissingType" use="prohibited"`, `type="t:MissingType"`, "", diagnosticSchemaAttributeTypeUnresolvedCode, FailureInvalid, errSchemaAttributeTypeUnresolved, schemaAttributeTypeSpecRef},
-		} {
-			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
-				root := strings.Replace(zero, test.from, test.to, 1)
-				failed, failureErr := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
-				var related []Loc
-				if test.related != "" {
-					related = []Loc{complexContentTestLoc(t, root, test.related)}
-				}
-				if test.name == "nonempty base" {
-					related = append(related, allParticleTestTokenLoc(t, "root.xsd", root, `<xs:sequence`, 2))
-				}
-				assertNCNameDiagnostic(t, failed, failureErr, test.class, test.code, complexContentTestLoc(t, root, test.marker), related, test.spec(profile.version), test.cause)
-			})
-		}
+		})
 		cycle := strings.Replace(zero, `<xs:group name="Fields"><xs:sequence/></xs:group>`, `<xs:group name="Fields"><xs:sequence><xs:group ref="t:Fields"/></xs:sequence></xs:group>`, 1)
 		failed, err := discoverTestSchemaWithPolicy(t, cycle, nil, profile.policy)
 		cycleSpec := "xsd11-structures#mg-props-correct"
