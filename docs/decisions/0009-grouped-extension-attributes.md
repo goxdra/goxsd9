@@ -130,10 +130,12 @@ collapse, and the built-ins have no enumeration or local type ID. Named
 aliases, inline atomic/list/union types, attribute refs, value constraints,
 other owners, and both consumers remain outside this admission.
 The same named grouped owners query direct built-in and supported named
-effective atomic `xs:long` uses with exact intrinsic and inherited inclusive
-bounds, supported digits and enumeration facets, and type provenance. Anonymous
-owners, inline atomic/list/union types, attribute refs, value constraints,
-richer bases, and both consumers remain outside this long admission.
+effective atomic `xs:long` uses. They retain intrinsic inclusive bounds and
+effective inherited or narrowed inclusive/exclusive bounds with facet values
+and source locations, supported digits and enumeration facets, and type
+provenance. Anonymous owners, inline atomic/list/union types, attribute refs,
+value constraints, richer bases, and both consumers remain outside this long
+admission.
 
 ## Phase representation and invariants
 

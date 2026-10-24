@@ -35,6 +35,55 @@ func TestGroupedFacetFreeNamedLong(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // The copied exclusive endpoints and their provenance form one public fact.
+func TestGroupedNamedLongInheritedAndNarrowedExclusiveBounds(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		root := groupedExtensionSchema(string(profile.version), "", `<xs:attribute name="named" type="t:Narrow"/>`)
+		types := `<xs:simpleType name="Narrow"><xs:restriction base="t:Wide"><xs:maxExclusive value="4"/></xs:restriction></xs:simpleType><xs:simpleType name="Wide"><xs:restriction base="xs:long"><xs:minExclusive value="-10"/><xs:maxExclusive value="10"/></xs:restriction></xs:simpleType>`
+		root = strings.Replace(root, `</xs:schema>`, types+`</xs:schema>`, 1)
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := modelGroupReferenceTestComplexTypeNamed(t, schema, "urn:root", "Derived")
+		uses := owner.AttributeUses()
+		if len(uses) != 1 {
+			t.Fatalf("uses = %v", uses)
+		}
+		use, ok := uses[0].(LocalAttributeUse)
+		if !ok {
+			t.Fatalf("named use = %T", uses[0])
+		}
+		ref, ok := use.TypeReference()
+		if !ok || !ref.IsNamed() || ref.Loc() != complexContentTestLoc(t, root, `type="t:Narrow"`) {
+			t.Fatalf("named reference = %#v", ref)
+		}
+		bounds, ok := ref.IntegerBounds()
+		if !ok || bounds.Version() != profile.version {
+			t.Fatalf("integer bounds = %v/%v", bounds, ok)
+		}
+		minimum, hasMinimum := bounds.MinExclusiveFacet()
+		maximum, hasMaximum := bounds.MaxExclusiveFacet()
+		_, hasMinInclusive := bounds.MinInclusiveFacet()
+		_, hasMaxInclusive := bounds.MaxInclusiveFacet()
+		if !hasMinimum || !hasMaximum || hasMinInclusive || hasMaxInclusive || minimum.Value().Canonical() != "-10" || maximum.Value().Canonical() != "4" || minimum.Loc() != complexContentTestLoc(t, root, `value="-10"`) || maximum.Loc() != complexContentTestLoc(t, root, `value="4"`) || minimum.Version() != profile.version || maximum.Version() != profile.version {
+			t.Fatalf("effective exclusive bounds = %v", bounds)
+		}
+		for _, bound := range bounds.Bounds() {
+			bound.Value().value.SetInt64(0)
+		}
+		fresh, ok := ref.IntegerBounds()
+		if !ok {
+			t.Fatal("reference lost integer bounds")
+		}
+		freshMin, freshHasMin := fresh.MinExclusiveFacet()
+		freshMax, freshHasMax := fresh.MaxExclusiveFacet()
+		if !freshHasMin || !freshHasMax || freshMin.Value().Canonical() != "-10" || freshMax.Value().Canonical() != "4" {
+			t.Fatalf("mutating copied bounds changed schema: %v", fresh)
+		}
+	}
+}
+
 //nolint:gocognit // One public view ties the grouped owner to completed named type facts.
 func TestGroupedNamedLongPublicFacts(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
