@@ -307,6 +307,83 @@ func TestSequenceBaseGroupExtensionDoesNotAdmitDeeperChain(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Compare equivalent omitted-group paths across both bases and all policies.
+func TestSequenceBaseGroupExtensionOmittedGroupCannotHideInheritedContentFromRestriction(t *testing.T) {
+	wildcard := `<xs:anyAttribute namespace="##other" processContents="lax"/>`
+	for _, shape := range []string{"direct", "extension"} {
+		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+			for _, prohibited := range []bool{false, true} {
+				name := shape + "/" + string(policy)
+				uses := ""
+				if prohibited {
+					name += "/prohibited"
+					uses = `<xs:attribute name="gone" type="xs:boolean" use="prohibited"/>`
+				}
+				t.Run(name, func(t *testing.T) {
+					root := sequenceBaseGroupExtensionSchema(shape, wildcard, ` minOccurs="0" maxOccurs="0"`, uses)
+					root = strings.Replace(root, `</xs:schema>`, `<xs:complexType name="Restricted"><xs:complexContent><xs:restriction base="t:Derived">`+wildcard+`</xs:restriction></xs:complexContent></xs:complexType></xs:schema>`, 1)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+					assertZeroSchema(t, schema)
+					d := requireDiagnostic(t, err)
+					version := XSDVersion11
+					if policy == Strict10 {
+						version = XSDVersion10
+					}
+					wantRelated := []Loc{
+						complexContentTestLoc(t, root, `<xs:complexType name="Derived"`),
+						complexContentTestLoc(t, root, `<xs:sequence><xs:element ref="t:note"`),
+					}
+					if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Feature() != FeatureSchemaSyntax || d.Loc() != complexContentTestLoc(t, root, `base="t:Derived"`) || !reflect.DeepEqual(d.Related(), wantRelated) || d.SpecRef() != schemaComplexTypeDerivationSpecRef(version) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) || !errors.Is(err, errSchemaComplexTypeBaseNonEmpty) {
+						t.Fatalf("restriction over inherited content: %v, related=%v", err, d.Related())
+					}
+				})
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Pair invalid final with its valid unsupported control for each base and policy.
+func TestSequenceBaseGroupExtensionFinalPrecedesUnsupportedComposition(t *testing.T) {
+	for _, shape := range []string{"direct", "extension"} {
+		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+			for _, final := range []bool{false, true} {
+				name := shape + "/" + string(policy)
+				if final {
+					name += "/final"
+				}
+				t.Run(name, func(t *testing.T) {
+					root := sequenceBaseGroupExtensionSchema(shape, "", "", `<xs:attribute name="used" type="xs:boolean"/>`)
+					if final {
+						root = strings.Replace(root, `<xs:complexType name="Base"`, `<xs:complexType name="Base" final="extension"`, 1)
+					}
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+					assertZeroSchema(t, schema)
+					d := requireDiagnostic(t, err)
+					version := XSDVersion11
+					if policy == Strict10 {
+						version = XSDVersion10
+					}
+					if final {
+						wantRelated := []Loc{complexContentTestLoc(t, root, `final="extension"`)}
+						if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != complexContentTestLoc(t, root, `base="t:Base"`) || !reflect.DeepEqual(d.Related(), wantRelated) || d.SpecRef() != schemaComplexTypeExtensionSpecRef(version) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+							t.Fatalf("final before unsupported: %v, related=%v", err, d.Related())
+						}
+						return
+					}
+					wantRelated := []Loc{complexContentTestLoc(t, root, `<xs:complexType name="Base"`)}
+					if shape == "extension" {
+						wantRelated = append(wantRelated, complexContentTestLoc(t, root, `<xs:extension base="t:Empty"`))
+					}
+					wantRelated = append(wantRelated, complexContentTestLoc(t, root, `<xs:sequence><xs:element ref="t:note"`))
+					if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Feature() != FeatureSchemaSyntax || d.Loc() != complexContentTestLoc(t, root, `base="t:Base"`) || !reflect.DeepEqual(d.Related(), wantRelated) || d.SpecRef() != schemaComplexTypeExtensionSpecRef(version) || !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+						t.Fatalf("valid unsupported control: %v, related=%v", err, d.Related())
+					}
+				})
+			}
+		}
+	}
+}
+
 func sequenceBaseGroupLastLoc(t *testing.T, source, marker string) Loc {
 	t.Helper()
 	index := strings.LastIndex(source, marker)

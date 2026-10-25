@@ -7090,7 +7090,7 @@ func restrictionWildcardPositiveSetSubset(derived, base schemaWildcardNamespaceC
 	return true
 }
 
-//nolint:gocognit // Every completed body variant is classified before restriction admission.
+//nolint:gocognit,funlen // Every completed body variant is classified before restriction admission.
 func (resolver *schemaComplexTypeResolver) restrictionBaseWildcard(body schemaComplexTypeBodyResult, baseLoc, referenceLoc Loc) (schemaAnyAttributeResult, error) {
 	var detail Loc
 	cause := fmt.Errorf("%w", errSchemaComplexTypeBaseUnsupported)
@@ -7118,7 +7118,15 @@ func (resolver *schemaComplexTypeResolver) restrictionBaseWildcard(body schemaCo
 			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "extension restriction base result is nil")
 		}
 		if typed.particle == nil && len(typed.attributeUses) == 0 {
-			return typed.anyAttribute, nil
+			sequence, hasSequence, err := resolver.completedOptionalReferenceSequenceBase(typed.base)
+			if err != nil {
+				return schemaAnyAttributeResult{}, err
+			}
+			if !hasSequence {
+				return typed.anyAttribute, nil
+			}
+			detail = sequence.Loc()
+			cause = errors.Join(cause, errSchemaComplexTypeBaseNonEmpty)
 		}
 		if typed.particle != nil {
 			detail = typed.particle.Loc()
@@ -7145,7 +7153,14 @@ func (resolver *schemaComplexTypeResolver) restrictionBaseWildcard(body schemaCo
 		if typed == nil {
 			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "grouped restriction base result is nil")
 		}
-		// Group composition needs its own effective particle and use relation.
+		sequence, hasSequence, err := resolver.completedOptionalReferenceSequenceBase(typed.base)
+		if err != nil {
+			return schemaAnyAttributeResult{}, err
+		}
+		if hasSequence {
+			detail = sequence.Loc()
+			cause = errors.Join(cause, errSchemaComplexTypeBaseNonEmpty)
+		}
 	case *schemaComplexTypeSimpleContentBodyResult:
 		if typed == nil {
 			return schemaAnyAttributeResult{}, newSchemaBridgeInvariant(baseLoc, "simple-content restriction base result is nil")
@@ -7162,6 +7177,27 @@ func (resolver *schemaComplexTypeResolver) restrictionBaseWildcard(body schemaCo
 		"named complex type restriction base has unsupported content or attribute uses",
 		related, resolver.version,
 		fmt.Errorf("%w: nonempty particle or attribute uses", cause))
+}
+
+// The completed base is the source of inherited content when a direct group
+// is omitted. Resolve it on demand; the extension body retains only authored
+// content and the resolved base reference.
+func (resolver *schemaComplexTypeResolver) completedOptionalReferenceSequenceBase(reference schemaComplexTypeReferenceComponent) (SequenceParticle, bool, error) {
+	if reference.kind != ComplexTypeReferenceNamed || !reference.hasID || reference.id.IsZero() {
+		return SequenceParticle{}, false, newSchemaBridgeInvariant(reference.loc, "extension base has no resolved named identity")
+	}
+	for index, record := range resolver.records {
+		if record.id != reference.id {
+			continue
+		}
+		completed := resolver.results[index]
+		if !completed.present || completed.body == nil {
+			return SequenceParticle{}, false, newSchemaBridgeInvariant(reference.loc, "extension base has no completed body")
+		}
+		content, ok := schemaComposeOptionalReferenceSequenceBase(completed.body, nil)
+		return content.base, ok, nil
+	}
+	return SequenceParticle{}, false, newSchemaBridgeInvariant(reference.loc, "extension base identity is absent")
 }
 
 type schemaAttributeUseTypeResult struct {
@@ -8338,6 +8374,9 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 			"extension base has no completed complex type result",
 		)
 	}
+	if finalErr := resolver.rejectExtensionFinal(base, reference.name, input.loc); finalErr != nil {
+		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, finalErr
+	}
 	var composed bool
 	var inherited schemaAnyAttributeResult
 	if sequenceGroup {
@@ -8352,9 +8391,6 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 	}
 	if err != nil {
 		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, err
-	}
-	if finalErr := resolver.rejectExtensionFinal(base, reference.name, input.loc); finalErr != nil {
-		return schemaComplexTypeReferenceComponent{}, schemaAnyAttributeResult{}, finalErr
 	}
 	reference.id = resolver.records[candidate].id
 	reference.hasID = true
