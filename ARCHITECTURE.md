@@ -83,7 +83,7 @@ Empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/fa
 named empty/choice/sequence; named direct-sequence/grouped extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
 `xs:long`: empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/named atomic uses.
-Named empty/all: built-in/named effective `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes.
+Named empty/all: built-in/named effective `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes; grouped extensions: direct built-ins.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
