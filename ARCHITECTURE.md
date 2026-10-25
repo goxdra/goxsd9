@@ -65,7 +65,7 @@ Named direct choices/sequences retain opaque choice/sequence group refs. Refs/cy
 Anonymous empty-base extensions admit ref-only choice and nested group-ref/element-ref sequence; broader nesting/groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
-wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
+wildcard/`all` reject. Cycles XSD3062; use/occurrence/wildcard gates precede `RefLoc` refusal.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
 `Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
 `0/0` omits; anonymous complex members/consumers reject.

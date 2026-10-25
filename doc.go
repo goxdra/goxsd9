@@ -504,8 +504,9 @@
 // attribute-free extensions over named empty-content bases or named
 // complexContent/restriction over built-in xs:anyType with representable
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
-// target members. Direct model-group references retain `RefLoc`/`TargetID`;
-// validation and generation reject them at the group RefLoc.
+// target members. Direct model-group references retain `RefLoc`/`TargetID`.
+// Both consumers reject with located diagnostics. Direct-owner use, occurrence,
+// and wildcard gates can precede the group RefLoc gate; GenerateGo returns nil output.
 // Named and global-element inline complexContent restrictions expose completed
 // named empty, attribute-only, direct, extension, or restriction bases with nil
 // effective particle and zero effective attribute uses. Derived wildcards need
