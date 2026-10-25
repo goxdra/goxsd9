@@ -436,7 +436,7 @@ func TestSchemaModelGroupReferenceParticleKeepsExcludedShapesUnsupported(t *test
 		name  string
 		model string
 	}{
-		{name: "nested choice", model: `<xs:complexType name="Container"><xs:choice><xs:group ref="r:G"/></xs:choice></xs:complexType>`},
+		{name: "nested choice", model: `<xs:complexType name="Container"><xs:choice><xs:choice><xs:group ref="r:G"/></xs:choice></xs:choice></xs:complexType>`},
 		{name: "local group declaration", model: `<xs:complexType name="Container"><xs:group name="Local"><xs:choice/></xs:group></xs:complexType>`},
 	} {
 		t.Run(test.name, func(t *testing.T) {

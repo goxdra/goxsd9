@@ -58,15 +58,11 @@ unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
-Direct/extension particles model selected integers; named direct
-adds sign restrictions. Built-in/named integers validate; other derivatives/
-extensions remain query-only.
+Direct/extension particles retain selected integers; built-in/named validate, other derivatives remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
-Named direct choice/sequence and named-group sequence/nested-choice locals match `targetNamespace`.
-Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate.
-Groups nest opposites; refs precede `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Anonymous empty-base extensions admit ref-only choice, nested group-ref/element-ref sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
-Broader nesting/direct groups/wildcards/locals/nested attributes reject.
+Compatibility/Strict11 named locals may match `targetNamespace`; Strict10/form/ref conflicts invalidate. Groups nest opposites; refs precede `0/0`; sequences/nested choices retain copied lexical/type facts.
+Named direct choices/sequences retain opaque choice/sequence group refs. Refs/cycles precede omission; UPA/type conflicts invalidate, unproved attribution is unsupported. Attributes persist; consumers reject.
+Anonymous empty-base extensions admit ref-only choice and nested group-ref/element-ref sequence; facts persist. Broader nesting/groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.

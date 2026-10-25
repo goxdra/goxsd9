@@ -363,8 +363,6 @@ func TestNamedGroupSequenceReferenceExclusionsStayLocated(t *testing.T) {
 		}{
 			{"named nested sequence", `<xs:group name="Outer"><xs:sequence><xs:sequence><xs:group ref="g:Target"/></xs:sequence></xs:sequence></xs:group>`, `ref="g:Target"`},
 			{"named all target", `<xs:group name="Outer"><xs:sequence><xs:group ref="g:Target"/></xs:sequence></xs:group><xs:group name="Target"><xs:all/></xs:group>`, `<xs:all`},
-			{"direct complex choice", `<xs:complexType name="Container"><xs:choice><xs:group ref="g:Target"/></xs:choice></xs:complexType>`, `ref="g:Target"`},
-			{"direct complex sequence", `<xs:complexType name="Container"><xs:sequence><xs:group ref="g:Target"/></xs:sequence></xs:complexType>`, `ref="g:Target"`},
 			{"inline complex choice", `<xs:element name="root"><xs:complexType><xs:choice><xs:group ref="g:Target"/></xs:choice></xs:complexType></xs:element>`, `ref="g:Target"`},
 			{"inline complex sequence", `<xs:element name="root"><xs:complexType><xs:sequence><xs:group ref="g:Target"/></xs:sequence></xs:complexType></xs:element>`, `ref="g:Target"`},
 			{"inline complex direct ref", `<xs:element name="root"><xs:complexType><xs:group ref="g:Target"/></xs:complexType></xs:element>`, `ref="g:Target"`},

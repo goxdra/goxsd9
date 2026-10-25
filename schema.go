@@ -3460,13 +3460,16 @@ func resolveSchemaBuildResults(
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
+	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes, version)
+	if err != nil {
+		return schemaBuildResolution{}, err
+	}
 	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, attributes, groupedExtensions, version)
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
-	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes, version)
-	if err != nil {
-		return schemaBuildResolution{}, err
+	if proofErr := validateSchemaDirectGroupOwners(records, byName, visibleSources, complexTypes, modelGroups, version); proofErr != nil {
+		return schemaBuildResolution{}, proofErr
 	}
 	elements, err := resolveSchemaElementTypes(records, byName, visibleSources, simpleTypes, complexTypes, version)
 	if err != nil {

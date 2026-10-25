@@ -102,6 +102,10 @@
 // Direct and supported extension
 // choices/sequences retain exact finite, unbounded, and above-uint64 occurrences;
 // bounded describes the supported derivation/base shape, not occurrence limits.
+// Named direct choices/sequences also retain opaque references to supported
+// named choice/sequence groups with exact occurrences, target IDs, written
+// QNames, and use-site locations. Unproved attribution is explicitly unsupported;
+// validation and generation reject these references.
 // In named direct choices/sequences, Compatibility/Strict11 map a collapsed
 // explicit local-element targetNamespace matching the effective containing
 // namespace to the same QName as form="qualified". Strict10 rejects the

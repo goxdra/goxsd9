@@ -509,7 +509,6 @@ func TestDirectGroupLanguageAnyURIOwnerShapesStayExcluded(t *testing.T) {
 				name, body, extra, marker, spec string
 			}{
 				{"anonymous direct group", `<xs:element name="root"><xs:complexType><xs:group ref="r:Fields"/>` + attribute + `</xs:complexType></xs:element>`, directGroupChoice, `ref="r:Fields"`, "xsd10-structures#schema-document"},
-				{"nested direct group", `<xs:complexType name="Record"><xs:choice><xs:group ref="r:Fields"/></xs:choice>` + attribute + `</xs:complexType>`, directGroupChoice, `ref="r:Fields"`, "xsd10-structures#schema-document"},
 				{"richer group target", directGroupLanguageOwner(`<xs:group ref="r:Fields"/>`, attribute), `<xs:group name="Fields"><xs:all/></xs:group>`, `<xs:all`, directGroupUnsupportedSyntaxSpecRef(languageUseVersion(policy))},
 				{"richer recursive target", directGroupLanguageOwner(`<xs:group ref="r:Fields"/>`, attribute), `<xs:group name="Fields"><xs:choice><xs:choice><xs:group ref="r:Fields"/></xs:choice></xs:choice></xs:group>`, `ref="r:Fields"/></xs:choice></xs:choice>`, directGroupUnsupportedSyntaxSpecRef(languageUseVersion(policy))},
 			} {

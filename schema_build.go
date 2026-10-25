@@ -64,6 +64,7 @@ const (
 	diagnosticSchemaAttributeUseIDDuplicateCode      = "XSD3061"
 	diagnosticSchemaModelGroupReferenceCycleCode     = "XSD3062"
 	diagnosticSchemaGroupElementConsistencyCode      = "XSD3063"
+	diagnosticSchemaDirectGroupUPACode               = "XSD3064"
 )
 
 const (
@@ -154,6 +155,8 @@ var (
 	errSchemaElementReferenceNamespace           = errors.New("element reference namespace is not imported")
 	errSchemaElementReferenceDuplicate           = errors.New("element reference particle is duplicated")
 	errSchemaGroupElementConsistency             = errors.New("named model-group element declarations are inconsistent")
+	errSchemaDirectGroupUPA                      = errors.New("direct model-group particles have ambiguous attribution")
+	errSchemaDirectGroupProofUnsupported         = errors.New("direct model-group attribution proof is unfinished")
 	errSchemaAllMemberDuplicate                  = errors.New("all particle member has a duplicate expanded name")
 	errSchemaAllMemberScalar                     = errors.New("all particle member has an unsupported scalar type")
 	errSchemaUnsignedLong10FacetLexical          = errors.New("XSD 1.0 unsignedLong facet has a signed lexical value")
@@ -2603,7 +2606,7 @@ func schemaChoiceComplexTypeInput(model *syntaxElement, occurrences particleOccu
 		if !ok || child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
+		alternative, err := schemaDirectNamedParticleTermInput(child, facts, version, !occurrences.mapsToParticle())
 		if err != nil {
 			return nil, err
 		}
@@ -2633,7 +2636,7 @@ func schemaSequenceComplexTypeInput(model *syntaxElement, occurrences particleOc
 		if child.name.local == "annotation" {
 			continue
 		}
-		alternative, err := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
+		alternative, err := schemaDirectNamedParticleTermInput(child, facts, version, !occurrences.mapsToParticle())
 		if err != nil {
 			return nil, err
 		}
@@ -2900,6 +2903,17 @@ func schemaParticleTermInputFromElementWithFacts(element *syntaxElement, facts s
 	default:
 		return nil, newSchemaBridgeInvariant(element.loc, "supported particle term has an unknown child")
 	}
+}
+
+func schemaDirectNamedParticleTermInput(element *syntaxElement, facts schemaDocumentFacts, version XSDVersion, ownerOmitted bool) (schemaParticleTermInput, error) {
+	if element.name.local != "group" {
+		return schemaParticleTermInputFromElementWithFacts(element, facts, version, ownerOmitted)
+	}
+	occurrences, err := schemaParticleOccurrenceRange(element, version)
+	if err != nil {
+		return nil, err
+	}
+	return schemaModelGroupReferenceParticleInputFromElementWithFacts(element, occurrences, facts)
 }
 
 func schemaModelGroupReferenceParticleInputFromElementWithFacts(
@@ -9639,6 +9653,11 @@ func schemaParticleTermInputReference(input schemaParticleTermInput) (*schemaEle
 				return nil, false, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
 			}
 			return nil, false, nil
+		case *schemaModelGroupReferenceParticleInput:
+			if term == nil {
+				return nil, false, newSchemaBridgeInvariant(Loc{}, "particle term has a nil group reference input")
+			}
+			return nil, false, nil
 		default:
 			return nil, false, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown reference input")
 		}
@@ -9688,6 +9707,8 @@ func resolveSchemaParticleTerm(
 			return nil, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
 		}
 		return resolveSchemaWildcardParticle(*term, owner)
+	case *schemaModelGroupReferenceParticleInput:
+		return resolveSchemaModelGroupReferenceParticle(term, owner, records, byName, visibleSources, version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown input")
 	}
