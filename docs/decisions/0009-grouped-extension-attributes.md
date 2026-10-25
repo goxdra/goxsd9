@@ -112,8 +112,9 @@ The local attribute name is separate from simple-type `final` controls. For
 this type, local inline simple types, attribute references, required uses,
 default/fixed values, other owners, generic union/list uses, and consumers
 remain unsupported.
-Named grouped owners admit direct built-in `xs:language` and `xs:anyURI` uses;
-named aliases, inline varieties, references, values, and consumers remain outside
+Named grouped owners admit built-in and named facet-free effective atomic
+`xs:language` and `xs:anyURI` uses, including named restriction chains;
+inline varieties, references, values, and consumers remain outside
 that admission. `xs:QName` remains outside grouped-extension local attribute
 admission. Named grouped owners admit built-in and named effective atomic
 `xs:NCName` declarations with copied enumeration facts. Built-in and named

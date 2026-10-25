@@ -374,27 +374,16 @@ func TestSequenceExtensionNamedLanguageAnyURIInvisibleType(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, kind := range []string{"language", "anyURI"} {
 			root := namedSequenceLanguageAnyURIRoot(kind, `<xs:attribute name="value" type="o:Hidden"/>`, "")
-			root = strings.Replace(root, `xmlns:t="urn:root"`, `xmlns:t="urn:root" xmlns:o="urn:other"`, 1)
-			root = strings.Replace(root, `<xs:element name="root"`, `<xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/><xs:element name="root"`, 1)
-			bridge := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge"><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
-			other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:simpleType name="Hidden"><xs:restriction base="xs:` + kind + `"/></xs:simpleType></xs:schema>`
-			fixtures := map[string]discoveryFixture{"bridge.xsd": {id: "bridge.xsd", contents: bridge}, "other.xsd": {id: "other.xsd", contents: other}}
-			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
-			assertZeroSchema(t, schema)
-			d := requireDiagnostic(t, err)
-			if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaAttributeTypeUnresolvedCode || d.Loc() != complexContentTestLoc(t, root, `type="o:Hidden"`) || d.SpecRef() != schemaAttributeTypeSpecRef(languageUseVersion(policy)) || len(d.Related()) != 0 || !errors.Is(err, errSchemaAttributeTypeUnresolved) {
-				t.Fatalf("invisible = %v related=%v", err, d.Related())
-			}
+			testNamedLanguageAnyURIInvisibleType(t, root, kind, policy)
 		}
 	}
 }
 
-// The named sequence exception must not reach grouped or anonymous owners.
+// Named aliases remain unavailable to anonymous extension owners.
 func TestSequenceExtensionNamedLanguageAnyURIExcludedOwners(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, kind := range []string{"language", "anyURI"} {
 			for _, test := range []struct{ name, body, extra, marker string }{
-				{"grouped extension", `<xs:complexType name="Base"/><xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"><xs:group ref="t:Fields"/><xs:attribute name="value" type="t:Child"/></xs:extension></xs:complexContent></xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="t:target"/></xs:sequence></xs:group><xs:element name="target" type="xs:integer"/>`, `type="t:Child"`},
 				{"anonymous extension", `<xs:complexType name="Base"/><xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:element name="local" type="xs:integer"/></xs:sequence><xs:attribute name="value" type="t:Child"/></xs:extension></xs:complexContent></xs:complexType></xs:element>`, "", `type="t:Child"`},
 			} {
 				t.Run(string(policy)+"/"+kind+"/"+test.name, func(t *testing.T) {

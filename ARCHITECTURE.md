@@ -79,7 +79,7 @@ Compatibility/Strict11 omit false/0 `inheritable` for named empty/all/choice/seq
 Grouped/direct-sequence extensions require empty, use-free named bases; wildcards inherited.
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
-Empty/choice/sequence/all; named direct-sequence extensions: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-group and grouped-extension owners: built-ins;
+Empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-group owners: built-ins;
 named empty/choice/sequence; named direct-sequence/grouped extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
 `xs:long`: empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/named atomic uses.

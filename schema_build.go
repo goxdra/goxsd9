@@ -7571,7 +7571,7 @@ func schemaNamedLanguageAnyURIOwnerSupported(reference schemaSimpleTypeReference
 			return reference.kind == SimpleTypeReferenceBuiltin
 		}
 	case *schemaComplexTypeGroupedExtensionBodyInput:
-		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
+		return body != nil
 	case *schemaComplexTypeExtensionBodyInput:
 		if body == nil {
 			return false
