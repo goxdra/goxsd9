@@ -6879,14 +6879,7 @@ func (resolver *schemaComplexTypeResolver) resolveSchemaComplexTypeSimpleContent
 	if err != nil {
 		return nil, err
 	}
-	if extension.typeReference.atomicKind == schemaSimpleTypeAtomicToken || extension.typeReference.atomicKind == schemaSimpleTypeAtomicNMTOKEN || extension.typeReference.atomicKind == schemaSimpleTypeAtomicNormalizedString {
-		baseKind := "token"
-		if extension.typeReference.atomicKind == schemaSimpleTypeAtomicNMTOKEN {
-			baseKind = "NMTOKEN"
-		}
-		if extension.typeReference.atomicKind == schemaSimpleTypeAtomicNormalizedString {
-			baseKind = "normalizedString"
-		}
+	if baseKind := schemaSimpleContentNamedOnlyBaseKind(extension.typeReference.atomicKind); baseKind != "" {
 		if owner.kind != ComponentKindComplexTypeDefinition || owner.complexType == nil {
 			return nil, unsupportedSchemaSimpleContentBase(
 				body.simpleContentLoc,
@@ -6951,7 +6944,7 @@ func (resolver *schemaComplexTypeResolver) resolveSimpleContentExtension(body *s
 	if finalErr := resolver.rejectExtensionFinal(base, body.base.name, body.base.loc); finalErr != nil {
 		return schemaSimpleContentExtension{}, finalErr
 	}
-	if targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicToken && targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicNMTOKEN && targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicNormalizedString {
+	if schemaSimpleContentNamedOnlyBaseKind(targetBody.extension.typeReference.atomicKind) == "" {
 		return schemaSimpleContentExtension{}, err
 	}
 	return schemaSimpleContentExtension{}, unsupportedSchemaSimpleContentBase(
@@ -7862,6 +7855,9 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 		schemaSimpleTypeAtomicDecimal,
 		schemaSimpleTypeAtomicPrecisionDecimal:
 		return true
+	case schemaSimpleTypeAtomicLanguage, schemaSimpleTypeAtomicAnyURI:
+		_, ok := reference.facets.(schemaAtomicFacetVariant)
+		return ok
 	case schemaSimpleTypeAtomicUnknown,
 		schemaSimpleTypeAtomicInt,
 		schemaSimpleTypeAtomicShort,
@@ -7872,14 +7868,47 @@ func schemaSimpleContentScalarTypeSupported(reference schemaSimpleTypeReferenceC
 		schemaSimpleTypeAtomicNonNegativeInteger,
 		schemaSimpleTypeAtomicNonPositiveInteger,
 		schemaSimpleTypeAtomicPositiveInteger,
-		schemaSimpleTypeAtomicLanguage,
 		schemaSimpleTypeAtomicNCName,
-		schemaSimpleTypeAtomicAnyURI,
 		schemaSimpleTypeAtomicID,
 		schemaSimpleTypeAtomicQName:
 		return false
 	default:
 		return false
+	}
+}
+
+func schemaSimpleContentNamedOnlyBaseKind(kind schemaSimpleTypeAtomicKind) string {
+	switch kind {
+	case schemaSimpleTypeAtomicToken:
+		return "token"
+	case schemaSimpleTypeAtomicNMTOKEN:
+		return "NMTOKEN"
+	case schemaSimpleTypeAtomicNormalizedString:
+		return "normalizedString"
+	case schemaSimpleTypeAtomicLanguage:
+		return "language"
+	case schemaSimpleTypeAtomicAnyURI:
+		return "anyURI"
+	case schemaSimpleTypeAtomicUnknown,
+		schemaSimpleTypeAtomicString,
+		schemaSimpleTypeAtomicInteger,
+		schemaSimpleTypeAtomicLong,
+		schemaSimpleTypeAtomicInt,
+		schemaSimpleTypeAtomicShort,
+		schemaSimpleTypeAtomicByte,
+		schemaSimpleTypeAtomicUnsignedLong,
+		schemaSimpleTypeAtomicNegativeInteger,
+		schemaSimpleTypeAtomicNonNegativeInteger,
+		schemaSimpleTypeAtomicNonPositiveInteger,
+		schemaSimpleTypeAtomicPositiveInteger,
+		schemaSimpleTypeAtomicDecimal,
+		schemaSimpleTypeAtomicPrecisionDecimal,
+		schemaSimpleTypeAtomicNCName,
+		schemaSimpleTypeAtomicID,
+		schemaSimpleTypeAtomicQName:
+		return ""
+	default:
+		return ""
 	}
 }
 
@@ -7917,7 +7946,7 @@ func resolveSchemaSimpleContentExtension(
 			fmt.Errorf("%w: %q", errSchemaSimpleContentBaseUnsupported, input.base.name),
 		)
 	}
-	if base.atomicKind == schemaSimpleTypeAtomicToken || base.atomicKind == schemaSimpleTypeAtomicNMTOKEN || base.atomicKind == schemaSimpleTypeAtomicNormalizedString {
+	if schemaSimpleContentNamedOnlyBaseKind(base.atomicKind) != "" {
 		finalErr := simpleTypes.resolver.rejectSchemaSimpleTypeFinal(base, schemaSimpleTypeFinalExtension, "simpleContent extension base", input.base.loc, version)
 		if finalErr != nil {
 			var diagnostic Diagnostic

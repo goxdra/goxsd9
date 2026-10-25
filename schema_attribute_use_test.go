@@ -827,7 +827,7 @@ func TestSchemaBridgeClassifiesSimpleContentBaseFailures(t *testing.T) {
 		},
 		{
 			name:  "identity-only type",
-			base:  "xs:language",
+			base:  "xs:ID",
 			class: FailureUnsupported,
 			code:  UnsupportedSchemaSyntaxCode,
 			cause: errSchemaSimpleContentBaseUnsupported,
