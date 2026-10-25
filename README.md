@@ -21,13 +21,11 @@ Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
 Named empty/choice/sequence/all/grouped/sequence-extension query facet-free `xs:ID`; inline grouped/sequence extensions query atomic uses. Consumers reject. Empty `block` overrides named empty complexes/untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals, anonymous global-element inline grouped/direct-sequence non-ID locals, and untyped globals; refs reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
-Extension choices omit attributes.
 Anonymous empty-base extensions query ref-only choices and nested group-ref/element-ref sequences, alone or combined. Bounds/order/`Loc`s/wildcards persist; deeper nesting/attributes reject.
 Anonymous empty-base ref-sequence extensions query built-in `xs:token`/`xs:anyURI`; consumers reject.
-Named/global-inline wildcard-only restrictions query empty/use-free named bases with ##any/##other/positive-set wildcard subsets; validation/generation reject.
-Named-group sequences/nested choices: atomic integer/string/token; consumers reject.
-Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
-named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
+Wildcard-only restrictions query empty named bases with ##any/##other/positive-set subsets; consumers reject.
+Named-group sequences/nested choices query integer/string/token; consumers reject.
+Named-complex choices/sequences query `xs:positiveInteger`/`xs:nonPositiveInteger`; direct owners add `xs:normalizedString` facets and opaque refs to supported named choice/sequence groups: bounds, ID, QName, `Loc`. Unproved attribution unsupported; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
 default integer/decimal sequence refs; other targets/occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
@@ -36,8 +34,6 @@ built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInte
 Compatibility/Strict11 query strict `xs:any` `notQName`; consumers reject.
 
 ## CLI
-
-`goxsd9` commands: `parse`, `validate`, `generate`:
 
 ```sh
 go run ./cmd/goxsd9 parse schema.xsd
