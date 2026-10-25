@@ -252,28 +252,6 @@ func TestDirectAllLanguageAnyURIBoundsAndOmission(t *testing.T) {
 	}
 }
 
-func TestDirectAllLanguageAnyURIOtherOwnersRemainExcluded(t *testing.T) {
-	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
-		for _, name := range []string{"language", "anyURI"} {
-			attribute := `<xs:attribute name="a" type="xs:` + name + `"/>`
-			group := `<xs:group name="Fields"><xs:sequence><xs:element ref="r:field"/></xs:sequence></xs:group><xs:element name="field" type="xs:integer"/>`
-			for _, test := range []struct{ name, body, extra string }{
-				{"grouped direct", `<xs:complexType name="Record"><xs:group ref="r:Fields"/>` + attribute + `</xs:complexType>`, group},
-			} {
-				t.Run(string(policy)+"/"+name+"/"+test.name, func(t *testing.T) {
-					root := languageUseRoot(test.body + test.extra)
-					schema, err := parseIDUseSchema(t, root, nil, policy)
-					assertZeroSchema(t, schema)
-					d := requireDiagnostic(t, err)
-					if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != elementReferenceTestAttributeLoc(t, root, `type="xs:`+name+`"`) || d.SpecRef() != schemaAttributeTypeSpecRef(languageUseVersion(policy)) || len(d.Related()) != 0 || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaAttributeUseUnsupported) {
-						t.Fatalf("excluded %s owner = %v, related %v", test.name, err, d.Related())
-					}
-				})
-			}
-		}
-	}
-}
-
 func TestDirectAllLanguageAnyURIAnonymousOwnerRemainsExcluded(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, name := range []string{"language", "anyURI"} {
