@@ -7567,6 +7567,8 @@ func schemaNamedLanguageAnyURIOwnerSupported(reference schemaSimpleTypeReference
 		switch body.particle.(type) {
 		case *schemaChoiceParticleInput, *schemaSequenceParticleInput, *schemaAllParticleInput:
 			return true
+		case *schemaModelGroupReferenceParticleInput:
+			return reference.kind == SimpleTypeReferenceBuiltin
 		}
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
