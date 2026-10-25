@@ -507,6 +507,9 @@
 // complexContent/restriction over built-in xs:anyType with representable
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
 // target members. Direct model-group references retain `RefLoc`/`TargetID`.
+// Admission checks effective substitution members for attribution and all
+// contained declarations, including abstract heads, for element consistency.
+// Unproved member derivation or attribution returns located unsupported.
 // Both consumers reject with located diagnostics. Direct-owner use, occurrence,
 // and wildcard gates can precede the group RefLoc gate; GenerateGo returns nil output.
 // Named and global-element inline complexContent restrictions expose completed

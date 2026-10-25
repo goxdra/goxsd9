@@ -3485,7 +3485,7 @@ func resolveSchemaBuildResults(
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
-	if proofErr := validateSchemaDirectGroupOwners(records, byName, visibleSources, complexTypes, modelGroups, elements, version); proofErr != nil {
+	if proofErr := validateSchemaDirectGroupOwners(records, byName, visibleSources, complexTypes, modelGroups, elements, simpleTypes, version); proofErr != nil {
 		return schemaBuildResolution{}, proofErr
 	}
 	if err := validateSchemaModelGroupLocalOverlaps(records, modelGroups, version); err != nil {

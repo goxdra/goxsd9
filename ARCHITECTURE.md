@@ -61,9 +61,8 @@ Attribute-free named simpleContent queries facet-free language/anyURI; restricti
 Default Boolean/integer/decimal choice refs validate; bounded-list/union negativeInteger validates. Other long/sign and extension locals remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Compatibility/Strict11 locals may match `targetNamespace`; Strict10/form/ref conflicts invalidate. Groups nest opposites; refs precede `0/0`; sequences/nested choices retain lexical/type facts.
-Named direct choices/sequences retain opaque choice/sequence group refs. Refs/cycles precede omission; UPA/type conflicts invalidate, unproved attribution is unsupported. Attributes persist; consumers reject.
+Named direct choices/sequences retain opaque group refs. Refs/cycles precede omission. Proof uses substitution members for UPA, abstract declarations for EDC, and head blocks. Proven conflicts invalidate; unproved derivation/attribution is located unsupported. Attributes persist; consumers reject.
 Anonymous empty-base extensions admit ref-only choice and nested group-ref/element-ref sequence; broader nesting/groups/wildcards/locals/nested attributes reject.
-Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; use/occurrence/wildcard gates precede `RefLoc` refusal.
 Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
@@ -109,7 +108,6 @@ Validated local lists use precisionDecimal; unions pair precisionDecimal/negativ
 Named grouped extensions query optional local `final` through structurally
 matched named `xs:simpleDerivationSet`; its union/list values and consumers reject.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
-Named direct choices/sequences query built-in/named `normalizedString`; consumers reject.
 Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
 
 ## Datatypes

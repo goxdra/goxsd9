@@ -180,19 +180,190 @@ func TestDirectNamedGroupDisjointSubstitutionStillAdmits(t *testing.T) {
 	}
 }
 
-func TestDirectNamedGroupUnprovedSubstitutionBlockIsLocated(t *testing.T) {
+func TestDirectNamedGroupHeadRestrictionExcludesDerivedMember(t *testing.T) {
 	for _, profile := range directGroupProofProfiles() {
 		t.Run(profile.name, func(t *testing.T) {
 			root := directGroupProofRoot(profile.version, `<xs:simpleType name="Small"><xs:restriction base="xs:integer"/></xs:simpleType>
-<xs:complexType name="Owner"><xs:sequence><xs:group ref="g:C"/></xs:sequence></xs:complexType>
+<xs:complexType name="Owner"><xs:choice><xs:group ref="g:C"/><xs:element ref="g:m"/></xs:choice></xs:complexType>
 <xs:group name="C"><xs:choice><xs:element ref="g:h"/></xs:choice></xs:group>
-<xs:element name="h" type="xs:integer" block="restriction"/><xs:element name="m" type="g:Small" substitutionGroup="g:h"/>`)
+<xs:element name="h" type="xs:integer" block="restriction"/><xs:element name="mid" type="xs:integer" substitutionGroup="g:h"/><xs:element name="m" type="g:Small" substitutionGroup="g:mid"/>`)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := modelGroupReferenceTestComplexTypeNamed(t, schema, "urn:direct-group", "Owner")
+			choice, ok := owner.Particle().(ChoiceParticle)
+			if !ok || len(choice.Alternatives()) != 2 {
+				t.Fatalf("blocked transitive member owner = %T", owner.Particle())
+			}
+		})
+	}
+}
+
+func TestDirectNamedGroupOriginalHeadSubstitutionProof(t *testing.T) { //nolint:gocognit // Each row isolates a normative block or declaration exit.
+	for _, profile := range directGroupProofProfiles() {
+		for _, test := range []struct {
+			name, model, head, mid, member    string
+			code, primary, related, memberLoc string
+		}{
+			{
+				name:   "intermediate substitution block UPA",
+				model:  `<xs:choice><xs:group ref="g:C"/><xs:element ref="g:m"/></xs:choice>`,
+				head:   `<xs:element name="h" type="xs:integer"/>`,
+				mid:    `<xs:element name="mid" type="xs:integer" substitutionGroup="g:h" block="substitution"/>`,
+				member: `<xs:element name="m" type="xs:integer" substitutionGroup="g:mid"/>`,
+				code:   diagnosticSchemaDirectGroupUPACode, primary: `ref="g:m"`, related: `ref="g:h"`, memberLoc: `<xs:element name="m"`,
+			},
+			{
+				name:   "intermediate substitution block EDC",
+				model:  `<xs:sequence><xs:group ref="g:C"/><xs:element name="m" type="xs:string"/></xs:sequence>`,
+				head:   `<xs:element name="h" type="xs:integer"/>`,
+				mid:    `<xs:element name="mid" type="xs:integer" substitutionGroup="g:h" block="substitution"/>`,
+				member: `<xs:element name="m" type="xs:integer" substitutionGroup="g:mid"/>`,
+				code:   diagnosticSchemaGroupElementConsistencyCode, primary: `<xs:element name="m" type="xs:string"`, related: `ref="g:h"`, memberLoc: `<xs:element name="m" type="xs:integer"`,
+			},
+			{
+				name:   "abstract referenced declaration EDC",
+				model:  `<xs:sequence><xs:group ref="g:C"/><xs:element name="h" type="xs:string"/></xs:sequence>`,
+				head:   `<xs:element name="h" type="xs:integer" abstract="true"/>`,
+				mid:    `<xs:element name="mid" type="xs:integer" substitutionGroup="g:h"/>`,
+				member: `<xs:element name="m" type="xs:integer" substitutionGroup="g:mid"/>`,
+				code:   diagnosticSchemaGroupElementConsistencyCode, primary: `<xs:element name="h" type="xs:string"`, related: `ref="g:h"`,
+			},
+			{
+				name:   "head restriction same type UPA",
+				model:  `<xs:choice><xs:group ref="g:C"/><xs:element ref="g:m"/></xs:choice>`,
+				head:   `<xs:element name="h" type="xs:integer" block="restriction"/>`,
+				mid:    `<xs:element name="mid" type="xs:integer" substitutionGroup="g:h"/>`,
+				member: `<xs:element name="m" type="xs:integer" substitutionGroup="g:mid"/>`,
+				code:   diagnosticSchemaDirectGroupUPACode, primary: `ref="g:m"`, related: `ref="g:h"`, memberLoc: `<xs:element name="m"`,
+			},
+			{
+				name:   "head extension permits restriction UPA",
+				model:  `<xs:choice><xs:group ref="g:C"/><xs:element ref="g:m"/></xs:choice>`,
+				head:   `<xs:element name="h" type="xs:integer" block="extension"/>`,
+				mid:    `<xs:element name="mid" type="xs:integer" substitutionGroup="g:h"/>`,
+				member: `<xs:simpleType name="Small"><xs:restriction base="xs:integer"/></xs:simpleType><xs:element name="m" type="g:Small" substitutionGroup="g:mid"/>`,
+				code:   diagnosticSchemaDirectGroupUPACode, primary: `ref="g:m"`, related: `ref="g:h"`, memberLoc: `<xs:element name="m"`,
+			},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := directGroupProofRoot(profile.version, `<xs:complexType name="Owner">`+test.model+`</xs:complexType><xs:group name="C"><xs:choice><xs:element ref="g:h"/></xs:choice></xs:group>`+test.head+test.mid+test.member)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantRelated := []Loc{namedGroupChoiceLoc(t, root, test.related), namedGroupChoiceLoc(t, root, test.primary)}
+				if test.memberLoc != "" {
+					wantRelated = append(wantRelated, namedGroupChoiceLoc(t, root, test.memberLoc))
+				}
+				wantCause := errSchemaDirectGroupUPA
+				wantRef := schemaGroupNonAmbiguousSpecRef(profile.facts)
+				if test.code == diagnosticSchemaGroupElementConsistencyCode {
+					wantCause = errSchemaGroupElementConsistency
+					wantRef = schemaGroupElementConsistencySpecRef(profile.facts)
+				}
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code || diagnostic.Loc() != namedGroupChoiceLoc(t, root, test.primary) || diagnostic.SpecRef() != wantRef || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || !errors.Is(err, wantCause) {
+					t.Fatalf("substitution proof = %v; related %v want %v", err, diagnostic.Related(), wantRelated)
+				}
+			})
+		}
+	}
+}
+
+func TestDirectNamedGroupSubstitutionBlockBoundaries(t *testing.T) { //nolint:gocognit // Keep the three block-position controls together.
+	for _, profile := range directGroupProofProfiles() {
+		for _, test := range []struct {
+			name, groupHead, headBlock, mid, member, model string
+		}{
+			{"original head substitution block", "h", "substitution", `<xs:element name="mid" type="xs:integer" substitutionGroup="g:h"/>`, `<xs:element name="m" type="xs:integer" substitutionGroup="g:mid"/>`, `<xs:choice><xs:group ref="g:C"/><xs:element ref="g:m"/></xs:choice>`},
+			{"intermediate substitution block at intermediate use", "mid", "", `<xs:element name="mid" type="xs:integer" substitutionGroup="g:h" block="substitution"/>`, `<xs:element name="m" type="xs:integer" substitutionGroup="g:mid"/>`, `<xs:choice><xs:group ref="g:C"/><xs:element ref="g:m"/></xs:choice>`},
+			{"restriction through two named bases", "h", "restriction", `<xs:element name="mid" type="xs:integer" substitutionGroup="g:h"/>`, `<xs:simpleType name="Small"><xs:restriction base="xs:integer"/></xs:simpleType><xs:simpleType name="Tiny"><xs:restriction base="g:Small"/></xs:simpleType><xs:element name="m" type="g:Tiny" substitutionGroup="g:mid"/>`, `<xs:choice><xs:group ref="g:C"/><xs:element ref="g:m"/></xs:choice>`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				head := `<xs:element name="h" type="xs:integer"`
+				if test.headBlock != "" {
+					head += ` block="` + test.headBlock + `"`
+				}
+				head += `/>`
+				root := directGroupProofRoot(profile.version, `<xs:complexType name="Owner">`+test.model+`</xs:complexType><xs:group name="C"><xs:choice><xs:element ref="g:`+test.groupHead+`"/></xs:choice></xs:group>`+head+test.mid+test.member)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				owner := modelGroupReferenceTestComplexTypeNamed(t, schema, "urn:direct-group", "Owner")
+				choice, ok := owner.Particle().(ChoiceParticle)
+				if !ok || len(choice.Alternatives()) != 2 {
+					t.Fatalf("blocked substitution owner = %T", owner.Particle())
+				}
+			})
+		}
+	}
+}
+
+func TestDirectNamedGroupUnknownFullDerivationIsLocated(t *testing.T) {
+	for _, profile := range directGroupProofProfiles() {
+		for _, headBlock := range []string{"", ` block="restriction"`} {
+			name := "no block"
+			if headBlock != "" {
+				name = "restriction block"
+			}
+			t.Run(profile.name+"/"+name, func(t *testing.T) {
+				root := directGroupProofRoot(profile.version, `<xs:simpleType name="Small"><xs:restriction base="xs:long"/></xs:simpleType>
+<xs:complexType name="Owner"><xs:choice><xs:group ref="g:C"/><xs:element ref="g:m"/></xs:choice></xs:complexType>
+<xs:group name="C"><xs:choice><xs:element ref="g:h"/></xs:choice></xs:group>
+<xs:element name="h" type="xs:integer"`+headBlock+`/><xs:element name="mid" type="xs:integer" substitutionGroup="g:h"/><xs:element name="m" type="g:Small" substitutionGroup="g:mid"/>`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				wantRelated := []Loc{namedGroupChoiceLoc(t, root, `ref="g:h"`), namedGroupChoiceLoc(t, root, `<xs:element name="m"`)}
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != namedGroupChoiceLoc(t, root, `ref="g:C"`) || diagnostic.SpecRef() != schemaGroupNonAmbiguousSpecRef(profile.facts) || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || !errors.Is(err, errSchemaDirectGroupProofUnsupported) {
+					t.Fatalf("unknown full derivation = %v; related %v", err, diagnostic.Related())
+				}
+			})
+		}
+	}
+}
+
+func TestDirectNamedGroupAbstractHeadConsistencyPrecedesUnprovedMembership(t *testing.T) {
+	for _, profile := range directGroupProofProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			root := directGroupProofRoot(profile.version, `<xs:simpleType name="Small"><xs:restriction base="xs:long"/></xs:simpleType>
+<xs:complexType name="Owner"><xs:sequence><xs:group ref="g:C"/><xs:element name="h" type="xs:string"/></xs:sequence></xs:complexType>
+<xs:group name="C"><xs:choice><xs:element ref="g:h"/></xs:choice></xs:group>
+<xs:element name="h" type="xs:integer" abstract="true" block="restriction"/><xs:element name="mid" type="xs:integer" substitutionGroup="g:h"/><xs:element name="m" type="g:Small" substitutionGroup="g:mid"/>`)
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
 			assertZeroSchema(t, schema)
 			diagnostic := requireDiagnostic(t, err)
-			wantRelated := []Loc{namedGroupChoiceLoc(t, root, `ref="g:h"`), namedGroupChoiceLoc(t, root, `<xs:element name="m"`)}
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != namedGroupChoiceLoc(t, root, `ref="g:C"`) || diagnostic.SpecRef() != schemaGroupNonAmbiguousSpecRef(profile.facts) || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || !errors.Is(err, errSchemaDirectGroupProofUnsupported) {
-				t.Fatalf("uncertain block = %v; related %v", err, diagnostic.Related())
+			wantRelated := []Loc{namedGroupChoiceLoc(t, root, `ref="g:h"`), namedGroupChoiceLoc(t, root, `<xs:element name="h" type="xs:string"`)}
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaGroupElementConsistencyCode || diagnostic.Loc() != wantRelated[1] || diagnostic.SpecRef() != schemaGroupElementConsistencySpecRef(profile.facts) || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || !errors.Is(err, errSchemaGroupElementConsistency) {
+				t.Fatalf("known abstract EDC = %v; related %v", err, diagnostic.Related())
+			}
+		})
+	}
+}
+
+func TestDirectNamedGroupAbstractAttributionEditionBoundary(t *testing.T) { //nolint:gocognit // Compare the edition-specific public result in one fixture.
+	for _, profile := range directGroupProofProfiles() {
+		t.Run(profile.name, func(t *testing.T) {
+			root := directGroupProofRoot(profile.version, `<xs:complexType name="Owner"><xs:choice><xs:group ref="g:C"/><xs:element name="h" type="xs:integer"/></xs:choice></xs:complexType>
+<xs:group name="C"><xs:choice><xs:element ref="g:h"/></xs:choice></xs:group>
+<xs:element name="h" type="xs:integer" abstract="true"/><xs:element name="m" type="xs:integer" substitutionGroup="g:h"/>`)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if profile.policy == Strict10 {
+				if err != nil {
+					t.Fatal(err)
+				}
+				owner := modelGroupReferenceTestComplexTypeNamed(t, schema, "urn:direct-group", "Owner")
+				if _, ok := owner.Particle().(ChoiceParticle); !ok {
+					t.Fatalf("strict10 abstract choice = %T", owner.Particle())
+				}
+				return
+			}
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			wantRelated := []Loc{namedGroupChoiceLoc(t, root, `ref="g:h"`), namedGroupChoiceLoc(t, root, `<xs:element name="h" type="xs:integer"/>`)}
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantRelated[1] || diagnostic.SpecRef() != schemaGroupNonAmbiguousSpecRef(profile.facts) || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || !errors.Is(err, errSchemaDirectGroupProofUnsupported) {
+				t.Fatalf("abstract attribution = %v; related %v", err, diagnostic.Related())
 			}
 		})
 	}

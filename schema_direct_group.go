@@ -1,27 +1,33 @@
 package goxsd9
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // This proof is transient. Direct owners retain only their authored particles.
 type schemaDirectGroupLeaf struct {
-	name         QName
-	declaredType QName
-	loc          Loc
-	useLoc       Loc
-	declLoc      Loc
-	targetID     ComponentID
+	name           QName
+	declaredType   QName
+	loc            Loc
+	useLoc         Loc
+	declLoc        Loc
+	targetID       ComponentID
+	uncertainMatch bool
 }
 
 type schemaDirectGroupProof struct {
-	first      []schemaDirectGroupLeaf
-	leaves     []schemaDirectGroupLeaf
-	nullable   bool
-	simple     bool
-	variable   bool
-	repeatSafe bool
+	first       []schemaDirectGroupLeaf
+	leaves      []schemaDirectGroupLeaf // declarations for element consistency
+	matchLeaves []schemaDirectGroupLeaf
+	pending     error
+	nullable    bool
+	simple      bool
+	variable    bool
+	repeatSafe  bool
 }
 
-func validateSchemaDirectGroupOwners(records []schemaComponentRecord, byName map[QName][]int, visibleSources map[SourceID][]SourceID, complexes []schemaComplexTypeResult, groups []schemaModelGroupResult, elements []schemaElementTypeResult, version XSDVersion) error {
+func validateSchemaDirectGroupOwners(records []schemaComponentRecord, byName map[QName][]int, visibleSources map[SourceID][]SourceID, complexes []schemaComplexTypeResult, groups []schemaModelGroupResult, elements []schemaElementTypeResult, simpleTypes schemaSimpleTypeResolution, version XSDVersion) error { //nolint:gocognit // Keep owner and omitted-term proof ordering together.
 	if len(complexes) != len(records) || len(groups) != len(records) || len(elements) != len(records) {
 		return newSchemaBridgeInvariant(Loc{}, "direct group proof has incomplete phase results")
 	}
@@ -33,21 +39,25 @@ func validateSchemaDirectGroupOwners(records []schemaComponentRecord, byName map
 		if !ok || body == nil || !schemaDirectBodyContainsGroupTerm(body.particle) {
 			continue
 		}
-		if err := schemaProveOmittedDirectGroupTerms(body.particle, record, records, byName, visibleSources, groups, elements, version); err != nil {
+		if err := schemaProveOmittedDirectGroupTerms(body.particle, record, records, byName, visibleSources, groups, elements, simpleTypes, version); err != nil {
 			return err
 		}
 		resolved, ok := complexes[index].body.(*schemaComplexTypeDirectBodyResult)
 		if !ok || resolved == nil || resolved.particle == nil || !schemaResolvedDirectGroupTerm(resolved.particle) {
 			continue
 		}
-		if _, err := schemaProveDirectGroupParticle(resolved.particle, records, groups, elements, version, Loc{}); err != nil {
+		proof, err := schemaProveDirectGroupParticle(resolved.particle, records, groups, elements, simpleTypes, version, Loc{})
+		if err != nil {
 			return err
+		}
+		if proof.pending != nil {
+			return proof.pending
 		}
 	}
 	return nil
 }
 
-func schemaProveOmittedDirectGroupTerms(model schemaComplexTypeParticleInput, owner schemaComponentRecord, records []schemaComponentRecord, byName map[QName][]int, visibleSources map[SourceID][]SourceID, groups []schemaModelGroupResult, elements []schemaElementTypeResult, version XSDVersion) error {
+func schemaProveOmittedDirectGroupTerms(model schemaComplexTypeParticleInput, owner schemaComponentRecord, records []schemaComponentRecord, byName map[QName][]int, visibleSources map[SourceID][]SourceID, groups []schemaModelGroupResult, elements []schemaElementTypeResult, simpleTypes schemaSimpleTypeResolution, version XSDVersion) error {
 	var terms []schemaParticleTermInput
 	var ownerOmitted bool
 	switch particle := model.(type) {
@@ -72,8 +82,12 @@ func schemaProveOmittedDirectGroupTerms(model schemaComplexTypeParticleInput, ow
 		if !groups[target].present {
 			return newSchemaBridgeInvariant(group.reference.loc, "omitted direct group target is incomplete")
 		}
-		if _, err := schemaProveDirectGroupParticle(groups[target].particle, records, groups, elements, version, group.reference.loc); err != nil {
+		proof, err := schemaProveDirectGroupParticle(groups[target].particle, records, groups, elements, simpleTypes, version, group.reference.loc)
+		if err != nil {
 			return err
+		}
+		if proof.pending != nil {
+			return proof.pending
 		}
 	}
 	return nil
@@ -123,7 +137,7 @@ func schemaDirectBodyContainsGroupTerm(particle schemaComplexTypeParticleInput) 
 
 // schemaProveDirectGroupParticle expands only temporary proof facts. It never
 // changes the published model-group reference or stores a consumer program.
-func schemaProveDirectGroupParticle(particle Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, elements []schemaElementTypeResult, version XSDVersion, useLoc Loc) (schemaDirectGroupProof, error) { //nolint:gocognit,funlen // Each particle variant has distinct attribution facts.
+func schemaProveDirectGroupParticle(particle Particle, records []schemaComponentRecord, groups []schemaModelGroupResult, elements []schemaElementTypeResult, simpleTypes schemaSimpleTypeResolution, version XSDVersion, useLoc Loc) (schemaDirectGroupProof, error) { //nolint:gocognit,funlen // Each particle variant has distinct attribution facts.
 	if particle == nil {
 		return schemaDirectGroupProof{nullable: true}, nil
 	}
@@ -133,16 +147,16 @@ func schemaProveDirectGroupParticle(particle Particle, records []schemaComponent
 			return schemaDirectGroupProof{}, newSchemaBridgeInvariant(Loc{}, "direct group proof has an empty local element")
 		}
 		leaf := schemaDirectGroupLeaf{name: term.Name(), declaredType: term.DeclaredType(), loc: term.Loc(), useLoc: useLoc}
-		return schemaApplyDirectGroupOccurrences(schemaDirectGroupProof{first: []schemaDirectGroupLeaf{leaf}, leaves: []schemaDirectGroupLeaf{leaf}, simple: true, repeatSafe: true}, term.Occurrences(), term.Loc(), useLoc, version)
+		return schemaApplyDirectGroupOccurrences(schemaDirectGroupProof{first: []schemaDirectGroupLeaf{leaf}, leaves: []schemaDirectGroupLeaf{leaf}, matchLeaves: []schemaDirectGroupLeaf{leaf}, simple: true, repeatSafe: true}, term.Occurrences(), term.Loc(), useLoc, version)
 	case ElementReferenceParticle:
 		if term.facts == nil {
 			return schemaDirectGroupProof{}, newSchemaBridgeInvariant(Loc{}, "direct group proof has an empty element reference")
 		}
-		leaves, err := schemaDirectGroupAcceptedLeaves(term, records, elements, version, useLoc)
+		declarations, matches, pending, err := schemaDirectGroupAcceptedLeaves(term, records, elements, simpleTypes, version, useLoc)
 		if err != nil {
 			return schemaDirectGroupProof{}, err
 		}
-		return schemaApplyDirectGroupOccurrences(schemaDirectGroupProof{first: leaves, leaves: leaves, simple: true, repeatSafe: true}, term.Occurrences(), term.Loc(), useLoc, version)
+		return schemaApplyDirectGroupOccurrences(schemaDirectGroupProof{first: matches, leaves: declarations, matchLeaves: matches, pending: pending, simple: true, repeatSafe: true}, term.Occurrences(), term.Loc(), useLoc, version)
 	case ModelGroupReferenceParticle:
 		if term.facts == nil {
 			return schemaDirectGroupProof{}, newSchemaBridgeInvariant(Loc{}, "direct group proof has an empty model-group reference")
@@ -154,7 +168,7 @@ func schemaProveDirectGroupParticle(particle Particle, records []schemaComponent
 		if useLoc.IsZero() {
 			useLoc = term.RefLoc()
 		}
-		proof, err := schemaProveDirectGroupParticle(groups[index].particle, records, groups, elements, version, useLoc)
+		proof, err := schemaProveDirectGroupParticle(groups[index].particle, records, groups, elements, simpleTypes, version, useLoc)
 		if err != nil {
 			return schemaDirectGroupProof{}, err
 		}
@@ -165,18 +179,22 @@ func schemaProveDirectGroupParticle(particle Particle, records []schemaComponent
 		}
 		proof := schemaDirectGroupProof{repeatSafe: true}
 		for _, alternative := range term.Alternatives() {
-			current, err := schemaProveDirectGroupParticle(alternative, records, groups, elements, version, useLoc)
+			current, err := schemaProveDirectGroupParticle(alternative, records, groups, elements, simpleTypes, version, useLoc)
 			if err != nil {
 				return schemaDirectGroupProof{}, err
 			}
-			if err := schemaCheckDirectGroupLeaves(proof.leaves, current.leaves, version, useLoc); err != nil {
+			if err := schemaDirectGroupRecordProofError(&proof, schemaCheckDirectGroupLeaves(proof.leaves, current.leaves, version, useLoc)); err != nil {
 				return schemaDirectGroupProof{}, err
 			}
-			if err := schemaCheckDirectGroupFirst(proof.first, current.first, version, useLoc, true, false); err != nil {
+			if err := schemaDirectGroupRecordProofError(&proof, schemaCheckDirectGroupFirst(proof.first, current.first, version, useLoc, true, false)); err != nil {
 				return schemaDirectGroupProof{}, err
 			}
 			proof.first = append(proof.first, current.first...)
 			proof.leaves = append(proof.leaves, current.leaves...)
+			proof.matchLeaves = append(proof.matchLeaves, current.matchLeaves...)
+			if proof.pending == nil {
+				proof.pending = current.pending
+			}
 			proof.nullable = proof.nullable || current.nullable
 			proof.simple = len(term.Alternatives()) == 1 && current.simple
 			proof.variable = len(term.Alternatives()) == 1 && current.variable
@@ -190,29 +208,33 @@ func schemaProveDirectGroupParticle(particle Particle, records []schemaComponent
 		proof := schemaDirectGroupProof{nullable: true, repeatSafe: len(term.Particles()) == 1}
 		previous := schemaDirectGroupProof{}
 		for _, child := range term.Particles() {
-			current, err := schemaProveDirectGroupParticle(child, records, groups, elements, version, useLoc)
+			current, err := schemaProveDirectGroupParticle(child, records, groups, elements, simpleTypes, version, useLoc)
 			if err != nil {
 				return schemaDirectGroupProof{}, err
 			}
-			if err := schemaCheckDirectGroupLeaves(proof.leaves, current.leaves, version, useLoc); err != nil {
+			if err := schemaDirectGroupRecordProofError(&proof, schemaCheckDirectGroupLeaves(proof.leaves, current.leaves, version, useLoc)); err != nil {
 				return schemaDirectGroupProof{}, err
 			}
 			if previous.simple && current.simple && previous.variable {
-				if err := schemaCheckDirectGroupFirst(previous.first, current.first, version, useLoc, false, true); err != nil {
+				if err := schemaDirectGroupRecordProofError(&proof, schemaCheckDirectGroupFirst(previous.first, current.first, version, useLoc, false, true)); err != nil {
 					return schemaDirectGroupProof{}, err
 				}
 			}
-			prior := proof.leaves
-			if previous.simple && current.simple && !previous.variable && !previous.nullable && len(previous.leaves) == 1 && len(prior) > 0 {
+			prior := proof.matchLeaves
+			if previous.simple && current.simple && !previous.variable && !previous.nullable && len(previous.matchLeaves) == 1 && len(prior) > 0 {
 				prior = prior[:len(prior)-1]
 			}
-			if err := schemaCheckDirectGroupFirst(prior, current.first, version, useLoc, false, false); err != nil {
+			if err := schemaDirectGroupRecordProofError(&proof, schemaCheckDirectGroupFirst(prior, current.first, version, useLoc, false, false)); err != nil {
 				return schemaDirectGroupProof{}, err
 			}
 			if proof.nullable {
 				proof.first = append(proof.first, current.first...)
 			}
 			proof.leaves = append(proof.leaves, current.leaves...)
+			proof.matchLeaves = append(proof.matchLeaves, current.matchLeaves...)
+			if proof.pending == nil {
+				proof.pending = current.pending
+			}
 			proof.nullable = proof.nullable && current.nullable
 			proof.simple = len(term.Particles()) == 1 && current.simple
 			proof.variable = len(term.Particles()) == 1 && current.variable
@@ -242,13 +264,29 @@ func schemaApplyDirectGroupOccurrences(proof schemaDirectGroupProof, occurrences
 		if len(proof.first) > 0 {
 			related = append(related, proof.first[0].loc)
 		}
-		return schemaDirectGroupProof{}, schemaDirectGroupUnsupported(loc, related, version, "attribution across a repeated model-group boundary is not proved")
+		if proof.pending == nil {
+			proof.pending = schemaDirectGroupUnsupported(loc, related, version, "attribution across a repeated model-group boundary is not proved")
+		}
 	}
 	if occurrences.Minimum().String() == "0" {
 		proof.nullable = true
 	}
 	proof.variable = proof.variable || occurrences.Minimum().String() != maximum
 	return proof, nil
+}
+
+func schemaDirectGroupRecordProofError(proof *schemaDirectGroupProof, err error) error {
+	if err == nil {
+		return nil
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported || !errors.Is(err, errSchemaDirectGroupProofUnsupported) {
+		return err
+	}
+	if proof.pending == nil {
+		proof.pending = err
+	}
+	return nil
 }
 
 func schemaCheckDirectGroupLeaves(first, later []schemaDirectGroupLeaf, version XSDVersion, useLoc Loc) error {
@@ -285,6 +323,9 @@ func schemaCheckDirectGroupFirst(first, later []schemaDirectGroupLeaf, version X
 			}
 			loc := schemaDirectGroupPrimary(current, useLoc)
 			related := schemaDirectGroupConflictRelated(prior, current)
+			if prior.uncertainMatch || current.uncertainMatch {
+				return schemaDirectGroupUnsupported(loc, related, version, "abstract element attribution with a direct model-group reference is not proved")
+			}
 			if choice || definiteSequence {
 				return Diagnostic{class: FailureInvalid, code: diagnosticSchemaDirectGroupUPACode, loc: loc, related: related, message: fmt.Sprintf("elements %q have ambiguous attribution", current.name), specRef: schemaGroupNonAmbiguousSpecRef(version), cause: errSchemaDirectGroupUPA}
 			}
