@@ -246,7 +246,6 @@ func TestNamedLanguageAnyURIAttributeExcludedOwners(t *testing.T) {
 		for _, kind := range []string{"language", "anyURI"} {
 			for _, test := range []struct{ name, body string }{
 				{"grouped", `<xs:complexType name="Record"><xs:group ref="r:Fields"/><xs:attribute name="value" type="r:Alias"/></xs:complexType><xs:group name="Fields"><xs:sequence><xs:element ref="r:item"/></xs:sequence></xs:group><xs:element name="item" type="xs:integer"/>`},
-				{"grouped extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:group ref="r:Fields"/><xs:attribute name="value" type="r:Alias"/></xs:extension></xs:complexContent></xs:complexType><xs:group name="Fields"><xs:sequence><xs:element ref="r:item"/></xs:sequence></xs:group><xs:element name="item" type="xs:integer"/>`},
 				{"anonymous", `<xs:element name="root"><xs:complexType><xs:attribute name="value" type="r:Alias"/></xs:complexType></xs:element>`},
 				{"simpleContent", `<xs:complexType name="Record"><xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="value" type="r:Alias"/></xs:extension></xs:simpleContent></xs:complexType>`},
 			} {

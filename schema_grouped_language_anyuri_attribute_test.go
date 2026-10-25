@@ -164,7 +164,6 @@ func TestGroupedLanguageAnyURIExcludedUseForms(t *testing.T) {
 				useSpec                           bool
 				cause                             error
 			}{
-				{"named alias", `<xs:attribute name="a" type="t:Alias"/>`, alias, `type="t:Alias"`, "", false, errSchemaAttributeUseUnsupported},
 				{"inline atomic", `<xs:attribute name="a">` + inline + `</xs:attribute>`, "", `<xs:simpleType`, "", false, errSchemaAttributeUseUnsupported},
 				{"inline list", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:` + name + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", false, errSchemaAttributeUseUnsupported},
 				{"inline union", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="xs:` + name + ` xs:` + name + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", false, errSchemaAttributeUseUnsupported},

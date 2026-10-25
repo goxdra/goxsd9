@@ -351,7 +351,7 @@
 // Named empty, direct choice, direct sequence, and direct all owners admit
 // built-in and facet-free named effective xs:language and xs:anyURI local
 // declarations. Named direct-sequence extensions over supported use-free empty
-// bases admit these same types; named direct-group and grouped-extension
+// bases admit these same types, as do named grouped extensions. Named direct-group
 // owners admit direct built-ins.
 // These ordered query-only AttributeUse
 // facts apply under every language policy. Inline restrictions, attribute
