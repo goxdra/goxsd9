@@ -7711,6 +7711,9 @@ func schemaNamedLocalBoundedIntegerAttributeTypeSupported(reference schemaSimple
 	if _, ok := owner.complexType.body.(*schemaComplexTypeAttributeOnlyBodyInput); ok {
 		return true
 	}
+	if body, ok := owner.complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput); ok {
+		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
+	}
 	return schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner)
 }
 

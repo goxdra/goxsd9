@@ -249,6 +249,9 @@ func TestBoundedLocalAttributeExcludedShapes(t *testing.T) {
 				{"inline empty", `<xs:element name="root"><xs:complexType>`, `</xs:complexType></xs:element>`, ""},
 			} {
 				for _, shape := range shapes {
+					if owner.name == "grouped extension" && shape.name == "direct" {
+						continue
+					}
 					t.Run(profile.name+"/"+family.name+"/"+owner.name+"/"+shape.name, func(t *testing.T) {
 						root := boundedLocalRoot(string(profile.version), owner.before+shape.body+owner.after+owner.extra+shape.extra)
 						assertBoundedLocalExcluded(t, root, shape, profile)

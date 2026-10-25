@@ -378,7 +378,8 @@
 // validation, and generation reject.
 // Named empty and direct-all owners admit built-in and supported named
 // effective atomic xs:short, xs:int, xs:byte, and xs:unsignedLong locals with exact
-// bounds, digits, enumeration, and type provenance. Inline/list/union, refs,
+// bounds, digits, enumeration, and type provenance. Named grouped extensions
+// over empty use-free bases admit direct built-ins. Inline/list/union, refs,
 // values, other owners, validation, and generation remain unsupported.
 // A named global complex type with an empty body also admits an effective-empty
 // block under Compatibility, Strict10, and Strict11. An explicit empty or
