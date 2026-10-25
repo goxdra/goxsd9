@@ -333,10 +333,11 @@
 // extensions expose ordered defensive
 // local, referenced, and anonymous-inline AttributeUse facts. Supported local
 // anonymous atomic uses retain AnonymousID/NodeID. Named and global inline
-// complexContent extensions compose a direct opaque named-group reference, ordered local uses,
-// and the supported named empty base. Direct-sequence extensions with local
-// uses admit named and global inline complex owners and compose supported
-// ordered members over the same base. Inline owners retain anonymous identity,
+// complexContent grouped extensions with local uses compose a direct opaque
+// named-group reference, ordered uses, and a supported named empty base. The
+// named zero-use sequence-base form is described below. Direct-sequence
+// extensions with local uses admit named and global inline complex owners and
+// compose supported ordered members over the same base. Inline owners retain anonymous identity,
 // non-ID atomic local and referenced uses, and inherited wildcard facts.
 // Validation and generation reject inline complex-content extensions even when
 // zero occurrences and prohibited uses leave no effective particle or uses.
@@ -503,6 +504,14 @@
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
 // target members. Direct model-group references retain `RefLoc`/`TargetID`; their
 // consumer gates use the group RefLoc and reject them.
+// A named zero-use direct-group extension may also name a completed direct
+// default 1/1 sequence base, or an empty-base sequence extension with that
+// sequence, containing exactly one 0/1 global element reference. The two
+// authored particles retain their own locations and bounds. `Particle` shows
+// the declaration's own particle; `BaseReference` links the inherited source.
+// The phase-local effective composition has no
+// fabricated source location. Supported base wildcards retain provenance;
+// deeper chains, other nonempty bases, and consumers remain unsupported.
 // Named and global-element inline complexContent restrictions expose completed
 // named empty, attribute-only, direct, extension, or restriction bases with nil
 // effective particle and zero effective attribute uses. Derived wildcards need
@@ -514,10 +523,10 @@
 // The base reference retains its ID, QName, and source Loc. Grouped/simple-content
 // bases, richer derived particles, uses, group refs, notNamespace, and notQName
 // remain schema-unsupported; validation and generation reject admitted bodies.
-// Grouped extensions add
-// one opaque direct group reference and ordered local AttributeUse facts over a
-// supported named empty base. They resolve the group before the uses and base;
-// effective 0/0 omits the group, and prohibited uses may leave no effective uses.
+// Attribute-use grouped extensions over supported named empty bases resolve
+// the direct group before ordered local uses and base. Effective 0/0 omits the
+// group, and prohibited uses may leave no effective uses. The named zero-use
+// sequence-base form above follows the same group-first and 0/0 order.
 // Named grouped owners reject at the first effective use Loc, then a present
 // group RefLoc, or the extension Loc when both are absent. Inline owners reject
 // at the instance root or global element as described below.

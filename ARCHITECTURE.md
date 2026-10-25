@@ -56,27 +56,22 @@ wildcard; missing derived wildcard unsupported. Broader/weaker wildcards, final,
 cycles invalid; richer derived particles/uses/group refs or nonempty/used bases
 unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
-SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
+SimpleContent retains base/type/use `Loc`s and nil particle; dependencies precede owner gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
-Direct/extension particles model selected integers; named direct
-adds sign restrictions. Built-in/named integers validate; other derivatives/
-extensions remain query-only.
+Direct/extension particles model selected integers; named direct adds sign restrictions. Built-in/named integers validate; other extensions remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals match `targetNamespace`.
 Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate.
 Groups nest opposites; refs precede `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Anonymous empty-base extensions admit ref-only choice, nested group-ref/element-ref sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
+Anonymous empty-base extensions admit ref-only choice, nested group/element-ref sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
 Broader nesting/direct groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
-Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
-wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
-Named direct `all`: ordered supported locals/refs, exact bounds/omission/duplicate
-`Loc`s; XSD 1.0 maxima ≤1, XSD 1.1 repeats/outer `0/0`; anonymous simple-type
-`0/0` omits; anonymous complex members/consumers reject.
-Models→ordered uses→base resolution.
-`0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
-Compatibility/Strict11 omit false/0 `inheritable` for named empty/all/choice/sequence/group/grouped/sequence-extension locals (ID included) and anonymous global-element inline complexContent grouped/direct-sequence name-bearing non-ID locals; Strict10/true/1/refs/other-owners reject.
-Grouped/direct-sequence extensions require empty, use-free named bases; wildcards inherited.
+Valid inline-simple/untyped `0/0` omits; broader nesting/wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
+Named direct `all`: ordered locals/refs, exact bounds/`Loc`s; XSD 1.0 maxima ≤1,
+XSD 1.1 repeats/outer `0/0`; anonymous complex members/consumers reject.
+Models→ordered uses→base resolution; `0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
+Compatibility/Strict11 omit selected false/0 local `inheritable` after owner checks; Strict10/true/1/refs reject. Exact owners are in [the contract](doc.go).
+Grouped/direct-sequence extensions require empty/use-free bases, except named zero-use groups over direct or empty-base-extension 1/1 sequences with one 0/1 global ref.
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
 Empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-group owners: built-ins;

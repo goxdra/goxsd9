@@ -346,28 +346,20 @@ func TestIssue502ComplexFinalDefaultProhibitionUsesBaseDocumentLocation(t *testi
 	}
 }
 
-func TestIssue502ComplexFinalDefaultKeepsUnsupportedBasePrecedence(t *testing.T) {
+func TestIssue502ComplexFinalDefaultPrecedesUnsupportedBaseComposition(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:test" targetNamespace="urn:test" version="1.1" finalDefault="extension">
   <xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:Base"/></xs:complexContent></xs:complexType>
   <xs:complexType name="Base"><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence></xs:complexType>
 </xs:schema>`
 	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
 	assertZeroSchema(t, schema)
-	if err == nil {
-		t.Fatal("unsupported extension base unexpectedly succeeded")
-	}
-	if !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaComplexTypeBaseNonEmpty) {
-		t.Fatalf("unsupported base cause = %v, want unsupported/nonempty", err)
+	if !errors.Is(err, errSchemaComplexTypeBaseUnsupported) {
+		t.Fatalf("final-default cause = %v", err)
 	}
 	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
-		t.Fatalf("diagnostic = %s, want schema-syntax unsupported", diagnostic)
-	}
-	defaultLoc := mustSchemaTokenLoc(t, "root.xsd", root, 1, "finalDefault")
-	for _, related := range diagnostic.Related() {
-		if related == defaultLoc {
-			t.Fatalf("unsupported diagnostic unexpectedly related to finalDefault: %s", defaultLoc)
-		}
+	wantRelated := []Loc{mustSchemaTokenLoc(t, "root.xsd", root, 1, "finalDefault")}
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != mustSchemaTokenLoc(t, "root.xsd", root, 2, `base="t:Base"`) || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || diagnostic.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) {
+		t.Fatalf("final-default diagnostic = %v, related=%v", err, diagnostic.Related())
 	}
 }
 

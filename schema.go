@@ -1238,7 +1238,9 @@ func (definition ComplexTypeDefinition) AnyAttribute() (AnyAttribute, bool) {
 	return AnyAttribute{facts: attribute}, true
 }
 
-// Particle returns the immutable content particle of the complex type.
+// Particle returns the immutable particle authored on this complex type.
+// For an extension, inherited base content is reached through BaseReference;
+// this view does not synthesize an effective sequence with a source location.
 func (definition ComplexTypeDefinition) Particle() Particle {
 	if definition.facts == nil {
 		return nil
