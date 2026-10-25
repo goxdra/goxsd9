@@ -57,7 +57,7 @@ cycles invalid; richer derived particles/uses/group refs or nonempty/used bases
 unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
-Attribute-free simpleContent extensions query selected atomic bases; restrictions reject.
+Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
 Direct/extension particles model selected integers; named direct
 adds sign restrictions. Built-in/named integers validate; other derivatives/
 extensions remain query-only.

@@ -438,6 +438,8 @@
 // SimpleContent text uses built-in string only
 // with selected local precisionDecimal uses, or built-in/named effective
 // precisionDecimal. Named effective string remains excluded. Generation rejects these forms.
+// Attribute-free named simpleContent extensions also expose built-in/named
+// facet-free language and anyURI base facts; validation and generation reject them.
 // Element-reference matrix: element-reference particles in local content and
 // named groups are queryable immutable facts. Resolution retains QName, RefLoc,
 // TargetID, lexical order, and exact occurrences without target-type gating.

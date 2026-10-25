@@ -165,7 +165,7 @@ func TestNormalizedStringSimpleContentExclusions(t *testing.T) {
 			{"wildcard", tokenSimpleContentOwner("xs:normalizedString", `<xs:anyAttribute/>`), `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeSpecRef(profile.version), FailureUnsupported, ErrUnsupported},
 			{"list", tokenSimpleContentOwner("t:List", "") + `<xs:simpleType name="List"><xs:list itemType="xs:normalizedString"/></xs:simpleType>`, `base="t:List"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
 			{"union", tokenSimpleContentOwner("t:Union", "") + `<xs:simpleType name="Union"><xs:union memberTypes="xs:normalizedString xs:token"/></xs:simpleType>`, `base="t:Union"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
-			{"other scalar", tokenSimpleContentOwner("xs:language", ""), `base="xs:language"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
+			{"other scalar", tokenSimpleContentOwner("xs:ID", ""), `base="xs:ID"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
 		} {
 			t.Run(profile.name+"/"+tc.name, func(t *testing.T) {
 				root := normalizedSimpleContentRoot(tc.body)
