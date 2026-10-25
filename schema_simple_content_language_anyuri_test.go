@@ -237,17 +237,12 @@ func TestLanguageURISimpleContentShapeExclusions(t *testing.T) {
 				{"list base", tokenSimpleContentOwner("t:List", "") + `<xs:simpleType name="List"><xs:list itemType="xs:` + kind + `"/></xs:simpleType>`, `base="t:List"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
 				{"union base", tokenSimpleContentOwner("t:Union", "") + `<xs:simpleType name="Union"><xs:union memberTypes="xs:` + kind + ` xs:token"/></xs:simpleType>`, `base="t:Union"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
 				{"authored facet", tokenSimpleContentOwner("t:Faceted", "") + `<xs:simpleType name="Faceted"><xs:restriction base="xs:` + kind + `"><xs:enumeration value="value"/></xs:restriction></xs:simpleType>`, `<xs:enumeration`, UnsupportedDatatypeFacetCode, tokenDiagnosticSpecRef(profile.version, "decimal"), FailureUnsupported, ErrUnsupported},
-				{"complex base", tokenSimpleContentNamedOwner("Outer", "t:Inner", "") + tokenSimpleContentNamedOwner("Inner", "xs:"+kind, ""), `base="t:Inner"`, diagnosticSchemaSimpleContentBaseWrongKindCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseWrongKind},
 				{"wildcard", tokenSimpleContentOwner("xs:"+kind, `<xs:anyAttribute/>`), `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeSpecRef(profile.version), FailureUnsupported, ErrUnsupported},
 				{"particle", tokenSimpleContentOwner("xs:"+kind, `<xs:sequence/>`), `<xs:sequence`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
 			} {
 				t.Run(profile.name+"/"+kind+"/"+test.name, func(t *testing.T) {
 					root := languageURISimpleContentRoot(test.body)
 					schema, err := parseLanguageURISimpleContent(t, root, nil, profile.policy)
-					if test.name == "complex base" {
-						assertLanguageURISimpleContentDiagnostic(t, schema, err, root, test.marker, test.code, test.spec, test.class, test.cause, `<xs:complexType name="Inner"`)
-						return
-					}
 					if test.spec == "" {
 						assertZeroSchema(t, schema)
 						d := requireDiagnostic(t, err)
@@ -257,6 +252,67 @@ func TestLanguageURISimpleContentShapeExclusions(t *testing.T) {
 						return
 					}
 					assertLanguageURISimpleContentDiagnostic(t, schema, err, root, test.marker, test.code, test.spec, test.class, test.cause)
+				})
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Both lexical orders and completed inner-base shapes retain the same public refusal.
+func TestLanguageURISimpleContentComplexBaseUnsupported(t *testing.T) {
+	outer := tokenSimpleContentNamedOwner("Outer", "t:Inner", "")
+	for _, profile := range tokenSimpleContentPolicies() {
+		for _, kind := range []string{"language", "anyURI"} {
+			for _, base := range []struct{ name, inner, named string }{
+				{"built-in", tokenSimpleContentNamedOwner("Inner", "xs:"+kind, ""), ""},
+				{"named", tokenSimpleContentNamedOwner("Inner", "t:Named", ""), languageURISimpleContentNamed("Named", kind)},
+				{"effective chain", tokenSimpleContentNamedOwner("Inner", "t:Chain", ""), languageURISimpleContentNamed("Named", kind) + `<xs:simpleType name="Chain"><xs:restriction base="t:Named"/></xs:simpleType>`},
+			} {
+				for _, order := range []struct{ name, declarations string }{
+					{"forward", outer + base.inner + base.named},
+					{"reordered", base.named + base.inner + outer},
+				} {
+					t.Run(profile.name+"/"+kind+"/"+base.name+"/"+order.name, func(t *testing.T) {
+						root := languageURISimpleContentRoot(order.declarations)
+						schema, err := parseLanguageURISimpleContent(t, root, nil, profile.policy)
+						assertLanguageURISimpleContentDiagnostic(t, schema, err, root, `base="t:Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported, `<xs:complexType name="Inner"`)
+						if !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+							t.Fatalf("resolved complex-base cause lost: %v", err)
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Distinct complex-base exits preserve their earlier diagnostic boundary.
+func TestLanguageURISimpleContentComplexBaseAlternateExits(t *testing.T) {
+	outer := tokenSimpleContentNamedOwner("Outer", "t:Inner", "")
+	for _, profile := range tokenSimpleContentPolicies() {
+		for _, kind := range []string{"language", "anyURI"} {
+			for _, test := range []struct {
+				name, inner, named, schemaFinal, primary, related, code, spec string
+				class                                                         FailureClass
+				cause                                                         error
+			}{
+				{"unresolved inner", tokenSimpleContentNamedOwner("Inner", "t:Missing", ""), "", "", `base="t:Missing"`, "", diagnosticSchemaSimpleContentBaseUnresolvedCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseUnresolved},
+				{"other atomic kind", tokenSimpleContentNamedOwner("Inner", "xs:string", ""), "", "", `base="t:Inner"`, `<xs:complexType name="Inner"`, diagnosticSchemaSimpleContentBaseWrongKindCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseWrongKind},
+				{"inner final", strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:"+kind, ""), `name="Inner"`, `name="Inner" final="extension"`, 1), "", "", `base="t:Inner"`, `final="extension"`, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.version), FailureInvalid, errSchemaComplexTypeBaseUnsupported},
+				{"finalDefault", tokenSimpleContentNamedOwner("Inner", "xs:"+kind, ""), "", ` finalDefault="extension"`, `base="t:Inner"`, `finalDefault="extension"`, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.version), FailureInvalid, errSchemaComplexTypeBaseUnsupported},
+				{"final override", strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:"+kind, ""), `name="Inner"`, `name="Inner" final=""`, 1), "", ` finalDefault="extension"`, `base="t:Inner"`, `<xs:complexType name="Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
+			} {
+				t.Run(profile.name+"/"+kind+"/"+test.name, func(t *testing.T) {
+					root := strings.Replace(languageURISimpleContentRoot(outer+test.inner+test.named), `targetNamespace="urn:token"`, `targetNamespace="urn:token"`+test.schemaFinal, 1)
+					schema, err := parseLanguageURISimpleContent(t, root, nil, profile.policy)
+					if test.related == "" {
+						assertLanguageURISimpleContentDiagnostic(t, schema, err, root, test.primary, test.code, test.spec, test.class, test.cause)
+						return
+					}
+					assertLanguageURISimpleContentDiagnostic(t, schema, err, root, test.primary, test.code, test.spec, test.class, test.cause, test.related)
+					if test.class == FailureUnsupported && !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+						t.Fatalf("complex-base wrong-kind cause lost: %v", err)
+					}
 				})
 			}
 		}

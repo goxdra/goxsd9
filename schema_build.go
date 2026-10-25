@@ -6944,7 +6944,7 @@ func (resolver *schemaComplexTypeResolver) resolveSimpleContentExtension(body *s
 	if finalErr := resolver.rejectExtensionFinal(base, body.base.name, body.base.loc); finalErr != nil {
 		return schemaSimpleContentExtension{}, finalErr
 	}
-	if targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicToken && targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicNMTOKEN && targetBody.extension.typeReference.atomicKind != schemaSimpleTypeAtomicNormalizedString {
+	if schemaSimpleContentNamedOnlyBaseKind(targetBody.extension.typeReference.atomicKind) == "" {
 		return schemaSimpleContentExtension{}, err
 	}
 	return schemaSimpleContentExtension{}, unsupportedSchemaSimpleContentBase(
