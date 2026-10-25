@@ -104,6 +104,8 @@
 // Named direct choices/sequences also retain opaque references to supported
 // named choice/sequence groups with exact occurrences, target IDs, written
 // QNames, and use-site locations. Unproved attribution is explicitly unsupported.
+// Resolved substitution members enter the transient type/attribution proof;
+// complex repeat boundaries and blocked derivations it cannot prove stay unsupported.
 // In named direct choices/sequences, Compatibility/Strict11 map a collapsed
 // explicit local-element targetNamespace matching the effective containing
 // namespace to the same QName as form="qualified". Strict10 rejects the
