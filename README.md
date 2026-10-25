@@ -9,7 +9,7 @@ no partial schemas.
 Resolvers receive URNs/locations.
 `ParseSchemaWithPolicy` selects policy; queries/walks deterministic.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named empty/choice/sequence/all/grouped/sequence-extension: NCName/`xs:normalizedString`. Empty/choice/sequence/all and named direct-sequence/grouped extensions: built-in/named facet-free `xs:language`/`xs:anyURI` and effective `xs:long`; named direct-group: built-in `xs:language`/`xs:anyURI` only. Extensions: empty use-free bases or bounded sequence-base group composition. Language/anyURI/long: query-only. Named empty/choice/sequence/direct-sequence/grouped extension: built-in/named effective `xs:token`/`xs:NMTOKEN`; extension consumers reject. Empty/direct-all: built-in/named effective `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes; named grouped extensions: built-ins. Attribute-free named complex owners: simpleContent uses built-in/named `xs:normalizedString`/`xs:token`/`xs:NMTOKEN`/facet-free `xs:language`/`xs:anyURI`; consumers reject. Grouped `xs:simpleDerivationSet` `final`: query-only. Enumerated NCName list/union reject.
+Named empty/choice/sequence/all/grouped/sequence-extension: NCName/`xs:normalizedString`. Empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/named facet-free `xs:language`/`xs:anyURI` and effective `xs:long`; named direct-group: built-in `xs:language`/`xs:anyURI` only. Attribute-use grouped extensions: empty bases. Named zero-use direct-group extensions: default 1/1 sequence, one 0/1 global-element ref; consumers reject. Language/anyURI/long: query-only. Named empty/choice/sequence/direct-sequence/grouped extensions: effective built-in/named `xs:token`/`xs:NMTOKEN`; consumers reject. Empty/direct-all: effective built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes; named grouped extensions: built-ins. Named attribute-free simpleContent: built-in/named `xs:normalizedString`/`xs:token`/`xs:NMTOKEN`/facet-free `xs:language`/`xs:anyURI`; consumers reject. Grouped `xs:simpleDerivationSet` `final` query-only; enumerated NCName list/union reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -46,8 +46,8 @@ go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
 `parse` summarizes; `validate` succeeds; `generate` writes
-stdout or `--output`. `--schema-root DIR` bounds resolution and is
-required for stdin. `--diagnostics json` emits errors.
+stdout/`--output`. `--schema-root DIR` bounds resolution; stdin requires
+it. `--diagnostics json` emits errors.
 
 ## Development
 
