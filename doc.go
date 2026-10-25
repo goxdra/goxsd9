@@ -503,6 +503,13 @@
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
 // target members. Direct model-group references retain `RefLoc`/`TargetID`; their
 // consumer gates use the group RefLoc and reject them.
+// A named zero-use direct-group extension may also name a completed direct
+// sequence base, or an empty-base sequence extension, with one optional global
+// element reference. The two authored particles retain their own locations and
+// bounds. `Particle` shows the declaration's own particle; `BaseReference`
+// links the inherited source. The phase-local effective composition has no
+// fabricated source location. Supported base wildcards retain provenance;
+// deeper chains, other nonempty bases, and consumers remain unsupported.
 // Named and global-element inline complexContent restrictions expose completed
 // named empty, attribute-only, direct, extension, or restriction bases with nil
 // effective particle and zero effective attribute uses. Derived wildcards need
