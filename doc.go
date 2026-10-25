@@ -22,12 +22,11 @@
 // retain built-in and supported named effective
 // xs:normalizedString local element particles for queries, including inherited
 // string facets and exact occurrences. Other mapped nonzero placements reject
-// at schema admission; both consumers reject owning named-group refs at RefLoc.
-// explicit built-in, supported named, and top-level inline atomic
-// xs:normalizedString global attributes retain query facts. Applicable 0/0
-// locals omit after reference,
-// facet, and policy gates. Element-ref particles to
-// admitted global elements query; ValidateInstance and GenerateGo reject them.
+// at schema admission; applicable 0/0 locals omit after reference, facet, and
+// policy gates. Element-ref particles to admitted global elements query;
+// ValidateInstance and GenerateGo reject them. Explicit built-in, supported
+// named, and top-level inline atomic xs:normalizedString global attributes
+// retain query facts.
 // xs:QName references are distinct context-sensitive atomics in facet-free
 // restrictions, lists, unions, and direct/named/inline global elements.
 // Mapped nonzero QName-bearing typed local particles reject, including mixed
@@ -104,8 +103,7 @@
 // bounded describes the supported derivation/base shape, not occurrence limits.
 // Named direct choices/sequences also retain opaque references to supported
 // named choice/sequence groups with exact occurrences, target IDs, written
-// QNames, and use-site locations. Unproved attribution is explicitly unsupported;
-// validation and generation reject these references.
+// QNames, and use-site locations. Unproved attribution is explicitly unsupported.
 // In named direct choices/sequences, Compatibility/Strict11 map a collapsed
 // explicit local-element targetNamespace matching the effective containing
 // namespace to the same QName as form="qualified". Strict10 rejects the
@@ -221,7 +219,7 @@
 // named local particles in direct choices, sequences, and bounded
 // extensions are modeled and queryable. Named-group sequences and their one
 // nested choice query built-in/named effective token/NMTOKEN locals with copied
-// facts; owning group refs reject both consumers at RefLoc. Direct xs:all models
+// facts. Direct xs:all models
 // built-in/named effective token/NMTOKEN locals; inline token/NMTOKEN locals remain excluded there,
 // and both consumers reject xs:all. Only non-extension default-occurrence
 // homogeneous direct choices made entirely of local token or NMTOKEN
@@ -501,12 +499,13 @@
 // Direct/indirect named-group cycles fail schema admission with invalid XSD3062
 // at the closing ref and related path; no Schema is published. Reference targets
 // are resolved and traversed before an effective 0/0 term is omitted.
-// Top-level direct model-group references on named complex types and bounded
+// Named direct choice/sequence children and top-level direct model-group
+// references on named complex types and bounded
 // attribute-free extensions over named empty-content bases or named
 // complexContent/restriction over built-in xs:anyType with representable
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
-// target members. Direct model-group references retain `RefLoc`/`TargetID`; their
-// consumer gates use the group RefLoc and reject them.
+// target members. Direct model-group references retain `RefLoc`/`TargetID`;
+// validation and generation reject them at the group RefLoc.
 // Named and global-element inline complexContent restrictions expose completed
 // named empty, attribute-only, direct, extension, or restriction bases with nil
 // effective particle and zero effective attribute uses. Derived wildcards need

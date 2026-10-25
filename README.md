@@ -25,7 +25,7 @@ Anonymous empty-base extensions query ref-only choices and nested group-ref/elem
 Anonymous empty-base ref-sequence extensions query built-in `xs:token`/`xs:anyURI`; consumers reject.
 Wildcard-only restrictions query empty named bases with ##any/##other/positive-set subsets; consumers reject.
 Named-group sequences/nested choices query integer/string/token; consumers reject.
-Named-complex choices/sequences query `xs:positiveInteger`/`xs:nonPositiveInteger`; direct owners add `xs:normalizedString` facets and opaque group refs with bounds, identity, QName, and locations. Unproved attribution is unsupported; consumers reject.
+Named-complex choices/sequences query `xs:positiveInteger`/`xs:nonPositiveInteger`; direct owners add `xs:normalizedString` facets and opaque refs to supported named choice/sequence groups: bounds, ID, QName, `Loc`. Unproved attribution unsupported; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
 default integer/decimal sequence refs; other targets/occurrences reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective

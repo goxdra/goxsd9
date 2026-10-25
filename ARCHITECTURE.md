@@ -58,11 +58,11 @@ unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s, nil particle; base/final/dependencies precede owner/use gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
-Direct/extension particles retain selected integers; built-in/named validate, other derivatives remain query-only.
+Default Boolean/integer/decimal choice refs validate; bounded-list/union negativeInteger validates. Other long/sign and extension locals remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
-Compatibility/Strict11 named locals may match `targetNamespace`; Strict10/form/ref conflicts invalidate. Groups nest opposites; refs precede `0/0`; sequences/nested choices retain copied lexical/type facts.
+Compatibility/Strict11 locals may match `targetNamespace`; Strict10/form/ref conflicts invalidate. Groups nest opposites; refs precede `0/0`; sequences/nested choices retain lexical/type facts.
 Named direct choices/sequences retain opaque choice/sequence group refs. Refs/cycles precede omission; UPA/type conflicts invalidate, unproved attribution is unsupported. Attributes persist; consumers reject.
-Anonymous empty-base extensions admit ref-only choice and nested group-ref/element-ref sequence; facts persist. Broader nesting/groups/wildcards/locals/nested attributes reject.
+Anonymous empty-base extensions admit ref-only choice and nested group-ref/element-ref sequence; broader nesting/groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; nonzero/broader/deeper/
 wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
