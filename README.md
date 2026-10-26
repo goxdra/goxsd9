@@ -22,8 +22,8 @@ Named empty/choice/sequence/all/grouped/sequence-extension query facet-free `xs:
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Anonymous empty-base ref-only choices/sequences retain bounds/order/provenance.
-Wildcard-only named/inline restrictions query use-free bases with ##any/##other/sets; validation/generation reject.
-Named use-free/wildcard-free restrictions query an authored 1/1 sequence: the same completed-base 0/1 global-element target then the same 1/1 group ref to a nonoverlapping three-ref 1/1 choice. The composed base has zero uses/wildcards; validation/generation reject.
+Wildcard-only named/inline restrictions require bases with particle-free effective content and zero effective uses; ##any/##other/sets; validation/generation reject.
+Named use-free/wildcard-free restrictions query an authored 1/1 sequence: same completed-base 0/1 global-element target, same 1/1 group ref to a nonoverlapping three-ref 1/1 choice; composed base zero uses/wildcards; validation/generation reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered

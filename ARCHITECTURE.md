@@ -44,12 +44,12 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
 Wildcard restrictions retain IDs/`Loc`s; xs:anyType ##other/lax works.
-Completed bases require particle-free/use-free; grouped/simple-content
+Completed bases lack effective particles/uses; grouped/simple-content
 reject. Derived namespace
 and process are explicit, subset/stronger over ##any/##other/positive sets;
 XSD10 ##other: equal exclusions; XSD11/Compatibility: containment.
 Missing base wildcard, broader/weaker wildcard, final, cycles invalidate;
-missing derived wildcard and richer forms reject. Consumers reject.
+missing derived wildcard/richer forms reject. Consumers reject.
 Named use-free/wildcard-free restrictions publish authored 1/1 sequences
 copying the completed base's 0/1 global-element and 1/1 group refs; the
 group targets an opaque three-ref 1/1 choice. XSD10 structural/XSD11

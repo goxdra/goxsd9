@@ -514,7 +514,8 @@
 // deeper chains, other nonempty bases, and consumers remain unsupported.
 // Named and global-element inline wildcard-only complexContent restrictions
 // expose completed named empty, attribute-only, direct, extension, or
-// restriction bases with nil particle and zero effective attribute uses.
+// restriction bases with no effective particle, including inherited content,
+// and zero effective attribute uses.
 // Derived wildcards need
 // explicit namespace and processContents: namespace must be a subset of the
 // base ##any, ##other, or positive namespace set, and process equal or stronger.
