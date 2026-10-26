@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,9 @@ type handoffFixture struct {
 	projectItemID     string
 	projectType       string
 	issueReads        int
+	issueAtRead       func(int)
 	projectReads      int
+	projectPage       func(int, string) (string, error)
 	raceIssue         bool
 	raceProject       bool
 	bodyPath          string
@@ -30,6 +33,7 @@ type handoffFixture struct {
 	comments          []issueCommentAPI
 	commands          []string
 	failCommand       string
+	failCause         error
 	failAfterMutation string
 }
 
@@ -47,6 +51,9 @@ func (f *handoffFixture) execute(_ string, _ io.Reader, name string, args ...str
 	command := name + " " + strings.Join(args, " ")
 	f.commands = append(f.commands, command)
 	if command == f.failCommand {
+		if f.failCause != nil {
+			return "", f.failCause
+		}
 		return "", errors.New("simulated handoff failure")
 	}
 	if command == f.failAfterMutation {
@@ -81,7 +88,7 @@ func (f *handoffFixture) executeGitHub(command string) (string, error) {
 	case "api repos/goxdra/goxsd9/issues/14":
 		return f.issueStateJSON(), nil
 	case "project item-list 1 --owner goxdra --format json --limit 500":
-		return f.projectItemsJSON(), nil
+		return "", errors.New("whole-Project enumeration is forbidden in needs-human handoff")
 	case "api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100":
 		return f.commentsJSON()
 	case "issue edit 14 --repo goxdra/goxsd9 --add-label needs-human":
@@ -96,12 +103,25 @@ func (f *handoffFixture) executeGitHub(command string) (string, error) {
 		f.comments = append(f.comments, issueCommentAPI{ID: int64(len(f.comments) + 1), Body: f.body, CreatedAt: time.Now().UTC(), User: issueCommentUser(trustedActor)})
 		return "https://github.com/goxdra/goxsd9/issues/14#issuecomment-1", nil
 	default:
+		if strings.HasPrefix(command, "api graphql -f query="+claimResumeProjectIssueQuery) {
+			f.projectReads++
+			if f.raceProject && f.projectReads == 2 {
+				f.projectItemID = "item-raced"
+			}
+			if f.projectPage != nil {
+				return f.projectPage(f.projectReads, claimResumeProjectAfter(strings.Fields(command)))
+			}
+			return f.projectItemsJSON(), nil
+		}
 		return "", fmt.Errorf("unexpected gh command: %s", command)
 	}
 }
 
 func (f *handoffFixture) issueStateJSON() string {
 	f.issueReads++
+	if f.issueAtRead != nil {
+		f.issueAtRead(f.issueReads)
+	}
 	if f.raceIssue && f.issueReads == 2 {
 		f.issueState = "closed"
 	}
@@ -113,15 +133,26 @@ func (f *handoffFixture) issueStateJSON() string {
 }
 
 func (f *handoffFixture) projectItemsJSON() string {
-	f.projectReads++
-	if f.raceProject && f.projectReads == 2 {
-		f.projectItemID = "item-raced"
-	}
 	if !f.projectMember {
-		return `{"items":[],"totalCount":0}`
+		return projectIssueTestPage(14, 0, "", false, "")
 	}
-	return fmt.Sprintf(`{"items":[{"content":{"number":14,"repository":%q,"type":%q},"id":%q,"status":%q}],"totalCount":1}`,
-		repositoryKey, f.projectType, f.projectItemID, f.projectStatus)
+	page := claimResumeProjectPageJSON(14, f.projectStatus)
+	page = strings.Replace(page, `"id":"item-14"`, fmt.Sprintf(`"id":%q`, f.projectItemID), 1)
+	if f.projectType != "Issue" {
+		page = strings.Replace(page, `"type":"ISSUE"`, `"type":"PULL_REQUEST"`, 1)
+	}
+	return page
+}
+
+func handoffCommandShapes(commands []string) []string {
+	shapes := make([]string, len(commands))
+	for index, command := range commands {
+		shapes[index] = command
+		if strings.HasPrefix(command, "gh api graphql -f query="+claimResumeProjectIssueQuery) {
+			shapes[index] = "gh api graphql issue #14"
+		}
+	}
+	return shapes
 }
 
 func (f *handoffFixture) commentsJSON() (string, error) {
@@ -189,19 +220,25 @@ func TestHandoffNeedsHumanParsesAndUsesSafeOrder(t *testing.T) {
 	want := []string{
 		"git rev-parse --show-toplevel",
 		"gh api repos/goxdra/goxsd9/issues/14",
-		"gh project item-list 1 --owner goxdra --format json --limit 500",
+		"gh api graphql issue #14",
 		"gh api --paginate repos/goxdra/goxsd9/issues/14/comments?per_page=100",
 		"gh api repos/goxdra/goxsd9/issues/14",
-		"gh project item-list 1 --owner goxdra --format json --limit 500",
+		"gh api graphql issue #14",
 		"gh api repos/goxdra/goxsd9/issues/14",
-		"gh project item-list 1 --owner goxdra --format json --limit 500",
+		"gh api graphql issue #14",
 		"gh issue edit 14 --repo goxdra/goxsd9 --add-label needs-human",
+		"gh api repos/goxdra/goxsd9/issues/14",
+		"gh api graphql issue #14",
 		"gh project field-list 1 --owner goxdra --format json",
+		"gh api repos/goxdra/goxsd9/issues/14",
+		"gh api graphql issue #14",
 		"gh project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-14 --field-id status-id --single-select-option-id backlog-id",
+		"gh api repos/goxdra/goxsd9/issues/14",
+		"gh api graphql issue #14",
 		"gh issue comment 14 --repo goxdra/goxsd9 --body-file " + bodyPath,
 	}
-	if !reflect.DeepEqual(fixture.commands, want) {
-		t.Fatalf("needs-human commands = %#v, want %#v", fixture.commands, want)
+	if got := handoffCommandShapes(fixture.commands); !slices.Equal(got, want) {
+		t.Fatalf("needs-human commands = %#v, want %#v", got, want)
 	}
 	if !fixture.needsHuman || fixture.projectStatus != "Backlog" {
 		t.Fatalf("transition state = needs-human %t, Project %s", fixture.needsHuman, fixture.projectStatus)
@@ -235,9 +272,9 @@ func TestHandoffNeedsHumanRejectsClosedOrMissingProjectBeforeMutation(t *testing
 		commands      int
 	}{
 		{name: "closed issue", issueState: "closed", projectMember: true, projectType: "Issue", projectItemID: "item-14", want: "is CLOSED", commands: 2},
-		{name: "missing Project", issueState: "open", projectMember: false, projectType: "Issue", projectItemID: "item-14", want: "not in canonical Project", commands: 3},
-		{name: "PullRequest Project item", issueState: "open", projectMember: true, projectType: "PullRequest", projectItemID: "item-14", want: "not in canonical Project", commands: 3},
-		{name: "missing Project item ID", issueState: "open", projectMember: true, projectType: "Issue", projectItemID: "", want: "not in canonical Project", commands: 3},
+		{name: "missing Project", issueState: "open", projectMember: false, projectType: "Issue", projectItemID: "item-14", want: "canonical item is missing", commands: 3},
+		{name: "PullRequest Project item", issueState: "open", projectMember: true, projectType: "PullRequest", projectItemID: "item-14", want: "Project proof", commands: 3},
+		{name: "missing Project item ID", issueState: "open", projectMember: true, projectType: "Issue", projectItemID: "", want: "Project proof", commands: 3},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -273,7 +310,7 @@ func TestHandoffNeedsHumanRejectsChangedPreMutationProof(t *testing.T) {
 		commands int
 	}{
 		{name: "issue closed", mutate: func(fixture *handoffFixture) { fixture.raceIssue = true }, want: "issue is CLOSED", commands: 5},
-		{name: "Project identity changed", mutate: func(fixture *handoffFixture) { fixture.raceProject = true }, want: "Project identity differs", commands: 6},
+		{name: "Project identity changed", mutate: func(fixture *handoffFixture) { fixture.raceProject = true }, want: "Project identity or status differs", commands: 6},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

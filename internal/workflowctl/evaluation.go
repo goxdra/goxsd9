@@ -4854,25 +4854,31 @@ func parseCommentAttestation(body string) (evaluationAttestation, []byte, bool) 
 }
 
 func (a app) transitionIssueToNeedsHuman(root string, number int) error {
+	return a.transitionIssueToNeedsHumanFromProof(root, number, nil)
+}
+
+func (a app) transitionIssueToNeedsHumanFromProof(root string, number int, expected *claimResumeProjectItem) error {
 	status, item, err := a.currentNeedsHumanProjectState(root, number)
 	if err != nil {
 		return retryableOperationIfRecoverable("needs-human transition preflight", fmt.Errorf("needs-human transition preflight incomplete; retry: %w", err))
 	}
+	if expected != nil && item != *expected {
+		return stateError("needs-human transition preflight changed: Project identity or status differs; no mutation performed")
+	}
 	if !issueNeedsHuman(status) {
-		if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(number), "--repo", repositoryKey,
-			"--add-label", "needs-human"); err != nil {
-			latest, readErr := a.readIssueStatus(root, number)
-			if readErr != nil || !issueNeedsHuman(latest) {
-				return retryableOperationIfRecoverable("needs-human label", fmt.Errorf("needs-human label phase incomplete; retry: mark issue #%d needs-human: %w", number, errors.Join(err, readErr)))
-			}
+		if err := a.addNeedsHumanLabel(root, number); err != nil {
+			return err
+		}
+		if err := a.verifyNeedsHumanAfterLabel(root, number, item); err != nil {
+			return err
 		}
 	}
 	if item.Status == "Backlog" {
 		return nil
 	}
-	if err := a.setValidatedProjectItemStatus(root, item, "Backlog"); err != nil {
-		latest, readErr := a.currentNeedsHumanProjectItem(root, number)
-		if readErr == nil && latest.Status == "Backlog" {
+	if err := a.setValidatedProjectItemStatus(root, number, item, "Backlog"); err != nil {
+		latestStatus, latestItem, readErr := a.currentNeedsHumanProjectState(root, number)
+		if readErr == nil && issueNeedsHuman(latestStatus) && sameCanonicalProjectItemIdentity(item, latestItem) && latestItem.Status == "Backlog" {
 			return nil
 		}
 		return retryableOperationIfRecoverable("needs-human Project transition", fmt.Errorf("project Backlog phase incomplete after needs-human label; retry: %w", errors.Join(err, readErr)))
@@ -4880,34 +4886,58 @@ func (a app) transitionIssueToNeedsHuman(root string, number int) error {
 	return nil
 }
 
-func (a app) currentNeedsHumanProjectItem(root string, number int) (projectItem, error) {
-	_, item, err := a.currentNeedsHumanProjectState(root, number)
-	return item, err
+func (a app) addNeedsHumanLabel(root string, number int) error {
+	if _, err := a.command(root, "gh", "issue", "edit", strconv.Itoa(number), "--repo", repositoryKey,
+		"--add-label", "needs-human"); err != nil {
+		latest, readErr := a.readIssueStatus(root, number)
+		if readErr != nil || !issueNeedsHuman(latest) {
+			return retryableOperationIfRecoverable("needs-human label", fmt.Errorf("needs-human label phase incomplete; retry: mark issue #%d needs-human: %w", number, errors.Join(err, readErr)))
+		}
+	}
+	return nil
 }
 
-func (a app) currentNeedsHumanProjectState(root string, number int) (issueStatus, projectItem, error) {
+func (a app) verifyNeedsHumanAfterLabel(root string, number int, item claimResumeProjectItem) error {
+	latestStatus, latestItem, err := a.currentNeedsHumanProjectState(root, number)
+	if err != nil {
+		return retryableOperationIfRecoverable("needs-human Project transition", fmt.Errorf("project Backlog phase incomplete after needs-human label; retry: %w", err))
+	}
+	if !issueNeedsHuman(latestStatus) || item != latestItem {
+		return stateError("project Backlog phase incomplete after needs-human label: issue or Project proof changed; retry")
+	}
+	return nil
+}
+
+func (a app) currentNeedsHumanProjectState(root string, number int) (issueStatus, claimResumeProjectItem, error) {
 	status, err := a.readIssueStatus(root, number)
 	if err != nil {
-		return issueStatus{}, projectItem{}, fmt.Errorf("read current issue state: %w", err)
+		return issueStatus{}, claimResumeProjectItem{}, fmt.Errorf("read current issue state: %w", err)
 	}
 	if status.State != "OPEN" {
-		return issueStatus{}, projectItem{}, stateError("issue #%d is %s; needs-human transition requires OPEN issue",
+		return issueStatus{}, claimResumeProjectItem{}, stateError("issue #%d is %s; needs-human transition requires OPEN issue",
 			number, status.State)
 	}
-	items, err := a.projectItems(root)
+	item, err := a.readClaimResumeProjectItem(root, number)
 	if err != nil {
-		return issueStatus{}, projectItem{}, fmt.Errorf("read current Project membership: %w", err)
-	}
-	item, err := findProjectIssue(items, number)
-	if err != nil {
-		return issueStatus{}, projectItem{}, fmt.Errorf("validate current Project membership: %w", err)
+		return issueStatus{}, claimResumeProjectItem{}, fmt.Errorf("read current Project membership: %w", err)
 	}
 	return status, item, nil
 }
 
-func (a app) setValidatedProjectItemStatus(root string, item projectItem, status string) error {
+func (a app) setValidatedProjectItemStatus(root string, number int, item claimResumeProjectItem, status string) error {
 	if item.Status == status {
 		return nil
 	}
-	return a.setProjectField(root, item.ID, "Status", status)
+	fieldID, optionID, err := a.projectFieldOption(root, "Status", status)
+	if err != nil {
+		return err
+	}
+	latestStatus, latestItem, err := a.currentNeedsHumanProjectState(root, number)
+	if err != nil {
+		return fmt.Errorf("pre-Project-write proof incomplete: %w", err)
+	}
+	if !issueNeedsHuman(latestStatus) || item != latestItem {
+		return stateError("pre-Project-write proof changed: issue or Project identity/status differs; no mutation performed")
+	}
+	return a.setProjectFieldOption(root, item.ID, "Status", status, fieldID, optionID)
 }
