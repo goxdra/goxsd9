@@ -66,6 +66,21 @@ func (resolver *schemaComplexTypeResolver) proveBoundedParticleRestriction(owner
 	if !supported {
 		return resolver.unsupportedBoundedRestriction(input.base.loc, "restriction base has content or uses outside the bounded particle proof", baseLoc)
 	}
+	sequenceInput, ok := input.particle.(*schemaSequenceParticleInput)
+	if !ok || sequenceInput == nil {
+		return newSchemaBridgeInvariant(input.restrictionLoc, "bounded restriction lost its sequence input")
+	}
+	if sequenceInput.occurrences.minimumOccurrence().String() == "0" {
+		return resolver.invalidBoundedRestriction(sequenceInput.loc, "restriction sequence admits empty content excluded by its base", base.group.Loc())
+	}
+	if maximum := sequenceInput.occurrences.maximumOccurrence().String(); maximum != "0" && maximum != "1" {
+		return resolver.invalidBoundedRestriction(sequenceInput.loc, "restriction sequence admits more occurrences than its base", base.group.Loc())
+	}
+	if len(sequenceInput.particles) == 2 {
+		if groupInput, groupOK := sequenceInput.particles[1].(*schemaModelGroupReferenceParticleInput); groupOK && groupInput.occurrences.minimumOccurrence().String() == "0" {
+			return resolver.invalidBoundedRestriction(groupInput.loc, "restriction group reference admits fewer occurrences than its base", base.group.Loc())
+		}
+	}
 	sequence, ok := particle.(SequenceParticle)
 	if !ok {
 		return resolver.unsupportedBoundedRestriction(input.particleLoc(), "restriction has no effective sequence particle", baseLoc)

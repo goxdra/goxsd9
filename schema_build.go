@@ -7060,18 +7060,9 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 				fmt.Errorf("%w: restriction is prohibited by base final", errSchemaComplexTypeBaseUnsupported))
 		}
 		if body.particle != nil {
-			sequenceInput, ok := body.particle.(*schemaSequenceParticleInput)
-			if !ok || sequenceInput == nil {
-				return nil, newSchemaBridgeInvariant(body.restrictionLoc, "particle restriction has no sequence input")
-			}
-			particle, particleErr := resolveSchemaSequenceParticleWithGroup(sequenceInput, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.version, true)
+			particle, particleErr := resolver.resolveBoundedRestrictionPrerequisites(body, owner)
 			if particleErr != nil {
 				return nil, particleErr
-			}
-			if len(body.excludedUses) != 0 {
-				if _, usesErr := resolveSchemaAttributeUses(body.excludedUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version); usesErr != nil {
-					return nil, usesErr
-				}
 			}
 			if !body.excludedLoc.IsZero() {
 				return nil, resolver.unsupportedBoundedRestriction(body.excludedLoc, "particle restriction with attribute uses or wildcard is outside the use-free proof", resolver.records[candidate].loc)
@@ -7106,6 +7097,9 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 		}, nil
 	}
 	if body.particle != nil {
+		if _, err := resolver.resolveBoundedRestrictionPrerequisites(body, owner); err != nil {
+			return nil, err
+		}
 		return nil, newSchemaComplexTypeUnsupported(body.base.loc,
 			"particle restriction of a built-in complex base is outside the bounded proof",
 			nil, resolver.version, errSchemaComplexTypeParticleUnsupported)
@@ -7116,6 +7110,23 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 		base:              base,
 		anyAttribute:      schemaAnyAttributeResultFromInput(body.anyAttribute, owner),
 	}, nil
+}
+
+func (resolver *schemaComplexTypeResolver) resolveBoundedRestrictionPrerequisites(body *schemaComplexTypeRestrictionBodyInput, owner schemaComponentRecord) (Particle, error) {
+	sequenceInput, ok := body.particle.(*schemaSequenceParticleInput)
+	if !ok || sequenceInput == nil {
+		return nil, newSchemaBridgeInvariant(body.restrictionLoc, "particle restriction has no sequence input")
+	}
+	particle, err := resolveSchemaSequenceParticleWithGroup(sequenceInput, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.version, true)
+	if err != nil {
+		return nil, err
+	}
+	if len(body.excludedUses) != 0 {
+		if _, err := resolveSchemaAttributeUses(body.excludedUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version); err != nil {
+			return nil, err
+		}
+	}
+	return particle, nil
 }
 
 func (resolver *schemaComplexTypeResolver) checkRestrictionWildcard(derived, base schemaAnyAttributeResult, baseLoc Loc) error {

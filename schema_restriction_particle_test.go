@@ -178,7 +178,11 @@ func TestBoundedParticleRestrictionProofExits(t *testing.T) {
 				{"element narrowed", boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", "", ""), profile.version), UnsupportedSchemaSyntaxCode, `<xs:element ref="t:note"/>`, particleSpec, false, []string{`last:<xs:element ref="t:note" minOccurs="0"`}, FailureUnsupported, errSchemaComplexTypeParticleUnsupported},
 				{"malformed element bounds", boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="2" maxOccurs="1"`, ""), profile.version), invalidSchemaCompositionCode, `<xs:element ref="t:note" minOccurs="2" maxOccurs="1"`, schemaParticleCorrectSpecRef(profile.version), false, []string{`minOccurs="2"`, `maxOccurs="1"`}, FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum},
 				{"group widened", boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ` maxOccurs="2"`), profile.version), invalidSchemaCompositionCode, `<xs:group ref="t:Fields" maxOccurs="2"`, particleSpec, false, []string{`last:<xs:group ref="t:Fields"/>`}, FailureInvalid, errSchemaComplexTypeParticleRestriction},
-				{"group narrowed", boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ` minOccurs="0"`), profile.version), UnsupportedSchemaSyntaxCode, `<xs:group ref="t:Fields" minOccurs="0"`, particleSpec, false, []string{`last:<xs:group ref="t:Fields"/>`}, FailureUnsupported, errSchemaComplexTypeParticleUnsupported},
+				{"group minimum below base", boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ` minOccurs="0"`), profile.version), invalidSchemaCompositionCode, `<xs:group ref="t:Fields" minOccurs="0"`, particleSpec, false, []string{`last:<xs:group ref="t:Fields"/>`}, FailureInvalid, errSchemaComplexTypeParticleRestriction},
+				{"group omitted", boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ` minOccurs="0" maxOccurs="0"`), profile.version), invalidSchemaCompositionCode, `<xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"`, particleSpec, false, []string{`last:<xs:group ref="t:Fields"/>`}, FailureInvalid, errSchemaComplexTypeParticleRestriction},
+				{"sequence optional", strings.Replace(base, `<xs:sequence><xs:element ref="t:note" minOccurs="0"`, `<xs:sequence minOccurs="0"><xs:element ref="t:note" minOccurs="0"`, 1), invalidSchemaCompositionCode, `<xs:sequence minOccurs="0"`, particleSpec, false, []string{`last:<xs:group ref="t:Fields"/>`}, FailureInvalid, errSchemaComplexTypeParticleRestriction},
+				{"sequence repeated", strings.Replace(base, `<xs:sequence><xs:element ref="t:note" minOccurs="0"`, `<xs:sequence maxOccurs="2"><xs:element ref="t:note" minOccurs="0"`, 1), invalidSchemaCompositionCode, `<xs:sequence maxOccurs="2"`, particleSpec, false, []string{`last:<xs:group ref="t:Fields"/>`}, FailureInvalid, errSchemaComplexTypeParticleRestriction},
+				{"sequence omitted", strings.Replace(base, `<xs:sequence><xs:element ref="t:note" minOccurs="0"`, `<xs:sequence minOccurs="0" maxOccurs="0"><xs:element ref="t:note" minOccurs="0"`, 1), invalidSchemaCompositionCode, `<xs:sequence minOccurs="0" maxOccurs="0"`, particleSpec, false, []string{`last:<xs:group ref="t:Fields"/>`}, FailureInvalid, errSchemaComplexTypeParticleRestriction},
 				{"element omitted", boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0" maxOccurs="0"`, ""), profile.version), UnsupportedSchemaSyntaxCode, `<xs:sequence><xs:element ref="t:note"`, particleSpec, false, []string{`<xs:complexType name="Derived"`}, FailureUnsupported, errSchemaComplexTypeParticleUnsupported},
 				{"omitted element still resolves", strings.Replace(boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0" maxOccurs="0"`, ""), profile.version), `ref="t:note" minOccurs="0" maxOccurs="0"`, `ref="t:Missing" minOccurs="0" maxOccurs="0"`, 1), diagnosticSchemaElementReferenceUnresolvedCode, `ref="t:Missing"`, schemaElementReferenceSpecRef(profile.version), false, nil, FailureInvalid, errSchemaElementReferenceUnresolved},
 				{"missing group", strings.Replace(base, `ref="t:Fields"/></xs:sequence>`, `ref="t:Missing"/></xs:sequence>`, 1), diagnosticSchemaModelGroupReferenceUnresolvedCode, `ref="t:Missing"`, schemaModelGroupReferenceSpecRef(profile.version), false, nil, FailureInvalid, errSchemaModelGroupReferenceUnresolved},
@@ -192,6 +196,45 @@ func TestBoundedParticleRestrictionProofExits(t *testing.T) {
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					assertBoundedRestrictionFailure(t, test.root, profile.policy, test.class, test.code, test.primary, test.primaryLast, test.related, test.spec, test.cause)
+				})
+			}
+		})
+	}
+}
+
+// Built-in bases still check every derived reference before the bounded base exit.
+func TestBoundedParticleRestrictionBuiltinBasePrerequisites(t *testing.T) {
+	for _, profile := range []struct {
+		policy  LanguagePolicy
+		version XSDVersion
+	}{{Strict10, XSDVersion10}, {Strict11, XSDVersion11}, {Compatibility, XSDVersion11}} {
+		t.Run(string(profile.policy), func(t *testing.T) {
+			root := boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ""), profile.version)
+			root = strings.Replace(root, `base="t:Derived"`, `base="xs:anyType"`, 1)
+			withUse := func(source, use string) string {
+				return strings.Replace(source, `</xs:sequence></xs:restriction>`, `</xs:sequence>`+use+`</xs:restriction>`, 1)
+			}
+			for _, test := range []struct {
+				name, source, code, primary, spec string
+				related                           []string
+				class                             FailureClass
+				cause                             error
+			}{
+				{"resolved built-in", root, UnsupportedSchemaSyntaxCode, `base="xs:anyType"`, schemaComplexTypeDerivationSpecRef(profile.version), nil, FailureUnsupported, errSchemaComplexTypeParticleUnsupported},
+				{"resolved excluded use", withUse(root, `<xs:attribute name="used" type="xs:integer"/>`), UnsupportedSchemaSyntaxCode, `base="xs:anyType"`, schemaComplexTypeDerivationSpecRef(profile.version), nil, FailureUnsupported, errSchemaComplexTypeParticleUnsupported},
+				{"missing element", strings.Replace(root, `ref="t:note" minOccurs="0"`, `ref="t:Missing" minOccurs="0"`, 1), diagnosticSchemaElementReferenceUnresolvedCode, `ref="t:Missing"`, schemaElementReferenceSpecRef(profile.version), nil, FailureInvalid, errSchemaElementReferenceUnresolved},
+				{"wrong kind element", strings.Replace(root, `ref="t:note" minOccurs="0"`, `ref="t:Fields" minOccurs="0"`, 1), diagnosticSchemaElementReferenceWrongKindCode, `ref="t:Fields" minOccurs="0"`, schemaElementReferenceSpecRef(profile.version), []string{`<xs:group name="Fields"`}, FailureInvalid, errSchemaElementReferenceWrongKind},
+				{"missing group", strings.Replace(root, `ref="t:Fields"/></xs:sequence>`, `ref="t:Missing"/></xs:sequence>`, 1), diagnosticSchemaModelGroupReferenceUnresolvedCode, `ref="t:Missing"`, schemaModelGroupReferenceSpecRef(profile.version), nil, FailureInvalid, errSchemaModelGroupReferenceUnresolved},
+				{"wrong kind group", strings.Replace(root, `ref="t:Fields"/></xs:sequence>`, `ref="t:note"/></xs:sequence>`, 1), diagnosticSchemaModelGroupReferenceWrongKindCode, `ref="t:note"/></xs:sequence>`, schemaModelGroupReferenceSpecRef(profile.version), []string{`<xs:element name="note"`}, FailureInvalid, errSchemaModelGroupReferenceWrongKind},
+				{"missing element 0/0", strings.Replace(root, `ref="t:note" minOccurs="0"`, `ref="t:Missing" minOccurs="0" maxOccurs="0"`, 1), diagnosticSchemaElementReferenceUnresolvedCode, `ref="t:Missing"`, schemaElementReferenceSpecRef(profile.version), nil, FailureInvalid, errSchemaElementReferenceUnresolved},
+				{"wrong kind element 0/0", strings.Replace(root, `ref="t:note" minOccurs="0"`, `ref="t:Fields" minOccurs="0" maxOccurs="0"`, 1), diagnosticSchemaElementReferenceWrongKindCode, `ref="t:Fields" minOccurs="0" maxOccurs="0"`, schemaElementReferenceSpecRef(profile.version), []string{`<xs:group name="Fields"`}, FailureInvalid, errSchemaElementReferenceWrongKind},
+				{"missing group 0/0", strings.Replace(root, `ref="t:Fields"/></xs:sequence>`, `ref="t:Missing" minOccurs="0" maxOccurs="0"/></xs:sequence>`, 1), diagnosticSchemaModelGroupReferenceUnresolvedCode, `ref="t:Missing"`, schemaModelGroupReferenceSpecRef(profile.version), nil, FailureInvalid, errSchemaModelGroupReferenceUnresolved},
+				{"wrong kind group 0/0", strings.Replace(root, `ref="t:Fields"/></xs:sequence>`, `ref="t:note" minOccurs="0" maxOccurs="0"/></xs:sequence>`, 1), diagnosticSchemaModelGroupReferenceWrongKindCode, `ref="t:note" minOccurs="0" maxOccurs="0"`, schemaModelGroupReferenceSpecRef(profile.version), []string{`<xs:element name="note"`}, FailureInvalid, errSchemaModelGroupReferenceWrongKind},
+				{"missing excluded use", withUse(root, `<xs:attribute ref="t:Missing"/>`), diagnosticSchemaAttributeReferenceUnresolvedCode, `ref="t:Missing"`, schemaAttributeUseResolveSpecRef(profile.version), nil, FailureInvalid, errSchemaAttributeReferenceUnresolved},
+				{"wrong kind excluded use", withUse(root, `<xs:attribute ref="t:note"/>`), diagnosticSchemaAttributeReferenceWrongKindCode, `ref="t:note"/></xs:restriction>`, schemaAttributeUseResolveSpecRef(profile.version), []string{`<xs:element name="note"`}, FailureInvalid, errSchemaAttributeReferenceWrongKind},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					assertBoundedRestrictionFailure(t, test.source, profile.policy, test.class, test.code, test.primary, false, test.related, test.spec, test.cause)
 				})
 			}
 		})
