@@ -1487,8 +1487,9 @@ func (extension SimpleContentExtension) TypeID() (ComponentID, bool) {
 	return extension.facts.typeID, true
 }
 
-// AttributeUses returns effective direct attribute uses in lexical
-// declaration order. Prohibited source declarations are not returned.
+// AttributeUses returns this complex type's authored attribute uses in lexical
+// declaration order. Follow BaseReference for inherited uses; prohibited
+// source declarations are omitted. The returned slice is independent.
 func (definition ComplexTypeDefinition) AttributeUses() []AttributeUse {
 	if definition.facts == nil {
 		return nil
