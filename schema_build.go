@@ -7640,10 +7640,10 @@ func schemaNamedDirectLocalLanguageAnyURIAttributeTypeSupported(reference schema
 	if owner.complexType == nil {
 		return false
 	}
-	return schemaNamedLanguageAnyURIOwnerSupported(reference, owner)
+	return schemaNamedLanguageAnyURIOwnerSupported(owner)
 }
 
-func schemaNamedLanguageAnyURIOwnerSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
+func schemaNamedLanguageAnyURIOwnerSupported(owner schemaComponentRecord) bool {
 	switch body := owner.complexType.body.(type) {
 	case *schemaComplexTypeAttributeOnlyBodyInput:
 		return true
@@ -7655,7 +7655,7 @@ func schemaNamedLanguageAnyURIOwnerSupported(reference schemaSimpleTypeReference
 		case *schemaChoiceParticleInput, *schemaSequenceParticleInput, *schemaAllParticleInput:
 			return true
 		case *schemaModelGroupReferenceParticleInput:
-			return reference.kind == SimpleTypeReferenceBuiltin
+			return true
 		}
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		return body != nil
