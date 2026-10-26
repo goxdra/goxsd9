@@ -537,9 +537,11 @@
 // the direct group before ordered local uses and base. Effective 0/0 omits the
 // group, and prohibited uses may leave no effective uses. The named zero-use
 // sequence-base form above follows the same group-first and 0/0 order.
-// Named grouped owners reject at the first effective use Loc, then a present
-// group RefLoc, or the extension Loc when both are absent. Inline owners reject
-// at the instance root or global element as described below.
+// For reachable empty-base grouped consumer paths, the first authored use Loc
+// precedes a present group RefLoc, then the extension Loc. Inline owners reject
+// at the instance root or global element as described below. A typed global
+// root for the copied inherited-ID chain fails schema admission at @type
+// (XSD3003), before either consumer can receive that schema.
 // Default-bounded sequences of supported built-in/named integer/decimal or
 // all-Boolean particles are emitted as ordered Go struct fields. Local anonymous
 // Boolean/integer/decimal/negativeInteger particles retain query facts;
@@ -560,17 +562,19 @@
 // with a nil optional particle, no occurrence, and no synthetic content.
 // Ordinary direct-choice/direct-sequence target checks use element/particle
 // locations and may include the anonymous type location in related facts.
-// For named complex owners, generation checks effective AttributeUse facts
-// first: the first use Loc is primary, with definition and use locations
-// related. Without effective uses or a present group reference, extension Loc
+// Generation checks authored AttributeUse facts first for named complex owners
+// that reach that gate: the first use Loc is primary, with definition and use locations
+// related. With neither authored uses nor a present group reference, extension Loc
 // is primary with related complex-content/base/particle facts (and
-// anyAttribute when present). An inline global extension rejects earlier at
-// its element Loc, relating the anonymous type, extension, and base Locs.
-// For named owners, validation rejects a present extension sequence at the
+// anyAttribute when present). Type-only generation of the copied inherited-ID
+// chain rejects earlier at the openAttrs restriction (GOXSD9029), with nil
+// output. An inline global extension rejects earlier at its element Loc,
+// relating the anonymous type, extension, and base Locs.
+// For named owners whose validation plan is reached, a present extension sequence rejects at the
 // instance root before uses, retaining declaration/definition and extension
-// context. Its nonstreaming choice/omitted-sequence path checks effective uses
-// first, then a present group RefLoc, then the extension Loc. Direct and
-// grouped model-group-reference bodies follow the same use-before-group order:
+// context. Its nonstreaming choice/omitted-sequence path checks authored uses
+// first, then a present group RefLoc, then the extension Loc. Reachable direct
+// and empty-base grouped model-group-reference bodies follow that order:
 // use diagnostics relate declaration/definition and AttributeUse locations;
 // group diagnostics relate the group particle and extension context for
 // validation, or group/component/reference/target for generation. These named
@@ -578,6 +582,9 @@
 // reject at the instance root before these plans, even after 0/0 or prohibited
 // omission, relating the anonymous type and extension context. All return
 // located FailureUnsupported/ErrUnsupported; GenerateGo returns no output.
+// No copied inherited-ID rooted schema reaches ValidateInstance: its global
+// element type is rejected at @type (XSD3003), so no inherited-ID use location
+// or downstream validation precedence is asserted for that chain.
 //
 // Global built-in and named xs:nonNegativeInteger roots validate under
 // Compatibility, Strict10, and Strict11 through the exact integer scalar plan.

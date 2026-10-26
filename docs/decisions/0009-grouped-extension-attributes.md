@@ -4,13 +4,16 @@ Status: accepted
 
 ## Decision
 
-This schema-model boundary is one named global or global-element inline `complexType` whose
+The original empty-base slice (G0) is one named global or global-element inline `complexType` whose
 `complexContent/extension` uses a supported named empty-content base, one
 direct named `<group ref="...">` particle, and one or more ordered direct
 local `<attribute>` uses.
 The extension body may contain its optional annotation. The model child is
 the group reference; local attributes follow it in lexical order. The parser
 implements this bounded queryable fact; validation and generation reject it.
+The [current package contract](../../doc.go) also describes the separate,
+named-only inherited-ID base exception (G1). The scalar matrices here concern
+G0's empty/use-free bases unless explicitly qualified.
 
 The group remains one opaque particle. Preserve its expanded written QName,
 `ref` and use-site locations, exact occurrence range, and target
@@ -57,9 +60,9 @@ tested in
 [`bootstrap_simple_derivation_set_probe_test.go`](../../internal/specs/bootstrap_simple_derivation_set_probe_test.go).
 This boundary makes no `xs:ID` lexical, value, or uniqueness claim.
 
-## Exact supported shape and non-goals
+## Original G0 supported shape and non-goals
 
-The supported input is:
+This G0 input is:
 
 - a named global complex type or an anonymous inline complex type on a global element;
 - `complexContent/extension` with a supported named empty-content base;
@@ -84,12 +87,12 @@ named base. No consumer model is introduced by the composition.
 
 The group may be `0/0`, subject to target validation and the normalization
 above. A syntactically absent group is not silently inferred for this boundary.
-The base remains a named completed empty-content base with only representable
+For G0, the base remains a named completed empty-content base with only representable
 inherited wildcard facts. Duplicate direct model children are invalid. This
 grouped boundary does not add or expand `attributeGroup`, nested/local/anonymous
 groups, attribute-bearing choices, `all`, extension
 `anyAttribute`, open content, assertions, mixed or simple content, nonempty or
-broader bases, `xs:anyType` direct extension, another derivation kind, value
+broader bases other than the exact G1 exception below, `xs:anyType` direct extension, another derivation kind, value
 constraints, or consumer behavior.
 Direct-sequence extensions with local uses follow the separate
 [package contract](../../doc.go).
@@ -212,6 +215,7 @@ error-level result returns a partial schema.
 | --- | --- | --- | --- | --- | --- |
 | Edition/policy | XSD 1.0/1.1 under Compatibility, Strict10, or Strict11; one policy for the whole graph. | Malformed edition-specific attributes or grammar. | N/A. | Valid unimplemented XSD 1.1 open-content/assertion behavior gets a feature/`Loc`/`SpecRef`; a label never selects policy. | Edition selection from `schema/@version` is N/A. |
 | Named/anonymous/inline/ref shape | Named global and global-element inline owners over a supported named empty base; one direct named group ref; local declaration/ref uses and supported anonymous scalar types. Named owners also admit their existing bounded precisionDecimal list/two-member union uses. A named grouped owner additionally admits one optional direct local `final` declaration with a named `xs:simpleDerivationSet` type reference and the exact copied nested union/list facts above. | Duplicate direct model child (`XSD3010`); malformed QName/NCName; both or neither `name`/`ref`; invalid use/form/occurrences; duplicate effective name; unresolved, inaccessible, or wrong-kind targets remain `FailureInvalid`. Duplicate global group declarations fail earlier with `XSD3023`. | Grouped-extension referenced-source acquisition failures only, through the caller's resolver. | Attribute-bearing choices beyond the supported named direct-choice subset, and extension shapes beyond this grouped form and the supported direct-sequence form; local complex owners, nested/anonymous groups, attribute groups, ID and list/union uses on anonymous owners, true/1 or ref `inheritable`, broader varieties and identity-only value semantics. The `final` exception excludes inline local types, attribute refs, required use, value constraints, other owners, and generic union/list varieties. Grouped-extension validation and generation reject admitted uses. | Global attribute declarations with inline simple types are handled separately; local element-inline owners are outside this boundary. Internal duplicate-candidate ambiguity is not a public parse outcome. |
+| Named G1 exception | Named grouped owner over an immediate completed sequence-extension base: default 1/1 sequence, exactly one 0/1 global-element ref, exactly one optional direct local ID. Own optional `final:xs:simpleDerivationSet` and `name:xs:NCName` follow inherited ID; `AttributeUses` stays authored and `BaseReference` exposes inheritance. | Duplicate effective name: XSD3052 at own use with inherited use related; Strict10 second effective ID: XSD3061 at second use with first related. | Existing resolver/discovery rules. | Valid other nonempty/use-bearing bases and inline/direct G1 owners reject XSD3003 after dependency checks. Copied typed roots fail schema admission at `@type` XSD3003 before either consumer; type-only `GenerateGo` fails earlier at `openAttrs` restriction GOXSD9029 with nil output. | Downstream G1 `ValidateInstance` and grouped generation locations are unmeasured behind those gates. |
 | Graph visibility/cycles | Forward, included, imported, chameleon, repeated, and interned discovery identities with existing visibility. | Inaccessible/unresolved/wrong-kind grouped-extension targets; duplicate global group declarations fail before refs; named-group cycles fail XSD3062 before publication; base/simple-type cycles retain existing diagnostics. | Grouped-extension referenced-source acquisition failures only at the resolver/discovery boundary. | AttributeGroup recursion and broader graph composition remain unsupported. | Group-member expansion is N/A because the particle is opaque. |
 | Supported/invalid/explicit unsupported | Exact slice publishes facts; malformed structure is invalid; valid unavailable behavior is explicit unsupported. | Grouped-extension structural/target `FailureInvalid` keeps code, `Loc`, related evidence, cause, edition `SpecRef`; duplicate declarations use XSD3023, direct-group refs XSD3047–XSD3050, named-group cycles XSD3062 at closing ref with ordered related path, and attribute-use XSD3030/XSD3045–XSD3052/XSD3061 retain these details. | Only grouped-extension referenced-source acquisition failures are `FailureResolution` at the resolver/discovery boundary. | Registered feature ID, stable code, `Loc`, `SpecRef`, `ErrUnsupported`, and no schema; validation/generation reject explicitly. | W3C instance conformance scores are outside this decision. |
 | Location/order/provenance | Preserve group QName/ref/use locations, exact range, target ID, ordered attribute uses, effective names, type/form locations, and declaration order; validate before `0/0` omission. | Reference failures locate the use and relate targets; duplicate global groups locate the second declaration and relate the first; bounds retain their locations and causes. | Resolver/discovery acquisition location and underlying cause remain attached. | The unsupported construct's source `Loc` and versioned `SpecRef` remain attached. | Unordered map iteration is N/A to observable order; ordered slices are authoritative. |
