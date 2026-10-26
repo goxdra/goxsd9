@@ -44,16 +44,17 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
 Wildcard restrictions retain IDs/`Loc`s; xs:anyType ##other/lax works.
-Named bases must be completed particle-free/use-free bodies; grouped/simple-content
+Completed bases require particle-free/use-free; grouped/simple-content
 reject. Derived namespace
 and process are explicit, subset/stronger over ##any/##other/positive sets;
-XSD10 ##other requires equal exclusions, XSD11/Compatibility containment.
+XSD10 ##other: equal exclusions; XSD11/Compatibility: containment.
 Missing base wildcard, broader/weaker wildcard, final, cycles invalidate;
 missing derived wildcard and richer forms reject. Consumers reject.
-Named use-free/wildcard-free restrictions copy an optional global ref plus the
-1/1 three-ref choice from completed extension. XSD10 structural and XSD11
-inclusion/default-binding proofs reject overlap. Authored IDs/bounds/`Loc`s
-persist; richer forms and consumers reject.
+Named use-free/wildcard-free restrictions publish authored 1/1 sequences
+copying the completed base's 0/1 global-element and 1/1 group refs; the
+group targets an opaque three-ref 1/1 choice. XSD10 structural/XSD11
+inclusion/default-binding proofs reject overlap; IDs/bounds/`Loc`s persist.
+Richer forms/consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` reject.
 SimpleContent retains base/type/use `Loc`s and nil particle; dependencies precede owner gates.
 Scalar simpleContent queries; restrictions/consumers reject.

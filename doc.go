@@ -522,8 +522,9 @@
 // XSD 1.0 requires equal ##other exclusions, while XSD 1.1 and Compatibility
 // permit exclusion-set containment.
 // The base reference retains its ID, QName, and source Loc. Grouped/simple-content
-// bases, richer derived particles, uses, other group refs, notNamespace, and notQName
-// remain schema-unsupported; validation and generation reject admitted bodies.
+// bases, all derived particles (including group refs), uses, notNamespace, and
+// notQName remain schema-unsupported for this wildcard-only shape; validation
+// and generation reject admitted bodies.
 // Separately, a named use-free and wildcard-free restriction can retain the
 // authored 1/1 sequence of an optional global element ref and the same 1/1
 // group ref as a completed use-free group extension over that optional ref.

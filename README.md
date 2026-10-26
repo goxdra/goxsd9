@@ -21,9 +21,9 @@ Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
 Named empty/choice/sequence/all/grouped/sequence-extension query facet-free `xs:ID`; inline grouped/sequence extensions query atomic uses. Consumers reject. Empty `block` overrides named empty complexes/untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals, anonymous global-element inline grouped/direct-sequence non-ID locals, and untyped globals; refs reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
-Anonymous empty-base extensions query ref-only choices/sequences; bounds, order, and provenance persist; deeper forms reject.
-Named/global-inline wildcard-only restrictions query empty/use-free named bases with ##any/##other/positive-set wildcard subsets; validation/generation reject.
-Named use-free, wildcard-free restrictions query copied optional global-element and group refs over a completed extension; IDs, bounds, and `Loc`s persist. Consumers reject.
+Anonymous empty-base ref-only choices/sequences retain bounds/order/provenance.
+Wildcard-only named/inline restrictions query use-free bases with ##any/##other/sets; validation/generation reject.
+Named use-free/wildcard-free restrictions query an authored 1/1 sequence: the same completed-base 0/1 global-element target then the same 1/1 group ref to a nonoverlapping three-ref 1/1 choice. The composed base has zero uses/wildcards; validation/generation reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
