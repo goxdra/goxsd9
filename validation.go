@@ -552,7 +552,7 @@ func instanceChoiceProgramFor(
 		related = appendInstanceRelated(related, body.complexContentLoc)
 		related = appendInstanceRelated(related, body.restrictionLoc)
 		related = appendInstanceRelated(related, body.base.loc)
-		related = appendInstanceRelated(related, body.anyAttribute.loc)
+		related = appendInstanceRelated(related, body.contentLoc())
 		return instanceChoiceProgram{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named complex type %q uses complex-content restriction outside instance validation", definition.Name()),

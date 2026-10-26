@@ -43,22 +43,22 @@ Elements retain identity constraints, XPath, namespace scopes, `Loc`s, keyref ta
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
-Empty-base extensions and named/global-inline restrictions retain IDs/`Loc`s/wildcards.
-Built-in xs:anyType ##other/lax restrictions supported. Named-base
-restrictions require completed empty/attribute-only/direct/extension/restriction
-bases with nil particle/zero uses; grouped/simple-content unsupported.
-Named-base derived `namespace`/`processContents` explicit: namespace subset
-of base ##any/##other/positive-set, process always equal/stronger.
-##other preserves origin: XSD10 equality;
-XSD11/Compatibility exclusion containment.
-`notNamespace`/`notQName` unsupported. Missing base wildcard invalid at derived
-wildcard; missing derived wildcard unsupported. Broader/weaker wildcards, final,
-cycles invalid; richer derived particles/uses/group refs or nonempty/used bases
-unsupported. Consumers reject.
-Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
-SimpleContent retains base/type/use `Loc`s and nil particle; dependencies precede owner gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
-Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
-Direct/extension particles model selected integers; named direct adds sign restrictions. Built-in/named integers validate; other extensions remain query-only.
+Wildcard restrictions retain IDs/`Loc`s; xs:anyType ##other/lax works.
+Completed bases lack effective particles/uses; grouped/simple-content
+reject. Derived namespace
+and process are explicit, subset/stronger over ##any/##other/positive sets;
+XSD10 ##other: equal exclusions; XSD11/Compatibility: containment.
+Missing base wildcard, broader/weaker wildcard, final, cycles invalidate;
+missing derived wildcard/richer forms reject. Consumers reject.
+Named use-free/wildcard-free restrictions publish authored 1/1 sequences
+copying the completed base's 0/1 global-element and 1/1 group refs; the
+group targets an opaque three-ref 1/1 choice. XSD10 structural/XSD11
+inclusion/default-binding proofs reject overlap; IDs/bounds/`Loc`s persist.
+Richer forms/consumers reject.
+Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` reject.
+SimpleContent retains base/type/use `Loc`s and nil particle; dependencies precede owner gates.
+Scalar simpleContent queries; restrictions/consumers reject.
+Direct/extension particles handle selected integers; named direct adds sign restrictions; other extensions remain query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals match `targetNamespace`.
 Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate.

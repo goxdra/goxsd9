@@ -215,8 +215,9 @@ func TestPinnedSimpleDerivationGroupTarget(t *testing.T) { //nolint:gocognit // 
 						"XSD3024", `ref="xs:union"`, resolutionSpec, "element reference is unresolved")
 					combinedID := id + "-restriction"
 					combined := simpleDerivationSource(group, restriction, "", label)
-					assertCompositionFailure(t, combinedID, combined, policy.value, goxsd9.FailureUnsupported,
-						goxsd9.UnsupportedSchemaSyntaxCode, `minOccurs="0"`, restrictionProbeSpecRef(policy.value, "first"), "")
+					assertCompositionFailure(t, combinedID, combined, policy.value, goxsd9.FailureInvalid,
+						"XSD3010", `base="xs:simpleType"`, restrictionProbeSpecRef(policy.value, "derivation"),
+						`complex type base is unresolved: "{http://www.w3.org/2001/XMLSchema}simpleType"`)
 				})
 			}
 		})

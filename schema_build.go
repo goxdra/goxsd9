@@ -216,6 +216,8 @@ var (
 	errSchemaComplexTypeBaseCycle                = errors.New("complex type bases form a cycle")
 	errSchemaComplexTypeBaseNonEmpty             = errors.New("complex type base has nonempty content")
 	errSchemaComplexTypeWildcardRestriction      = errors.New("complex type wildcard restriction violates its base")
+	errSchemaComplexTypeParticleRestriction      = errors.New("complex type particle restriction violates its base")
+	errSchemaComplexTypeParticleUnsupported      = errors.New("complex type particle restriction is outside the bounded proof")
 	errLanguagePolicyMismatch                    = errors.New("recognized XSD 1.1 behavior is outside the selected XSD 1.0 policy")
 )
 
@@ -1785,7 +1787,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 			}
 			return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 		}
-		input, inputErr := schemaComplexTypeRestrictionInput(complexContent, block)
+		input, inputErr := schemaComplexTypeRestrictionInput(complexContent, facts, version, block)
 		if inputErr != nil {
 			return nil, inputErr
 		}
@@ -1886,7 +1888,8 @@ func schemaComplexTypeInputWithoutModel(
 	return nil, diagnostic
 }
 
-func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
+//nolint:gocognit // Build the two exclusive restriction inputs and deferred exclusions in lexical order.
+func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, facts schemaDocumentFacts, version XSDVersion, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
 	restriction := schemaComplexContentRestrictionChild(complexContent)
 	if restriction == nil {
 		return nil, newSchemaBridgeInvariant(complexContent.loc, "supported complexContent has no restriction child")
@@ -1903,8 +1906,37 @@ func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block sche
 	if err != nil {
 		return nil, err
 	}
-	if anyAttribute == nil {
-		return nil, newSchemaBridgeInvariant(restriction.loc, "supported complexContent restriction has no wildcard")
+	var particle schemaComplexTypeParticleInput
+	var excludedUses []schemaAttributeUseInput
+	var excludedLoc Loc
+	if model := schemaComplexTypeModel(restriction); model != nil {
+		if model.name.local != "sequence" {
+			return nil, newSchemaBridgeInvariant(model.loc, "supported particle restriction has no sequence")
+		}
+		occurrences, occurrenceErr := schemaParticleOccurrenceRange(model, version)
+		if occurrenceErr != nil {
+			return nil, occurrenceErr
+		}
+		sequence, sequenceErr := schemaRestrictionSequenceInput(model, occurrences, facts, version)
+		if sequenceErr != nil {
+			return nil, sequenceErr
+		}
+		particle = sequence
+		excludedUses, err = schemaAttributeUseInputsFromChildren(restriction, facts, version, false)
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range restriction.children {
+			child, ok := node.(*syntaxElement)
+			if !ok || child.name.local != "attribute" && child.name.local != "anyAttribute" {
+				continue
+			}
+			excludedLoc = child.loc
+			break
+		}
+	}
+	if particle == nil && anyAttribute == nil || particle != nil && anyAttribute != nil && excludedLoc.IsZero() {
+		return nil, newSchemaBridgeInvariant(restriction.loc, "restriction must have exactly one supported body shape")
 	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeRestrictionBodyInput{
@@ -1916,9 +1948,40 @@ func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block sche
 				loc:  baseAttributes[0].loc,
 			},
 			anyAttribute: anyAttribute,
+			particle:     particle,
+			excludedUses: excludedUses,
+			excludedLoc:  excludedLoc,
 		},
 		prohibitedSubstitutions: block,
 	}, nil
+}
+
+func schemaRestrictionSequenceInput(model *syntaxElement, occurrences particleOccurrenceRange, facts schemaDocumentFacts, version XSDVersion) (*schemaSequenceParticleInput, error) {
+	sequence := &schemaSequenceParticleInput{loc: model.loc, occurrences: occurrences, particles: make([]schemaParticleTermInput, 0, 2)}
+	for _, node := range model.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		if child.name.local == "group" {
+			rangeValue, err := schemaParticleOccurrenceRange(child, version)
+			if err != nil {
+				return nil, err
+			}
+			group, err := schemaModelGroupReferenceParticleInputFromElementWithFacts(child, rangeValue, facts)
+			if err != nil {
+				return nil, err
+			}
+			sequence.particles = append(sequence.particles, group)
+			continue
+		}
+		term, err := schemaParticleTermInputFromElementWithFacts(child, facts, version, !occurrences.mapsToParticle())
+		if err != nil {
+			return nil, err
+		}
+		sequence.particles = append(sequence.particles, term)
+	}
+	return sequence, nil
 }
 
 func schemaRestrictionAnyAttributeInputFromElement(restriction *syntaxElement) (*schemaAnyAttributeInput, error) {
@@ -6524,6 +6587,7 @@ type schemaComplexTypeRestrictionBodyResult struct {
 	restrictionLoc    Loc
 	base              schemaComplexTypeReferenceComponent
 	anyAttribute      schemaAnyAttributeResult
+	particle          Particle
 }
 
 func (*schemaComplexTypeRestrictionBodyResult) schemaComplexTypeBodyResult() {}
@@ -6594,9 +6658,10 @@ func resolveSchemaComplexTypes(
 	finalDefaults map[SourceID]schemaSimpleTypeFinalPolicy,
 	attributes []schemaAttributeTypeResult,
 	groupedExtensions []schemaModelGroupResult,
+	modelGroups []schemaModelGroupResult,
 	version XSDVersion,
 ) ([]schemaComplexTypeResult, error) {
-	if len(simpleTypes.results) != len(records) || simpleTypes.byInput == nil || len(attributes) != len(records) || len(groupedExtensions) != len(records) {
+	if len(simpleTypes.results) != len(records) || simpleTypes.byInput == nil || len(attributes) != len(records) || len(groupedExtensions) != len(records) || len(modelGroups) != len(records) {
 		return nil, newSchemaBridgeInvariant(Loc{}, "complex type resolution has incomplete simple type results")
 	}
 	resolver := schemaComplexTypeResolver{
@@ -6607,6 +6672,7 @@ func resolveSchemaComplexTypes(
 		finalDefaults:     finalDefaults,
 		attributes:        attributes,
 		groupedExtensions: groupedExtensions,
+		modelGroups:       modelGroups,
 		version:           version,
 		results:           make([]schemaComplexTypeResult, len(records)),
 		state:             make([]uint8, len(records)),
@@ -6631,6 +6697,7 @@ type schemaComplexTypeResolver struct {
 	finalDefaults     map[SourceID]schemaSimpleTypeFinalPolicy
 	attributes        []schemaAttributeTypeResult
 	groupedExtensions []schemaModelGroupResult
+	modelGroups       []schemaModelGroupResult
 	version           XSDVersion
 	results           []schemaComplexTypeResult
 	state             []uint8
@@ -6972,10 +7039,9 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 	if err != nil {
 		return nil, err
 	}
-	if body.anyAttribute == nil {
-		return nil, newSchemaBridgeInvariant(owner.loc, "restriction complex type body has no wildcard input")
+	if body.particle == nil && body.anyAttribute == nil || body.particle != nil && body.anyAttribute != nil && body.excludedLoc.IsZero() {
+		return nil, newSchemaBridgeInvariant(owner.loc, "restriction complex type has no unique body shape")
 	}
-	wildcard := schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
 	if candidate >= 0 {
 		if resolver.state[candidate] == 1 {
 			return nil, resolver.restrictionCycleDiagnostic(candidate, body.base.loc)
@@ -6993,6 +7059,27 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 				[]Loc{completed.final.loc}, resolver.version,
 				fmt.Errorf("%w: restriction is prohibited by base final", errSchemaComplexTypeBaseUnsupported))
 		}
+		if body.particle != nil {
+			particle, particleErr := resolver.resolveBoundedRestrictionPrerequisites(body, owner)
+			if particleErr != nil {
+				return nil, particleErr
+			}
+			if !body.excludedLoc.IsZero() {
+				return nil, resolver.unsupportedBoundedRestriction(body.excludedLoc, "particle restriction with attribute uses or wildcard is outside the use-free proof", resolver.records[candidate].loc)
+			}
+			if err := resolver.proveBoundedParticleRestriction(owner, body, completed.body, particle, candidate); err != nil {
+				return nil, err
+			}
+			base.id = resolver.records[candidate].id
+			base.hasID = true
+			return &schemaComplexTypeRestrictionBodyResult{
+				complexContentLoc: body.complexContentLoc,
+				restrictionLoc:    body.restrictionLoc,
+				base:              base,
+				particle:          particle,
+			}, nil
+		}
+		wildcard := schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
 		baseWildcard, err := resolver.restrictionBaseWildcard(completed.body, resolver.records[candidate].loc, body.base.loc)
 		if err != nil {
 			return nil, err
@@ -7002,13 +7089,44 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 		}
 		base.id = resolver.records[candidate].id
 		base.hasID = true
+		return &schemaComplexTypeRestrictionBodyResult{
+			complexContentLoc: body.complexContentLoc,
+			restrictionLoc:    body.restrictionLoc,
+			base:              base,
+			anyAttribute:      wildcard,
+		}, nil
+	}
+	if body.particle != nil {
+		if _, err := resolver.resolveBoundedRestrictionPrerequisites(body, owner); err != nil {
+			return nil, err
+		}
+		return nil, newSchemaComplexTypeUnsupported(body.base.loc,
+			"particle restriction of a built-in complex base is outside the bounded proof",
+			nil, resolver.version, errSchemaComplexTypeParticleUnsupported)
 	}
 	return &schemaComplexTypeRestrictionBodyResult{
 		complexContentLoc: body.complexContentLoc,
 		restrictionLoc:    body.restrictionLoc,
 		base:              base,
-		anyAttribute:      wildcard,
+		anyAttribute:      schemaAnyAttributeResultFromInput(body.anyAttribute, owner),
 	}, nil
+}
+
+func (resolver *schemaComplexTypeResolver) resolveBoundedRestrictionPrerequisites(body *schemaComplexTypeRestrictionBodyInput, owner schemaComponentRecord) (Particle, error) {
+	sequenceInput, ok := body.particle.(*schemaSequenceParticleInput)
+	if !ok || sequenceInput == nil {
+		return nil, newSchemaBridgeInvariant(body.restrictionLoc, "particle restriction has no sequence input")
+	}
+	particle, err := resolveSchemaSequenceParticleWithGroup(sequenceInput, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.version, true)
+	if err != nil {
+		return nil, err
+	}
+	if len(body.excludedUses) != 0 {
+		if _, err := resolveSchemaAttributeUses(body.excludedUses, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.simpleTypes, resolver.attributes, resolver.version); err != nil {
+			return nil, err
+		}
+	}
+	return particle, nil
 }
 
 func (resolver *schemaComplexTypeResolver) checkRestrictionWildcard(derived, base schemaAnyAttributeResult, baseLoc Loc) error {
@@ -9479,7 +9597,6 @@ func resolveSchemaChoiceParticleWithOptions(
 	return ChoiceParticle{facts: choice}, nil
 }
 
-//nolint:gocognit // Resolve the scoped nested choice before any sequence omission.
 func resolveSchemaSequenceParticle(
 	input *schemaSequenceParticleInput,
 	owner schemaComponentRecord,
@@ -9489,8 +9606,32 @@ func resolveSchemaSequenceParticle(
 	simpleTypes schemaSimpleTypeResolution,
 	version XSDVersion,
 ) (Particle, error) {
+	return resolveSchemaSequenceParticleWithGroup(input, owner, records, byName, visibleSources, simpleTypes, version, false)
+}
+
+//nolint:gocognit // Resolve every scoped sequence term before effective 0/0 omission.
+func resolveSchemaSequenceParticleWithGroup(
+	input *schemaSequenceParticleInput,
+	owner schemaComponentRecord,
+	records []schemaComponentRecord,
+	byName map[QName][]int,
+	visibleSources map[SourceID][]SourceID,
+	simpleTypes schemaSimpleTypeResolution,
+	version XSDVersion,
+	allowGroup bool,
+) (Particle, error) {
 	particles := make([]Particle, 0, len(input.particles))
 	for _, termInput := range input.particles {
+		if group, ok := termInput.(*schemaModelGroupReferenceParticleInput); ok && allowGroup {
+			particle, err := resolveSchemaModelGroupReferenceParticle(group, owner, records, byName, visibleSources, version)
+			if err != nil {
+				return nil, err
+			}
+			if group.occurrences.mapsToParticle() && input.occurrences.mapsToParticle() {
+				particles = append(particles, particle)
+			}
+			continue
+		}
 		if choice, ok := termInput.(*schemaChoiceParticleInput); ok {
 			if choice == nil {
 				return nil, newSchemaBridgeInvariant(input.loc, "sequence has a nil nested choice input")

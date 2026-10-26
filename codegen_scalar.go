@@ -2380,7 +2380,7 @@ func rejectCodegenRestrictedElement(target, component Component, declaredType QN
 	related = appendCodegenRelated(related, body.complexContentLoc)
 	related = appendCodegenRelated(related, body.restrictionLoc)
 	related = appendCodegenRelated(related, body.base.loc)
-	related = appendCodegenRelated(related, body.anyAttribute.loc)
+	related = appendCodegenRelated(related, body.contentLoc())
 	return newCodegenElementUnsupported(
 		component.Loc(),
 		fmt.Sprintf("global element type %q uses complex-content restriction outside Go generation", declaredType),

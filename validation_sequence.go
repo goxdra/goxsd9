@@ -127,9 +127,7 @@ func inlineInstanceComplexContentError(schema Schema, declaration ElementDeclara
 		related = appendInstanceRelated(related, body.complexContentLoc)
 		related = appendInstanceRelated(related, body.restrictionLoc)
 		related = appendInstanceRelated(related, body.base.loc)
-		if body.anyAttribute != nil {
-			related = appendInstanceRelated(related, body.anyAttribute.loc)
-		}
+		related = appendInstanceRelated(related, body.contentLoc())
 		return newInstanceValidationUnsupported(loc,
 			"inline complex type restriction is outside instance validation",
 			related, instanceSchemaValidationVersion(schema), errInstanceOpenAttrsType)
@@ -248,7 +246,7 @@ func instanceSequenceProgramFor(
 		related = appendInstanceRelated(related, body.complexContentLoc)
 		related = appendInstanceRelated(related, body.restrictionLoc)
 		related = appendInstanceRelated(related, body.base.loc)
-		related = appendInstanceRelated(related, body.anyAttribute.loc)
+		related = appendInstanceRelated(related, body.contentLoc())
 		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
 			loc,
 			fmt.Sprintf("named complex type %q uses complex-content restriction outside instance validation", definition.Name()),
