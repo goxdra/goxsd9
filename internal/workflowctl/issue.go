@@ -720,14 +720,9 @@ func (a app) handoffNeedsHuman(root string, number int, bodyFile string) error {
 	if status.State != "OPEN" {
 		return stateError("handoff issue #%d is %s; no mutation performed", number, status.State)
 	}
-	items, err := a.projectItems(root)
+	initialItem, err := a.readClaimResumeProjectItem(root, number)
 	if err != nil {
 		return fmt.Errorf("handoff issue #%d: preflight Project membership: %w", number, err)
-	}
-	initialItem, projectErr := findProjectIssue(items, number)
-	if projectErr != nil {
-		return stateError("handoff issue #%d is not in canonical Project #%d; no mutation performed: %w",
-			number, projectNumber, projectErr)
 	}
 	comments, err := a.readIssueComments(root, number)
 	if err != nil {
@@ -737,8 +732,15 @@ func (a app) handoffNeedsHuman(root string, number int, bodyFile string) error {
 	if proofErr := a.verifyHandoffTarget(root, number, status, initialItem); proofErr != nil {
 		return proofErr
 	}
-	if transitionErr := a.transitionIssueToNeedsHuman(root, number); transitionErr != nil {
+	if transitionErr := a.transitionIssueToNeedsHumanFromProof(root, number, &initialItem); transitionErr != nil {
 		return fmt.Errorf("handoff issue #%d transition incomplete; retry: %w", number, transitionErr)
+	}
+	latestStatus, latestItem, err := a.currentNeedsHumanProjectState(root, number)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d evidence comment phase incomplete after needs-human transition; retry: %w", number, err)
+	}
+	if !issueNeedsHuman(latestStatus) || latestItem.Status != "Backlog" || !sameCanonicalProjectItemIdentity(initialItem, latestItem) {
+		return stateError("handoff issue #%d evidence comment proof changed after needs-human transition; retry", number)
 	}
 	if alreadyPosted {
 		return writeLine(a.stdout, "issue #%d needs-human handoff already recorded", number)
@@ -757,7 +759,7 @@ func (a app) handoffNeedsHuman(root string, number int, bodyFile string) error {
 }
 
 func (a app) verifyHandoffTarget(root string, number int, initialStatus issueStatus,
-	initialItem projectItem,
+	initialItem claimResumeProjectItem,
 ) error {
 	latestStatus, err := a.readIssueStatus(root, number)
 	if err != nil {
@@ -767,25 +769,19 @@ func (a app) verifyHandoffTarget(root string, number int, initialStatus issueSta
 		return stateError("handoff issue #%d pre-mutation proof changed: issue is %s; no mutation performed",
 			number, latestStatus.State)
 	}
-	items, err := a.projectItems(root)
+	latestItem, err := a.readClaimResumeProjectItem(root, number)
 	if err != nil {
 		return fmt.Errorf("handoff issue #%d pre-mutation proof: read Project: %w", number, err)
 	}
-	latestItem, err := findProjectIssue(items, number)
-	if err != nil {
-		return stateError("handoff issue #%d pre-mutation proof changed: Project membership is invalid; no mutation performed: %w",
-			number, err)
-	}
-	if !sameCanonicalProjectItem(initialItem, latestItem) {
-		return stateError("handoff issue #%d pre-mutation proof changed: Project identity differs; no mutation performed",
+	if initialItem != latestItem {
+		return stateError("handoff issue #%d pre-mutation proof changed: Project identity or status differs; no mutation performed",
 			number)
 	}
 	return nil
 }
 
-func sameCanonicalProjectItem(left, right projectItem) bool {
-	return left.ID == right.ID && left.Content.Number == right.Content.Number &&
-		left.Content.Repository == right.Content.Repository && left.Content.Type == right.Content.Type
+func sameCanonicalProjectItemIdentity(left, right claimResumeProjectItem) bool {
+	return left.ID == right.ID && left.IssueID == right.IssueID && left.RepositoryID == right.RepositoryID
 }
 
 func readHandoffBody(path string) (string, error) {

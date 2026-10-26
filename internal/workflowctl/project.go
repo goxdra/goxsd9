@@ -225,15 +225,27 @@ func (list projectFieldList) option(fieldName, optionName string) (string, strin
 }
 
 func (a app) setProjectField(root, itemID, fieldName, optionName string) error {
-	fields, err := a.projectFields(root)
+	fieldID, optionID, err := a.projectFieldOption(root, fieldName, optionName)
 	if err != nil {
 		return err
+	}
+	return a.setProjectFieldOption(root, itemID, fieldName, optionName, fieldID, optionID)
+}
+
+func (a app) projectFieldOption(root, fieldName, optionName string) (string, string, error) {
+	fields, err := a.projectFields(root)
+	if err != nil {
+		return "", "", err
 	}
 	fieldID, optionID, err := fields.option(fieldName, optionName)
 	if err != nil {
-		return err
+		return "", "", err
 	}
-	_, err = a.command(root, "gh", "project", "item-edit", "--project-id", projectID, "--id", itemID,
+	return fieldID, optionID, nil
+}
+
+func (a app) setProjectFieldOption(root, itemID, fieldName, optionName, fieldID, optionID string) error {
+	_, err := a.command(root, "gh", "project", "item-edit", "--project-id", projectID, "--id", itemID,
 		"--field-id", fieldID, "--single-select-option-id", optionID)
 	if err != nil {
 		return fmt.Errorf("set %s=%s: %w", fieldName, optionName, err)

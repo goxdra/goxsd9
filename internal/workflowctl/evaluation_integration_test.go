@@ -2886,6 +2886,12 @@ func (b *workflowBackend) executeGitHub(input []byte, args []string) (string, er
 }
 
 func (b *workflowBackend) executeGitHubIssue13(_ []byte, joined string) (string, bool, error) {
+	if strings.HasPrefix(joined, "api graphql -f query="+claimResumeProjectIssueQuery) {
+		if !strings.Contains(joined, "-F number=13") || strings.Contains(joined, "-f after=") {
+			return "", true, fmt.Errorf("unexpected issue-scoped Project query: %s", joined)
+		}
+		return b.projectIssuePageJSON(), true, nil
+	}
 	switch joined {
 	case "api repos/goxdra/goxsd9/issues/13":
 		if b.issueReadFailures > 0 {
@@ -2919,6 +2925,24 @@ func (b *workflowBackend) executeGitHubIssue13(_ []byte, joined string) (string,
 	default:
 		return "", false, nil
 	}
+}
+
+func (b *workflowBackend) projectIssuePageJSON() string {
+	if !b.projectMember {
+		return projectIssueTestPage(13, 0, "", false, "")
+	}
+	page := claimResumeProjectPageJSON(13, b.projectStatus)
+	page = strings.Replace(page, `"id":"item-13"`, fmt.Sprintf(`"id":%q`, b.projectItemID), 1)
+	if b.projectType != "Issue" {
+		page = strings.Replace(page, `"type":"ISSUE"`, `"type":"PULL_REQUEST"`, 1)
+	}
+	if b.projectRepository != repositoryKey {
+		page = strings.Replace(page, `"nameWithOwner":"goxdra/goxsd9"`, fmt.Sprintf(`"nameWithOwner":%q`, b.projectRepository), 1)
+	}
+	if b.projectMalformed {
+		page = strings.Replace(page, `"number":13,"repository":{"id":"repo-id"`, `"repository":{"id":"repo-id"`, 1)
+	}
+	return page
 }
 
 func (b *workflowBackend) projectItemsJSON() string {
