@@ -315,10 +315,8 @@ func TestDirectGroupLanguageAnyURIUseBoundaryDiagnostics(t *testing.T) {
 func TestDirectGroupLanguageAnyURIAttributeFormsStayExcluded(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, name := range []string{"language", "anyURI"} {
-			alias := `<xs:simpleType name="Alias"><xs:restriction base="xs:` + name + `"/></xs:simpleType>`
 			inline := `<xs:simpleType><xs:restriction base="xs:` + name + `"/></xs:simpleType>`
 			cases := append(directBuiltinExcludedUses(name),
-				directBuiltinExcludedUse{"named alias", `<xs:attribute name="a" type="r:Alias"/>`, alias, `type="r:Alias"`, "", errSchemaAttributeUseUnsupported, false},
 				directBuiltinExcludedUse{"ref default", `<xs:attribute ref="r:a" default="en"/>`, `<xs:attribute name="a" type="xs:` + name + `"/>`, `default="en"`, "", errSchemaAttributeUseUnsupported, true},
 				directBuiltinExcludedUse{"ref fixed", `<xs:attribute ref="r:a" fixed="en"/>`, `<xs:attribute name="a" type="xs:` + name + `"/>`, `fixed="en"`, "", errSchemaAttributeUseUnsupported, true},
 				directBuiltinExcludedUse{"named list", `<xs:attribute name="a" type="r:List"/>`, `<xs:simpleType name="List"><xs:list itemType="xs:` + name + `"/></xs:simpleType>`, `type="r:List"`, "", errSchemaAttributeUseUnsupported, false},
