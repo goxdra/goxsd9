@@ -1251,6 +1251,11 @@ func (definition ComplexTypeDefinition) Particle() Particle {
 			return nil
 		}
 		return body.particle
+	case *schemaComplexTypeRestrictionBodyComponent:
+		if body == nil {
+			return nil
+		}
+		return body.particle
 	case *schemaComplexTypeExtensionBodyComponent:
 		if body == nil {
 			return nil
@@ -2910,6 +2915,9 @@ type schemaComplexTypeRestrictionBodyInput struct {
 	restrictionLoc    Loc
 	base              schemaComplexTypeReferenceInput
 	anyAttribute      *schemaAnyAttributeInput
+	particle          schemaComplexTypeParticleInput
+	excludedUses      []schemaAttributeUseInput
+	excludedLoc       Loc
 }
 
 func (*schemaComplexTypeRestrictionBodyInput) schemaComplexTypeBodyInput() {}
@@ -3189,6 +3197,20 @@ type schemaComplexTypeRestrictionBodyComponent struct {
 	restrictionLoc    Loc
 	base              schemaComplexTypeReferenceComponent
 	anyAttribute      *schemaAnyAttributeComponent
+	particle          Particle
+}
+
+func (body *schemaComplexTypeRestrictionBodyComponent) contentLoc() Loc {
+	if body == nil {
+		return Loc{}
+	}
+	if body.particle != nil {
+		return body.particle.Loc()
+	}
+	if body.anyAttribute != nil {
+		return body.anyAttribute.loc
+	}
+	return Loc{}
 }
 
 func (*schemaComplexTypeRestrictionBodyComponent) schemaComplexTypeBodyComponent() {}
@@ -3462,11 +3484,11 @@ func resolveSchemaBuildResults(
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
-	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, attributes, groupedExtensions, version)
+	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes, version)
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
-	modelGroups, err := resolveSchemaModelGroups(records, byName, visibleSources, simpleTypes, version)
+	complexTypes, err := resolveSchemaComplexTypes(records, byName, visibleSources, simpleTypes, finalDefaults, attributes, groupedExtensions, modelGroups, version)
 	if err != nil {
 		return schemaBuildResolution{}, err
 	}
@@ -3854,11 +3876,15 @@ func completeSchemaComplexTypeBody(result schemaComplexTypeBodyResult, loc Loc) 
 		if body == nil || body.base.kind == "" || body.base.name.IsZero() || body.base.loc.IsZero() {
 			return nil, newSchemaBridgeInvariant(loc, "restriction complex type body has incomplete base reference")
 		}
+		if body.anyAttribute.present == (body.particle != nil) {
+			return nil, newSchemaBridgeInvariant(loc, "restriction complex type body has no unique content shape")
+		}
 		return &schemaComplexTypeRestrictionBodyComponent{
 			complexContentLoc: body.complexContentLoc,
 			restrictionLoc:    body.restrictionLoc,
 			base:              body.base,
 			anyAttribute:      completeSchemaAnyAttribute(body.anyAttribute),
+			particle:          body.particle,
 		}, nil
 	case *schemaComplexTypeExtensionBodyResult:
 		if body == nil || body.base.kind == "" || body.base.name.IsZero() || body.base.loc.IsZero() {
@@ -3981,6 +4007,9 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			restrictionLoc:    body.restrictionLoc,
 			base:              body.base,
 			anyAttribute:      cloneSchemaAnyAttributeInput(body.anyAttribute),
+			particle:          cloneSchemaComplexTypeParticleInput(body.particle),
+			excludedUses:      cloneSchemaAttributeUseInputs(body.excludedUses),
+			excludedLoc:       body.excludedLoc,
 		}
 	case *schemaComplexTypeExtensionBodyInput:
 		if body == nil {
@@ -4431,7 +4460,10 @@ func schemaComplexTypeAttributeUseInputs(body schemaComplexTypeBodyInput) []sche
 		}
 		return typed.attributeUses
 	case *schemaComplexTypeRestrictionBodyInput:
-		return nil
+		if typed == nil {
+			return nil
+		}
+		return typed.excludedUses
 	default:
 		return nil
 	}

@@ -512,17 +512,28 @@
 // The phase-local effective composition has no
 // fabricated source location. Supported base wildcards retain provenance;
 // deeper chains, other nonempty bases, and consumers remain unsupported.
-// Named and global-element inline complexContent restrictions expose completed
-// named empty, attribute-only, direct, extension, or restriction bases with nil
-// effective particle and zero effective attribute uses. Derived wildcards need
+// Named and global-element inline wildcard-only complexContent restrictions
+// expose completed named empty, attribute-only, direct, extension, or
+// restriction bases with nil particle and zero effective attribute uses.
+// Derived wildcards need
 // explicit namespace and processContents: namespace must be a subset of the
 // base ##any, ##other, or positive namespace set, and process equal or stronger.
 // Inherited ##other keeps its declaring namespace through empty extensions;
 // XSD 1.0 requires equal ##other exclusions, while XSD 1.1 and Compatibility
 // permit exclusion-set containment.
 // The base reference retains its ID, QName, and source Loc. Grouped/simple-content
-// bases, richer derived particles, uses, group refs, notNamespace, and notQName
+// bases, richer derived particles, uses, other group refs, notNamespace, and notQName
 // remain schema-unsupported; validation and generation reject admitted bodies.
+// Separately, a named use-free and wildcard-free restriction can retain the
+// authored 1/1 sequence of an optional global element ref and the same 1/1
+// group ref as a completed use-free group extension over that optional ref.
+// Its base and derived refs keep exact target IDs, bounds, and source Locs.
+// XSD 1.0 uses a bounded structural particle proof; XSD 1.1 uses bounded
+// content inclusion and identical global declaration default bindings. The
+// completed group must be a three-ref choice without attribution overlap.
+// No synthetic effective particle or source Loc is exposed. Inline particle
+// restrictions, differing refs, other particle languages, uses, wildcards,
+// and consumers remain unsupported.
 // Attribute-use grouped extensions over supported named empty bases resolve
 // the direct group before ordered local uses and base. Effective 0/0 omits the
 // group, and prohibited uses may leave no effective uses. The named zero-use

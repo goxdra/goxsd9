@@ -2862,7 +2862,7 @@ func validateComplexTypeContentChild(parent, element *syntaxElement, version XSD
 	}
 	if element.name.local == "complexContent" {
 		restriction := schemaComplexContentRestrictionChild(element)
-		if boundedComplexContentRestrictionCandidate(restriction, true) {
+		if boundedComplexContentRestrictionCandidate(restriction, true) || boundedComplexContentParticleRestrictionCandidate(restriction) {
 			if schemaBooleanAttributeTrue(parent) || schemaBooleanAttributeTrue(element) {
 				return newSchemaSyntaxUnsupportedForVersion(
 					element.loc,
@@ -2944,6 +2944,41 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 		}
 	}
 	return anyAttributeSeen
+}
+
+//nolint:gocognit // Keep exact lexical shape and deferred excluded children together.
+func boundedComplexContentParticleRestrictionCandidate(element *syntaxElement) bool {
+	if element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "restriction" || len(syntaxAttributesByLocal(element, "base")) != 1 {
+		return false
+	}
+	model := schemaComplexTypeModel(element)
+	if model == nil || model.name.local != "sequence" {
+		return false
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if child.name.namespace != xsdNamespaceURI {
+			return false
+		}
+		if child != model && child.name.local != "annotation" && child.name.local != "attribute" && child.name.local != "anyAttribute" {
+			return false
+		}
+	}
+	position := 0
+	for _, node := range model.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.local == "annotation" {
+			continue
+		}
+		position++
+		if child.name.namespace != xsdNamespaceURI || position == 1 && child.name.local != "element" || position == 2 && child.name.local != "group" || position > 2 {
+			return false
+		}
+	}
+	return position == 2
 }
 
 func isExplicitRestrictionAnyAttribute(element *syntaxElement) bool {
@@ -3192,13 +3227,16 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 					particleErr = validateInlineExtensionSequenceParticle(child, version)
 				}
 			}
+			if complexContent && element.name.local == "restriction" && child.name.local == "sequence" && boundedComplexContentParticleRestrictionCandidate(element) {
+				particleErr = validateBoundedRestrictionSequence(child, version)
+			}
 			if particleErr != nil {
 				particleUnsupported = particleErr
 			}
 			if err := particleErr; err != nil && !candidate.considerError(err) {
 				return err
 			}
-			if complexContent && element.name.local == "restriction" && particleErr == nil {
+			if complexContent && element.name.local == "restriction" && particleErr == nil && !boundedComplexContentParticleRestrictionCandidate(element) {
 				candidate.considerAtVersion(child.loc, "complexContent restriction particle is not implemented", version)
 			}
 		case "choice":
@@ -3238,7 +3276,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if child.name.local == "attribute" && (groupExtension || sequenceExtension) {
 				childErr = schemaInvalidWithSpecRef(childErr, schemaAttributeUseSpecRef(version))
 			}
-			if child.name.local == "attribute" && complexContent && childErr == nil && !groupExtension && !sequenceExtension {
+			if child.name.local == "attribute" && complexContent && childErr == nil && !groupExtension && !sequenceExtension && !boundedComplexContentParticleRestrictionCandidate(element) {
 				childErr = newSchemaSyntaxUnsupported(child.loc, "local attribute declarations are not implemented")
 			}
 			if childErr != nil && !candidate.considerError(childErr) {
@@ -3252,7 +3290,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				return compositionDiagnostic(child.loc, element.name.local+" anyAttribute must be unique and last")
 			}
 			anyAttributeSeen = true
-			boundedRestriction := complexContent && element.name.local == "restriction" && boundedComplexContentRestrictionCandidate(element, true)
+			boundedRestriction := complexContent && element.name.local == "restriction" && (boundedComplexContentRestrictionCandidate(element, true) || boundedComplexContentParticleRestrictionCandidate(element))
 			var anyAttributeErr error
 			if boundedRestriction {
 				anyAttributeErr = validateAnyAttributeSyntax(child, version)
@@ -3280,7 +3318,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		return compositionDiagnostic(openContentLoc, "complexContent restriction openContent requires a model particle")
 	}
 	derivationErr := candidate.err()
-	if derivationErr == nil && boundedComplexContentRestrictionCandidate(element, complexContent) {
+	if derivationErr == nil && (boundedComplexContentRestrictionCandidate(element, complexContent) || complexContent && boundedComplexContentParticleRestrictionCandidate(element)) {
 		return nil
 	}
 	if derivationErr == nil && !complexContent && element.name.local == "extension" && !simpleRestriction {
@@ -4844,6 +4882,51 @@ func validateSupportedSequenceParticle(element *syntaxElement, version XSDVersio
 		return err
 	}
 	candidate.merge(childrenCandidate)
+	return candidate.err()
+}
+
+//nolint:gocognit // Preflight ordered element/group syntax and occurrence diagnostics together.
+func validateBoundedRestrictionSequence(element *syntaxElement, version XSDVersion) error {
+	var candidate schemaChildUnsupportedCandidate
+	if err := validateSchemaParticleAttributesWithOccurrencePolicy(element, &candidate, version, true); err != nil {
+		return err
+	}
+	annotationSeen := false
+	contentSeen := false
+	for _, node := range element.children {
+		if textNode, ok := node.(syntaxText); ok {
+			if !xmlWhitespace([]byte(textNode.data)) {
+				return newSchemaCompositionDiagnostic(textNode.loc, "sequence contains non-whitespace character data")
+			}
+			continue
+		}
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			return newSchemaBridgeInvariant(element.loc, "restriction sequence contains an unknown syntax node")
+		}
+		if child.name.local == "annotation" {
+			if annotationSeen || contentSeen {
+				return newSchemaCompositionDiagnostic(child.loc, "sequence annotation must be first and unique")
+			}
+			annotationSeen = true
+			if err := stageSchemaCandidateError(&candidate, validateSchemaAnnotationElement(child)); err != nil {
+				return err
+			}
+			continue
+		}
+		contentSeen = true
+		if child.name.local == "element" {
+			local, err := validateLocalElementParticle(child, version, true, "sequence", true, false)
+			if err != nil {
+				return err
+			}
+			candidate.merge(local)
+			continue
+		}
+		if err := stageSchemaCandidateError(&candidate, validateSupportedGroupParticle(child, version)); err != nil {
+			return err
+		}
+	}
 	return candidate.err()
 }
 

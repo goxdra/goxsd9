@@ -171,7 +171,7 @@ func collectCodegenDirectParticles(
 			related = appendCodegenRelated(related, body.complexContentLoc)
 			related = appendCodegenRelated(related, body.restrictionLoc)
 			related = appendCodegenRelated(related, body.base.loc)
-			related = appendCodegenRelated(related, body.anyAttribute.loc)
+			related = appendCodegenRelated(related, body.contentLoc())
 			return nil, newCodegenDirectParticleUnsupported(
 				component.Loc(),
 				fmt.Sprintf("complex type %q uses complex-content restriction outside direct particle generation", component.Name()),
@@ -305,9 +305,7 @@ func rejectCodegenInlineComposition(component Component, version XSDVersion) err
 		related := appendCodegenRelated(nil, inline.Loc())
 		related = appendCodegenRelated(related, body.restrictionLoc)
 		related = appendCodegenRelated(related, body.base.loc)
-		if body.anyAttribute != nil {
-			related = appendCodegenRelated(related, body.anyAttribute.loc)
-		}
+		related = appendCodegenRelated(related, body.contentLoc())
 		return newCodegenElementUnsupported(component.Loc(),
 			fmt.Sprintf("global element %q has an inline complex-content restriction outside Go generation", component.Name()),
 			related, fmt.Errorf("%w: inline complex-content restriction", errCodegenUnsupported), version)

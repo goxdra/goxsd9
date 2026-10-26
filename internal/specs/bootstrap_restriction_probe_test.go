@@ -123,15 +123,25 @@ func restrictionProbeCases(t *testing.T, fragment string) []restrictionProbeCase
 			specKind: specKind, class: goxsd9.FailureUnsupported,
 			code: goxsd9.UnsupportedSchemaSyntaxCode, feature: goxsd9.FeatureSchemaSyntax}
 	}
+	unresolvedBase := func(name, value string) restrictionProbeCase {
+		return restrictionProbeCase{name: name, fragment: value, base: standIn, marker: `base="xs:simpleType"`,
+			specKind: "derivation", class: goxsd9.FailureInvalid, code: "XSD3010",
+			causeType: "*fmt.wrapError", cause: `complex type base is unresolved: "{http://www.w3.org/2001/XMLSchema}simpleType"`}
+	}
+	unresolvedAnnotation := func(name, value string) restrictionProbeCase {
+		return restrictionProbeCase{name: name, fragment: value, base: standIn, marker: `ref="xs:annotation"`,
+			specKind: "resolution", class: goxsd9.FailureInvalid, code: "XSD3024",
+			causeType: "*errors.errorString", cause: "element reference is unresolved"}
+	}
 	return []restrictionProbeCase{
 		// This one keeps the authored base QName; the synthetic declaration is unused.
-		first("exact-fragment", fragment, `minOccurs="0"`, "first"),
-		first("projected-fragment", project(fragment), `minOccurs="0"`, "first"),
+		unresolvedBase("exact-fragment", fragment),
+		unresolvedAnnotation("projected-fragment", project(fragment)),
 		first("without-sequence", project(sequence), `<xs:attribute name="name"`, "schema10"),
 		first("without-element-ref", project(restrictionProbeRemove(t, fragment, `<xs:element ref="xs:annotation" minOccurs="0"/>`, `<xs:element ref="xs:annotation" minOccurs="0"/>`)), `ref="xs:simpleDerivation"`, "first"),
 		first("without-group-ref", project(restrictionProbeRemove(t, fragment, `<xs:group ref="xs:simpleDerivation"/>`, `<xs:group ref="xs:simpleDerivation"/>`)), `minOccurs="0"`, "first"),
-		first("without-local-attribute", project(restrictionProbeRemove(t, fragment, `<xs:attribute name="name"`, `</xs:attribute>`)), `minOccurs="0"`, "first"),
-		first("without-anyAttribute", project(restrictionProbeRemove(t, fragment, `<xs:anyAttribute`, `/>`)), `minOccurs="0"`, "first"),
+		unresolvedAnnotation("without-local-attribute", project(restrictionProbeRemove(t, fragment, `<xs:attribute name="name"`, `</xs:attribute>`))),
+		unresolvedAnnotation("without-anyAttribute", project(restrictionProbeRemove(t, fragment, `<xs:anyAttribute`, `/>`))),
 		first("base-only", project(baseOnly), `<xs:restriction`, "schema10"),
 		{name: "wildcard-only-named-complex-base", fragment: project(wildcard), base: standIn,
 			marker: `<xs:anyAttribute`, relatedMarker: `<xs:complexType name="SimpleTypeBase"`, specKind: "derivation",
@@ -149,6 +159,12 @@ func restrictionProbeCases(t *testing.T, fragment string) []restrictionProbeCase
 }
 
 func restrictionProbeSpecRef(policy goxsd9.LanguagePolicy, kind string) string {
+	if kind == "resolution" {
+		if policy == goxsd9.Strict10 {
+			return "xsd10-structures#src-resolve"
+		}
+		return "xsd11-structures#src-resolve"
+	}
 	if kind == "schema10" {
 		return "xsd10-structures#schema-document"
 	}

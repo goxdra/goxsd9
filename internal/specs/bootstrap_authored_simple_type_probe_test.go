@@ -81,7 +81,7 @@ func authoredSimpleTypeSource(f authoredSimpleTypeFragments) string {
 		f.group + "\n" + f.base + "\n" + f.derived + "\n</xs:schema>"
 }
 
-//nolint:gocognit // Keep copied provenance, one-obligation controls, policies, and complete public diagnostics together.
+//nolint:gocognit,funlen // Keep copied provenance, controls, policies, and complete diagnostics together.
 func TestPinnedAuthoredSimpleTypePairProbe(t *testing.T) {
 	for _, edition := range restrictionProbeEditions {
 		t.Run(edition.specPrefix, func(t *testing.T) {
@@ -135,12 +135,36 @@ func TestPinnedAuthoredSimpleTypePairProbe(t *testing.T) {
 									specRef = "xsd10-structures#element-complexContent..extension"
 								}
 							}
-							loc := authoredSimpleTypeLoc(t, id, source, probe.marker)
+							marker := probe.marker
+							if probe.name == "authored-pair" || probe.name == "without-derived-wildcard" || probe.name == "without-base-final" || probe.name == "without-base-name" {
+								marker = `type="xs:NCName" use="required"`
+								specRef = "xsd11-structures#Attribute_Declaration_details"
+								if policy.value == goxsd9.Strict10 {
+									specRef = "xsd10-structures#Attribute_Declaration_details"
+								}
+							}
+							if probe.name == "without-derived-name" {
+								marker = `<xs:anyAttribute namespace="##other"`
+								specRef = "xsd11-structures#cos-content-act-restrict"
+								if policy.value == goxsd9.Strict10 {
+									specRef = "xsd10-structures#cos-particle-restrict"
+								}
+							}
+							loc := authoredSimpleTypeLoc(t, id, source, marker)
 							want := bootstrapProbeObservation{stage: bootstrapProbeParserStage, diagnostic: bootstrapProbeDiagnostic{
 								class: goxsd9.FailureUnsupported, code: goxsd9.UnsupportedSchemaSyntaxCode,
 								feature: goxsd9.FeatureSchemaSyntax, source: goxsd9.SourceID(id),
 								line: loc.Line(), column: loc.Column(), specRef: specRef,
 							}}
+							if marker == `type="xs:NCName" use="required"` {
+								want.diagnostic.causeType = "*errors.joinError"
+								want.diagnostic.cause = "attribute type is unsupported: \"{http://www.w3.org/2001/XMLSchema}NCName\"\nattribute use is unsupported"
+							}
+							if probe.name == "without-derived-name" {
+								want.diagnostic.causeType = "*errors.errorString"
+								want.diagnostic.cause = "complex type particle restriction is outside the bounded proof"
+								want.diagnostic.related = []goxsd9.Loc{authoredSimpleTypeLoc(t, id, source, `<xs:complexType name="simpleType"`)}
+							}
 							var first bootstrapProbeObservation
 							for attempt := range 2 {
 								schema, err := inlineProbeParse(t, id, source, policy.value)
