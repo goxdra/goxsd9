@@ -6754,9 +6754,8 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 		if err != nil {
 			return nil, reframeSchemaSimpleTypeBuildError(resolver.records, resolver.byName, err, resolver.version)
 		}
-		_, directGroup := body.particle.(*schemaModelGroupReferenceParticleInput)
-		sequenceGroup := owner.complexType != nil && directGroup && len(attributeUses) == 0
-		base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex, sequenceGroup, particle)
+		_, group := body.particle.(*schemaModelGroupReferenceParticleInput)
+		base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex, group, particle, attributeUses)
 		if err != nil {
 			return nil, err
 		}
@@ -6791,8 +6790,7 @@ func (resolver *schemaComplexTypeResolver) resolveGroupedExtensionBody(
 	if err != nil {
 		return nil, reframeSchemaSimpleTypeBuildError(resolver.records, resolver.byName, err, resolver.version)
 	}
-	sequenceGroup := owner.complexType != nil && len(attributeUses) == 0
-	base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex, sequenceGroup, grouped.particle)
+	base, anyAttribute, err := resolver.resolveExtensionBase(body.base, ownerIndex, true, grouped.particle, attributeUses)
 	if err != nil {
 		return nil, err
 	}
@@ -8343,11 +8341,13 @@ func newSchemaAttributeUseIDDuplicateDiagnostic(loc, first Loc) Diagnostic {
 	}
 }
 
+//nolint:gocognit // Keep final, completed-base composition, wildcard, and effective-use gates in phase order.
 func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 	input schemaComplexTypeReferenceInput,
 	ownerIndex int,
-	sequenceGroup bool,
+	group bool,
 	derived Particle,
+	derivedUses []AttributeUse,
 ) (schemaComplexTypeReferenceComponent, schemaAnyAttributeResult, error) {
 	owner := resolver.records[ownerIndex]
 	candidate, reference, err := resolveSchemaComplexTypeExtensionReference(
@@ -8379,7 +8379,20 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 	}
 	var composed bool
 	var inherited schemaAnyAttributeResult
-	if sequenceGroup {
+	if owner.complexType != nil && group {
+		content, baseUses, ok := schemaComposeOptionalReferenceSequenceUseBase(base.body, derived)
+		if ok {
+			composed = true
+			inherited, err = resolver.representableInheritedWildcard(content.wildcard, resolver.records[candidate].loc, input.loc)
+			if err == nil {
+				err = resolver.checkComposedAttributeUses(baseUses, derivedUses)
+			}
+			if err == nil {
+				err = resolver.rejectComposedAttributeReferences(baseUses, derivedUses, resolver.records[candidate].loc)
+			}
+		}
+	}
+	if owner.complexType != nil && group && len(derivedUses) == 0 && !composed {
 		content, ok := schemaComposeOptionalReferenceSequenceBase(base.body, derived)
 		if ok {
 			composed = true
@@ -8395,6 +8408,66 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 	reference.id = resolver.records[candidate].id
 	reference.hasID = true
 	return reference, inherited, nil
+}
+
+// The authored base keeps its uses. Composition checks only the completed
+// one-ID, optional-reference sequence boundary used by the annotated chain.
+func schemaComposeOptionalReferenceSequenceUseBase(body schemaComplexTypeBodyResult, derived Particle) (schemaEffectiveExtensionContent, []AttributeUse, bool) {
+	base, ok := body.(*schemaComplexTypeExtensionBodyResult)
+	if !ok || base == nil || len(base.attributeUses) != 1 {
+		return schemaEffectiveExtensionContent{}, nil, false
+	}
+	use, ok := base.attributeUses[0].(LocalAttributeUse)
+	if !ok || use.Use() != AttributeUseOptional || use.facts == nil || use.facts.typeReference.atomicKind != schemaSimpleTypeAtomicID {
+		return schemaEffectiveExtensionContent{}, nil, false
+	}
+	content, ok := schemaComposeOptionalReferenceSequenceParticle(base.particle, base.anyAttribute, derived)
+	if !ok {
+		return schemaEffectiveExtensionContent{}, nil, false
+	}
+	return content, base.attributeUses, true
+}
+
+func (resolver *schemaComplexTypeResolver) checkComposedAttributeUses(baseUses, derivedUses []AttributeUse) error {
+	var firstID Loc
+	for _, use := range baseUses {
+		var err error
+		firstID, err = schemaAttributeUseIDCardinality(firstID, use, resolver.version)
+		if err != nil {
+			return err
+		}
+	}
+	for _, use := range derivedUses {
+		for _, inherited := range baseUses {
+			if use.Name() == inherited.Name() {
+				return newSchemaAttributeUseDuplicateDiagnostic(use.Loc(), use.Name(), inherited.Loc(), resolver.version)
+			}
+		}
+		var err error
+		firstID, err = schemaAttributeUseIDCardinality(firstID, use, resolver.version)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (resolver *schemaComplexTypeResolver) rejectComposedAttributeReferences(baseUses, derivedUses []AttributeUse, baseLoc Loc) error {
+	for _, use := range derivedUses {
+		reference, ok := use.(AttributeReferenceUse)
+		if !ok {
+			continue
+		}
+		return newSchemaComplexTypeUnsupportedWithSpec(
+			reference.RefLoc(),
+			"inherited attribute-reference composition is not implemented",
+			[]Loc{baseLoc, baseUses[0].Loc()},
+			resolver.version,
+			fmt.Errorf("%w: attribute reference composition", errSchemaComplexTypeBaseUnsupported),
+			schemaAttributeUseSpecRef(resolver.version),
+		)
+	}
+	return nil
 }
 
 // This phase value records the ordered source particles used by the bounded
@@ -8422,6 +8495,10 @@ func schemaComposeOptionalReferenceSequenceBase(body schemaComplexTypeBodyResult
 	default:
 		return schemaEffectiveExtensionContent{}, false
 	}
+	return schemaComposeOptionalReferenceSequenceParticle(particle, wildcard, derived)
+}
+
+func schemaComposeOptionalReferenceSequenceParticle(particle Particle, wildcard schemaAnyAttributeResult, derived Particle) (schemaEffectiveExtensionContent, bool) {
 	sequence, ok := particle.(SequenceParticle)
 	if !ok || !sequence.Occurrences().IsDefault() {
 		return schemaEffectiveExtensionContent{}, false

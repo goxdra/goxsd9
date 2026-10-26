@@ -512,6 +512,11 @@
 // The phase-local effective composition has no
 // fabricated source location. Supported base wildcards retain provenance;
 // deeper chains, other nonempty bases, and consumers remain unsupported.
+// A named grouped extension may also use one completed sequence-extension
+// base with an optional global-element ref and one optional ID use. Its own
+// ordered uses compose after the inherited ID; duplicate effective names and
+// Strict10's effective ID limit fail before publication. AttributeUses returns
+// each declaration's authored slice; BaseReference links inherited facts.
 // Named and global-element inline complexContent restrictions expose completed
 // named empty, attribute-only, direct, extension, or restriction bases with nil
 // effective particle and zero effective attribute uses. Derived wildcards need
@@ -520,8 +525,9 @@
 // Inherited ##other keeps its declaring namespace through empty extensions;
 // XSD 1.0 requires equal ##other exclusions, while XSD 1.1 and Compatibility
 // permit exclusion-set containment.
-// The base reference retains its ID, QName, and source Loc. Grouped/simple-content
-// bases, richer derived particles, uses, group refs, notNamespace, and notQName
+// The base reference retains its ID, QName, and source Loc. Grouped and
+// simple-content bases, other nonempty/use-bearing bases, richer derived
+// particles, base group refs, notNamespace, and notQName
 // remain schema-unsupported; validation and generation reject admitted bodies.
 // Attribute-use grouped extensions over supported named empty bases resolve
 // the direct group before ordered local uses and base. Effective 0/0 omits the

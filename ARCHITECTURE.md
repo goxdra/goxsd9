@@ -71,7 +71,9 @@ Named direct `all`: ordered locals/refs, exact bounds/`Loc`s; XSD 1.0 maxima ≤
 XSD 1.1 repeats/outer `0/0`; anonymous complex members/consumers reject.
 Models→ordered uses→base resolution; `0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
 Compatibility/Strict11 omit selected false/0 local `inheritable` after owner checks; Strict10/true/1/refs reject. Exact owners are in [the contract](doc.go).
-Grouped/direct-sequence extensions require empty/use-free bases, except named zero-use groups over direct or empty-base-extension 1/1 sequences with one 0/1 global ref.
+Direct-sequence extensions use empty bases. Named grouped extensions admit
+zero-use optional-ref sequences or optional-ref/ID bases; inherited
+collisions and Strict10 IDs fail.
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
 Empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-group owners: built-ins;
