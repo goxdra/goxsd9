@@ -79,8 +79,8 @@ Collisions; Strict10 second effective IDs fail.
 Other grouped scalars: empty/use-free bases.
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`.
-Empty/choice/sequence/all; named direct-group/direct-sequence/grouped extensions: built-in/facet-free named `xs:language`/`xs:anyURI`;
-named empty/choice/sequence/direct-sequence/grouped extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`.
+Named empty/direct-choice/direct-sequence/direct-all/direct-group owners; named direct-sequence/grouped extensions: built-in/facet-free named `xs:language`/`xs:anyURI`. Consumers reject.
+Named empty/choice/sequence/direct-sequence/grouped extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
 `xs:long`: named empty/choice/sequence/all/direct-sequence/grouped owners, built-in/named atomic uses.
 Named empty/all: effective built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; grouped: direct built-ins.
