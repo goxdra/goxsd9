@@ -512,11 +512,15 @@
 // The phase-local effective composition has no
 // fabricated source location. Supported base wildcards retain provenance;
 // deeper chains, other nonempty bases, and consumers remain unsupported.
-// A named grouped extension may also use one completed sequence-extension
-// base with an optional global-element ref and one optional ID use. Its own
+// A named grouped extension may also use an immediate completed
+// sequence-extension base with a default 1/1 sequence, exactly one 0/1
+// global-element ref, and exactly one optional direct local ID use. Its own
 // ordered uses compose after the inherited ID; duplicate effective names and
-// Strict10's effective ID limit fail before publication. AttributeUses returns
-// each declaration's authored slice; BaseReference links inherited facts.
+// a second effective ID in Strict10 fail before publication. AttributeUses
+// returns each declaration's authored slice; BaseReference links inherited facts.
+// The copied inherited-ID chain has optional direct final:xs:simpleDerivationSet
+// and name:xs:NCName uses. Other grouped scalar pairings above are documented
+// over empty/use-free bases; consumers still reject this inherited-ID chain.
 // Named and global-element inline complexContent restrictions expose completed
 // named empty, attribute-only, direct, extension, or restriction bases with nil
 // effective particle and zero effective attribute uses. Derived wildcards need

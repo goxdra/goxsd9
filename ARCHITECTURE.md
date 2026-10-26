@@ -67,20 +67,22 @@ Anonymous empty-base extensions admit ref-only choice, nested group/element-ref 
 Broader nesting/direct groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; broader nesting/wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
-Named direct `all`: ordered locals/refs, exact bounds/`Loc`s; XSD 1.0 maxima ≤1,
-XSD 1.1 repeats/outer `0/0`; anonymous complex members/consumers reject.
-Models→ordered uses→base resolution; `0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
-Compatibility/Strict11 omit selected false/0 local `inheritable` after owner checks; Strict10/true/1/refs reject. Exact owners are in [the contract](doc.go).
-Direct-sequence extensions use empty bases. Named grouped extensions admit
-zero-use optional-ref sequences or optional-ref/ID bases; inherited
-collisions and Strict10 IDs fail.
+Named direct `all`: ordered locals/refs, exact bounds/`Loc`s; 1.0 maxima≤1,
+1.1 repeats/outer `0/0`; anonymous members/consumers reject.
+Models→ordered uses→base; `0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
+Compatibility/Strict11 omit selected false/0 local `inheritable` after owner checks; Strict10/true/1/refs reject.
+Direct-sequence: empty bases. Named grouped extensions admit
+use-free optional-ref sequences or immediate completed sequence-extension bases
+(default 1/1 sequence, one 0/1 global-element ref, one optional direct local ID).
+Inherited-name collisions; Strict10 second effective IDs fail.
+Grouped scalar claims here: empty/use-free bases.
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
-`xs:NCName`/`xs:normalizedString`. Strict10: one effective ID/owner.
+`xs:NCName`/`xs:normalizedString`.
 Empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-group owners: built-ins;
-named empty/choice/sequence; named direct-sequence/grouped extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`.
+named empty/choice/sequence/direct-sequence/grouped extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
-`xs:long`: empty/choice/sequence/all; named direct-sequence/grouped extensions: built-in/named atomic uses.
-Named empty/all: built-in/named effective `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` attributes; grouped extensions: direct built-ins.
+`xs:long`: named empty/choice/sequence/all/direct-sequence/grouped owners, built-in/named atomic uses.
+Named empty/all: effective built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; grouped: direct built-ins.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
