@@ -9,6 +9,12 @@ type schemaBoundedRestrictionSources struct {
 	group      ModelGroupReferenceParticle
 }
 
+// This transient witness proves that the completed base group cannot match empty.
+type schemaBoundedRestrictionChoice struct {
+	baseGroupLoc Loc
+	alternatives [3]ElementReferenceParticle
+}
+
 //nolint:gocognit // Inspect both completed extension representations without flattening provenance.
 func (resolver *schemaComplexTypeResolver) boundedRestrictionSources(body schemaComplexTypeBodyResult, baseLoc Loc) (schemaBoundedRestrictionSources, bool, error) {
 	var groupParticle Particle
@@ -66,20 +72,8 @@ func (resolver *schemaComplexTypeResolver) proveBoundedParticleRestriction(owner
 	if !supported {
 		return resolver.unsupportedBoundedRestriction(input.base.loc, "restriction base has content or uses outside the bounded particle proof", baseLoc)
 	}
-	sequenceInput, ok := input.particle.(*schemaSequenceParticleInput)
-	if !ok || sequenceInput == nil {
-		return newSchemaBridgeInvariant(input.restrictionLoc, "bounded restriction lost its sequence input")
-	}
-	if sequenceInput.occurrences.minimumOccurrence().String() == "0" {
-		return resolver.invalidBoundedRestriction(sequenceInput.loc, "restriction sequence admits empty content excluded by its base", base.group.Loc())
-	}
-	if maximum := sequenceInput.occurrences.maximumOccurrence().String(); maximum != "0" && maximum != "1" {
-		return resolver.invalidBoundedRestriction(sequenceInput.loc, "restriction sequence admits more occurrences than its base", base.group.Loc())
-	}
-	if len(sequenceInput.particles) == 2 {
-		if groupInput, groupOK := sequenceInput.particles[1].(*schemaModelGroupReferenceParticleInput); groupOK && groupInput.occurrences.minimumOccurrence().String() == "0" {
-			return resolver.invalidBoundedRestriction(groupInput.loc, "restriction group reference admits fewer occurrences than its base", base.group.Loc())
-		}
+	if err := resolver.prepareBoundedRestrictionChoice(input, base, particle, owner); err != nil {
+		return err
 	}
 	sequence, ok := particle.(SequenceParticle)
 	if !ok {
@@ -115,13 +109,136 @@ func (resolver *schemaComplexTypeResolver) proveBoundedParticleRestriction(owner
 		}
 		return resolver.unsupportedBoundedRestriction(group.Loc(), "restriction group reference uses valid but unproved bounds", base.group.Loc())
 	}
-	if err := resolver.proveBoundedRestrictionAttribution(annotation, group); err != nil {
-		return err
-	}
 	if resolver.version == XSDVersion10 {
 		return resolver.proveXSD10BoundedRestriction(base, annotation, group)
 	}
 	return resolver.proveXSD11BoundedRestriction(base, annotation, group)
+}
+
+func (resolver *schemaComplexTypeResolver) prepareBoundedRestrictionChoice(input *schemaComplexTypeRestrictionBodyInput, base schemaBoundedRestrictionSources, particle Particle, owner schemaComponentRecord) error {
+	sequence, ok := input.particle.(*schemaSequenceParticleInput)
+	if !ok || sequence == nil {
+		return newSchemaBridgeInvariant(input.restrictionLoc, "bounded restriction lost its sequence input")
+	}
+	if err := resolver.rejectXSD10MappedOptionalRestriction(base, particle); err != nil {
+		return err
+	}
+	derivedGroupLoc := sequence.loc
+	if len(sequence.particles) == 2 {
+		group, groupOK := sequence.particles[1].(*schemaModelGroupReferenceParticleInput)
+		if groupOK && group != nil && group.reference != nil {
+			derivedGroupLoc = group.reference.loc
+		}
+	}
+	choice, err := resolver.boundedRestrictionChoice(base, derivedGroupLoc)
+	if err != nil {
+		return err
+	}
+	if err := resolver.proveBoundedRestrictionAttribution(base.annotation, choice); err != nil {
+		return err
+	}
+	if rangeErr := resolver.rejectBoundedRestrictionRanges(sequence, choice, base, particle, owner); rangeErr != nil {
+		return rangeErr
+	}
+	return nil
+}
+
+// A mapped 0/1 particle fails XSD 1.0's structural range rule even when its
+// group's language is emptiable. A 0/0 source has no mapped particle.
+func (resolver *schemaComplexTypeResolver) rejectXSD10MappedOptionalRestriction(base schemaBoundedRestrictionSources, particle Particle) error {
+	if resolver.version != XSDVersion10 {
+		return nil
+	}
+	sequence, ok := particle.(SequenceParticle)
+	if !ok {
+		return nil
+	}
+	members := sequence.Particles()
+	if len(members) != 2 {
+		return nil
+	}
+	annotation, elementOK := members[0].(ElementReferenceParticle)
+	group, groupOK := members[1].(ModelGroupReferenceParticle)
+	if !elementOK || !groupOK || annotation.Occurrences().String() != "0/1" {
+		return nil
+	}
+	if annotation.TargetID() != base.annotation.TargetID() || annotation.Ref() != base.annotation.Ref() || group.TargetID() != base.group.TargetID() || group.Ref() != base.group.Ref() {
+		return nil
+	}
+	if sequence.Occurrences().String() == "0/1" && group.Occurrences().IsDefault() {
+		return resolver.invalidBoundedRestriction(sequence.Loc(), "restriction sequence minimum is below its mapped base minimum", base.group.Loc())
+	}
+	if sequence.Occurrences().IsDefault() && group.Occurrences().String() == "0/1" {
+		return resolver.invalidBoundedRestriction(group.Loc(), "restriction group minimum is below its mapped base minimum", base.group.Loc())
+	}
+	return nil
+}
+
+// The choice witness is required before these language-dependent conclusions.
+func (resolver *schemaComplexTypeResolver) rejectBoundedRestrictionRanges(sequence *schemaSequenceParticleInput, choice schemaBoundedRestrictionChoice, base schemaBoundedRestrictionSources, particle Particle, owner schemaComponentRecord) error {
+	if sequence.occurrences.minimumOccurrence().String() == "0" {
+		return resolver.invalidBoundedRestriction(sequence.loc, "restriction sequence admits empty content excluded by its base", choice.baseGroupLoc)
+	}
+	corresponds, err := resolver.boundedRestrictionReferencesCorrespond(sequence, base, particle, owner)
+	if err != nil {
+		return err
+	}
+	if maximum := sequence.occurrences.maximumOccurrence().String(); maximum != "0" && maximum != "1" {
+		if len(sequence.particles) == 2 {
+			group, groupOK := sequence.particles[1].(*schemaModelGroupReferenceParticleInput)
+			if corresponds && groupOK && group != nil && group.occurrences.isDefault() {
+				return resolver.invalidBoundedRestriction(sequence.loc, "restriction sequence admits more occurrences than its base", choice.baseGroupLoc)
+			}
+		}
+		return resolver.unsupportedBoundedRestriction(sequence.loc, "restriction sequence widening has no bounded occurrence witness", choice.baseGroupLoc)
+	}
+	if len(sequence.particles) != 2 {
+		return nil
+	}
+	group, ok := sequence.particles[1].(*schemaModelGroupReferenceParticleInput)
+	if ok && group != nil && group.occurrences.minimumOccurrence().String() == "0" {
+		if corresponds {
+			return resolver.invalidBoundedRestriction(group.loc, "restriction group reference permits omission of its required base group", choice.baseGroupLoc)
+		}
+		return resolver.unsupportedBoundedRestriction(group.loc, "restriction group omission lacks copied reference correspondence", choice.baseGroupLoc)
+	}
+	return nil
+}
+
+// The prerequisite resolver has checked even 0/0 refs; look up only the
+// omitted group target so a later range conclusion uses resolved identity.
+func (resolver *schemaComplexTypeResolver) boundedRestrictionReferencesCorrespond(sequence *schemaSequenceParticleInput, base schemaBoundedRestrictionSources, particle Particle, owner schemaComponentRecord) (bool, error) {
+	if len(sequence.particles) != 2 {
+		return false, nil
+	}
+	groupInput, ok := sequence.particles[1].(*schemaModelGroupReferenceParticleInput)
+	if !ok || groupInput == nil || groupInput.reference == nil {
+		return false, nil
+	}
+	effective, ok := particle.(SequenceParticle)
+	if !ok {
+		return false, nil
+	}
+	members := effective.Particles()
+	if len(members) == 0 || len(members) > 2 {
+		return false, nil
+	}
+	annotation, ok := members[0].(ElementReferenceParticle)
+	if !ok || annotation.Occurrences().String() != "0/1" || annotation.TargetID() != base.annotation.TargetID() || annotation.Ref() != base.annotation.Ref() {
+		return false, nil
+	}
+	if len(members) == 2 {
+		group, ok := members[1].(ModelGroupReferenceParticle)
+		return ok && group.TargetID() == base.group.TargetID() && group.Ref() == base.group.Ref(), nil
+	}
+	if groupInput.occurrences.mapsToParticle() {
+		return false, nil
+	}
+	index, err := schemaModelGroupReferenceTarget(groupInput, owner, resolver.records, resolver.byName, resolver.visibleSources, resolver.version)
+	if err != nil {
+		return false, err
+	}
+	return resolver.records[index].id == base.group.TargetID() && groupInput.reference.name == base.group.Ref(), nil
 }
 
 func (input *schemaComplexTypeRestrictionBodyInput) particleLoc() Loc {
@@ -153,23 +270,32 @@ func (resolver *schemaComplexTypeResolver) proveXSD11BoundedRestriction(base sch
 	return nil
 }
 
-func (resolver *schemaComplexTypeResolver) proveBoundedRestrictionAttribution(annotation ElementReferenceParticle, group ModelGroupReferenceParticle) error {
-	index := schemaGroupRecordByID(resolver.records, group.TargetID())
+func (resolver *schemaComplexTypeResolver) boundedRestrictionChoice(base schemaBoundedRestrictionSources, derivedGroupLoc Loc) (schemaBoundedRestrictionChoice, error) {
+	index := schemaGroupRecordByID(resolver.records, base.group.TargetID())
 	if index < 0 || !resolver.modelGroups[index].present {
-		return newSchemaBridgeInvariant(group.RefLoc(), "restriction group target has no completed model")
+		return schemaBoundedRestrictionChoice{}, newSchemaBridgeInvariant(base.group.RefLoc(), "restriction group target has no completed model")
 	}
 	choice, ok := resolver.modelGroups[index].particle.(ChoiceParticle)
-	if !ok || !choice.Occurrences().IsDefault() || len(choice.Alternatives()) != 3 {
-		return resolver.unsupportedBoundedRestriction(group.RefLoc(), "restriction group target is outside the copied three-reference choice", resolver.records[index].loc)
+	if !ok || !choice.Occurrences().IsDefault() {
+		return schemaBoundedRestrictionChoice{}, resolver.unsupportedBoundedRestriction(derivedGroupLoc, "restriction group target is outside the copied three-reference choice", resolver.records[index].loc)
 	}
-	refs := []ElementReferenceParticle{annotation}
-	for _, alternative := range choice.Alternatives() {
+	alternatives := choice.Alternatives()
+	if len(alternatives) != 3 {
+		return schemaBoundedRestrictionChoice{}, resolver.unsupportedBoundedRestriction(derivedGroupLoc, "restriction group target is outside the copied three-reference choice", resolver.records[index].loc)
+	}
+	witness := schemaBoundedRestrictionChoice{baseGroupLoc: base.group.Loc()}
+	for alternativeIndex, alternative := range alternatives {
 		ref, ok := alternative.(ElementReferenceParticle)
 		if !ok || !ref.Occurrences().IsDefault() {
-			return resolver.unsupportedBoundedRestriction(group.RefLoc(), "restriction group target has an unproved alternative", alternative.Loc())
+			return schemaBoundedRestrictionChoice{}, resolver.unsupportedBoundedRestriction(derivedGroupLoc, "restriction group target has an unproved alternative", alternative.Loc())
 		}
-		refs = append(refs, ref)
+		witness.alternatives[alternativeIndex] = ref
 	}
+	return witness, nil
+}
+
+func (resolver *schemaComplexTypeResolver) proveBoundedRestrictionAttribution(annotation ElementReferenceParticle, choice schemaBoundedRestrictionChoice) error {
+	refs := []ElementReferenceParticle{annotation, choice.alternatives[0], choice.alternatives[1], choice.alternatives[2]}
 	for later := 1; later < len(refs); later++ {
 		for first := 0; first < later; first++ {
 			if !resolver.referencesMayOverlap(refs[first], refs[later]) {

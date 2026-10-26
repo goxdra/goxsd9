@@ -202,6 +202,127 @@ func TestBoundedParticleRestrictionProofExits(t *testing.T) {
 	}
 }
 
+// An emptiable completed choice is outside the witness; only XSD 1.0's
+// mapped 0/1 range failure is independent of that target language.
+func TestBoundedParticleRestrictionEmptiableGroupBounds(t *testing.T) {
+	for _, profile := range []struct {
+		policy  LanguagePolicy
+		version XSDVersion
+	}{{Strict10, XSDVersion10}, {Strict11, XSDVersion11}, {Compatibility, XSDVersion11}} {
+		t.Run(string(profile.policy), func(t *testing.T) {
+			root := boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ""), profile.version)
+			root = strings.Replace(root, `<xs:element ref="t:field"/>`, `<xs:element ref="t:field" minOccurs="0"/>`, 1)
+			particleSpec := "xsd11-structures#cos-content-act-restrict"
+			if profile.version == XSDVersion10 {
+				particleSpec = "xsd10-structures#cos-particle-restrict"
+			}
+			withGroupRange := func(bounds string) string {
+				return strings.Replace(root, `ref="t:Fields"/></xs:sequence>`, `ref="t:Fields"`+bounds+`/></xs:sequence>`, 1)
+			}
+			withSequenceRange := func(bounds string) string {
+				return strings.Replace(root, `<xs:sequence><xs:element ref="t:note" minOccurs="0"`, `<xs:sequence`+bounds+`><xs:element ref="t:note" minOccurs="0"`, 1)
+			}
+			for _, test := range []struct {
+				name, source, unsupportedPrimary, structuralPrimary string
+			}{
+				{"baseline", root, `ref="t:Fields"/></xs:sequence>`, ""},
+				{"optional group", withGroupRange(` minOccurs="0"`), `ref="t:Fields" minOccurs="0"`, `<xs:group ref="t:Fields" minOccurs="0"`},
+				{"optional wrapper", withSequenceRange(` minOccurs="0"`), `ref="t:Fields"/></xs:sequence>`, `<xs:sequence minOccurs="0"`},
+				{"omitted group", withGroupRange(` minOccurs="0" maxOccurs="0"`), `ref="t:Fields" minOccurs="0" maxOccurs="0"`, ""},
+				{"omitted wrapper", withSequenceRange(` minOccurs="0" maxOccurs="0"`), `ref="t:Fields"/></xs:sequence>`, ""},
+				{"repeated group", withGroupRange(` maxOccurs="2"`), `ref="t:Fields" maxOccurs="2"`, ""},
+				{"repeated wrapper", withSequenceRange(` maxOccurs="2"`), `ref="t:Fields"/></xs:sequence>`, ""},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					if profile.version == XSDVersion10 && test.structuralPrimary != "" {
+						assertBoundedRestrictionFailure(t, test.source, profile.policy, FailureInvalid, invalidSchemaCompositionCode,
+							test.structuralPrimary, false, []string{`last:<xs:group ref="t:Fields"/>`}, particleSpec, errSchemaComplexTypeParticleRestriction)
+						return
+					}
+					assertBoundedRestrictionFailure(t, test.source, profile.policy, FailureUnsupported, UnsupportedSchemaSyntaxCode,
+						test.unsupportedPrimary, false, []string{`<xs:element ref="t:field" minOccurs="0"`}, particleSpec, errSchemaComplexTypeParticleUnsupported)
+				})
+			}
+		})
+	}
+}
+
+// A widened bound is invalid only with copied derived refs and a locally
+// valid sequence witnessing content outside the completed base.
+//
+//nolint:gocognit // Check each policy's copied-reference, abstract-target, and located diagnostic exits.
+func TestBoundedParticleRestrictionOccurrenceWitnesses(t *testing.T) {
+	for _, profile := range []struct {
+		policy  LanguagePolicy
+		version XSDVersion
+	}{{Strict10, XSDVersion10}, {Strict11, XSDVersion11}, {Compatibility, XSDVersion11}} {
+		t.Run(string(profile.policy), func(t *testing.T) {
+			root := boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ""), profile.version)
+			particleSpec := "xsd11-structures#cos-content-act-restrict"
+			if profile.version == XSDVersion10 {
+				particleSpec = "xsd10-structures#cos-particle-restrict"
+			}
+			changedLeading := strings.Replace(root, `<xs:element ref="t:note" minOccurs="0"/>`, `<xs:element ref="t:field"/>`, 1)
+			changedLeading = strings.Replace(changedLeading, `<xs:group ref="t:Fields"/></xs:sequence>`, `<xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"/></xs:sequence>`, 1)
+			abstractChoice := root
+			for _, name := range []string{"field", "second", "third"} {
+				abstractChoice = strings.Replace(abstractChoice, `name="`+name+`" type="xs:integer"`, `name="`+name+`" type="xs:integer" abstract="true"`, 1)
+			}
+			parsed, parseErr := discoverTestSchemaWithPolicy(t, abstractChoice, nil, profile.policy)
+			if parseErr != nil || len(parsed.Components()) == 0 {
+				t.Fatalf("exact copied refs with abstract choice targets should remain queryable: %v", parseErr)
+			}
+			abstractNote := strings.Replace(root, `name="note" type="xs:string"`, `name="note" type="xs:string" abstract="true"`, 1)
+			for _, test := range []struct {
+				name, source, primary string
+				related               []string
+				unsupported           bool
+			}{
+				{"different leading target with omitted group", changedLeading, `<xs:group ref="t:Fields" minOccurs="0" maxOccurs="0"`, []string{`last:<xs:group ref="t:Fields"/>`}, true},
+				{"abstract choice group repeated", strings.Replace(abstractChoice, `ref="t:Fields"/></xs:sequence>`, `ref="t:Fields" maxOccurs="2"/></xs:sequence>`, 1), `<xs:group ref="t:Fields" maxOccurs="2"`, []string{`last:<xs:group ref="t:Fields"/>`}, false},
+				{"abstract choice wrapper repeated", strings.Replace(abstractChoice, `<xs:sequence><xs:element ref="t:note" minOccurs="0"`, `<xs:sequence maxOccurs="2"><xs:element ref="t:note" minOccurs="0"`, 1), `<xs:sequence maxOccurs="2"`, []string{`last:<xs:group ref="t:Fields"/>`}, false},
+				{"abstract choice element widened", strings.Replace(abstractChoice, `ref="t:note" minOccurs="0"`, `ref="t:note" minOccurs="0" maxOccurs="2"`, 1), `<xs:element ref="t:note" minOccurs="0" maxOccurs="2"`, []string{`last:<xs:element ref="t:note" minOccurs="0"`}, false},
+				{"abstract annotation element widened", strings.Replace(abstractNote, `ref="t:note" minOccurs="0"`, `ref="t:note" minOccurs="0" maxOccurs="2"`, 1), `<xs:element ref="t:note" minOccurs="0" maxOccurs="2"`, []string{`last:<xs:element ref="t:note" minOccurs="0"`}, false},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					if test.unsupported {
+						assertBoundedRestrictionFailure(t, test.source, profile.policy, FailureUnsupported, UnsupportedSchemaSyntaxCode,
+							test.primary, false, test.related, particleSpec, errSchemaComplexTypeParticleUnsupported)
+						return
+					}
+					assertBoundedRestrictionFailure(t, test.source, profile.policy, FailureInvalid, invalidSchemaCompositionCode,
+						test.primary, false, test.related, particleSpec, errSchemaComplexTypeParticleRestriction)
+				})
+			}
+		})
+	}
+}
+
+// Completed-base UPA failure precedes unsupported widened-bound exits.
+func TestBoundedParticleRestrictionOverlapBeforeWidening(t *testing.T) {
+	for _, profile := range []struct {
+		policy  LanguagePolicy
+		version XSDVersion
+	}{{Strict10, XSDVersion10}, {Strict11, XSDVersion11}, {Compatibility, XSDVersion11}} {
+		t.Run(string(profile.policy), func(t *testing.T) {
+			root := boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ""), profile.version)
+			for _, name := range []string{"field", "second", "third"} {
+				root = strings.Replace(root, `name="`+name+`" type="xs:integer"`, `name="`+name+`" type="xs:string" substitutionGroup="t:note"`, 1)
+			}
+			for _, test := range []struct{ name, source string }{
+				{"group repeated", strings.Replace(root, `ref="t:Fields"/></xs:sequence>`, `ref="t:Fields" maxOccurs="2"/></xs:sequence>`, 1)},
+				{"wrapper repeated", strings.Replace(root, `<xs:sequence><xs:element ref="t:note" minOccurs="0"`, `<xs:sequence maxOccurs="2"><xs:element ref="t:note" minOccurs="0"`, 1)},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					assertBoundedRestrictionFailure(t, test.source, profile.policy, FailureInvalid, invalidSchemaCompositionCode,
+						`ref="t:field"`, false, []string{`last:ref="t:note" minOccurs="0"`},
+						schemaGroupNonAmbiguousSpecRef(profile.version), errSchemaComplexTypeParticleRestriction)
+				})
+			}
+		})
+	}
+}
+
 // Built-in bases still check every derived reference before the bounded base exit.
 func TestBoundedParticleRestrictionBuiltinBasePrerequisites(t *testing.T) {
 	for _, profile := range []struct {
@@ -461,7 +582,7 @@ func TestBoundedParticleRestrictionAttributionAndConsistency(t *testing.T) {
 			root := boundedRestrictionVersionedRoot(boundedParticleRestrictionRoot("direct", ` minOccurs="0"`, ""), profile.version)
 			overlap := strings.Replace(root, `<xs:element ref="t:field"/>`, `<xs:element ref="t:note"/>`, 1)
 			assertBoundedRestrictionFailure(t, overlap, profile.policy, FailureInvalid, invalidSchemaCompositionCode,
-				`ref="t:note"/><xs:element ref="t:second"`, false, []string{`ref="t:note" minOccurs="0"`},
+				`ref="t:note"/><xs:element ref="t:second"`, false, []string{`last:ref="t:note" minOccurs="0"`},
 				schemaGroupNonAmbiguousSpecRef(profile.version), errSchemaComplexTypeParticleRestriction)
 
 			inconsistent := strings.Replace(root, `targetNamespace="urn:root"`, `targetNamespace="urn:root" elementFormDefault="qualified"`, 1)
