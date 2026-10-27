@@ -483,11 +483,14 @@
 // A global element's anonymous complexContent extension over a supported named
 // empty-content base may retain one nested choice of global element refs, one
 // nested sequence of a default 1/1 group ref followed by an element ref, or
-// both in that order within its direct sequence. Both keep exact occurrences,
-// ordered resolved targets, source locations, and the inherited base wildcard;
-// refs and base cycles are checked before 0/0 omission. Broader nested
-// sequences, direct nested groups, wildcards, local declarations, deeper
-// nesting, other owners, and attributes combined with these forms reject.
+// both in that order within its direct sequence. A named extension over the
+// same base admits exactly one of those nested alternatives with surrounding
+// supported direct terms. Exact occurrences, ordered resolved targets, source
+// locations, and the inherited base wildcard persist; refs and base cycles
+// precede 0/0 omission. Named attribution unfolds bounded fixed counts and
+// rejects larger unproved overlaps. Broader nested sequences, direct nested groups,
+// wildcards, nested local declarations, deeper nesting, and attributes combined
+// with these forms reject.
 // Validation and generation reject the admitted extension.
 // Named sequences and their one nested choice retain explicitly typed built-in
 // or named atomic integer/string/token local elements with copied type facts,

@@ -2925,6 +2925,22 @@ type schemaComplexTypeExtensionBodyInput struct {
 
 func (*schemaComplexTypeExtensionBodyInput) schemaComplexTypeBodyInput() {}
 
+// schemaComplexTypeDeferredNestedBodyInput retains dependencies for a named
+// nested extension whose otherwise valid body exceeds the supported subset.
+type schemaComplexTypeDeferredNestedBodyInput struct {
+	base       schemaComplexTypeReferenceInput
+	references []schemaNestedExtensionReferenceInput
+	attributes []schemaAttributeUseInput
+	diagnostic Diagnostic
+}
+
+func (*schemaComplexTypeDeferredNestedBodyInput) schemaComplexTypeBodyInput() {}
+
+type schemaNestedExtensionReferenceInput struct {
+	element *schemaElementParticleInput
+	group   *schemaModelGroupReferenceParticleInput
+}
+
 type schemaComplexTypeGroupedExtensionBodyInput struct {
 	complexContentLoc Loc
 	extensionLoc      Loc
@@ -3491,6 +3507,9 @@ func resolveSchemaBuildResults(
 	if err := validateSchemaModelGroupLocalOverlaps(records, modelGroups, version); err != nil {
 		return schemaBuildResolution{}, err
 	}
+	if err := validateSchemaNamedNestedExtensions(records, complexTypes, modelGroups, elements, version); err != nil {
+		return schemaBuildResolution{}, err
+	}
 	return schemaBuildResolution{
 		simpleTypes:  simpleTypes,
 		attributes:   attributes,
@@ -3939,7 +3958,7 @@ func cloneSchemaComplexTypeInput(input *schemaComplexTypeInput) *schemaComplexTy
 	return clone
 }
 
-func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaComplexTypeBodyInput {
+func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaComplexTypeBodyInput { //nolint:gocognit // Copy each phase-specific body variant without sharing mutable input.
 	switch body := input.(type) {
 	case *schemaComplexTypeDirectBodyInput:
 		if body == nil {
@@ -3994,6 +4013,24 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			particle:          cloneSchemaComplexTypeParticleInput(body.particle),
 			attributeUses:     cloneSchemaAttributeUseInputs(body.attributeUses),
 		}
+	case *schemaComplexTypeDeferredNestedBodyInput:
+		if body == nil {
+			return (*schemaComplexTypeDeferredNestedBodyInput)(nil)
+		}
+		diagnostic := body.diagnostic
+		diagnostic.related = append([]Loc(nil), body.diagnostic.related...)
+		clone := &schemaComplexTypeDeferredNestedBodyInput{base: body.base, attributes: cloneSchemaAttributeUseInputs(body.attributes), diagnostic: diagnostic}
+		clone.references = make([]schemaNestedExtensionReferenceInput, 0, len(body.references))
+		for _, reference := range body.references {
+			copied := schemaNestedExtensionReferenceInput{}
+			if reference.element != nil {
+				particle := cloneSchemaElementParticleInput(*reference.element)
+				copied.element = &particle
+			}
+			copied.group = cloneSchemaModelGroupReferenceParticleInput(reference.group)
+			clone.references = append(clone.references, copied)
+		}
+		return clone
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		if body == nil {
 			return (*schemaComplexTypeGroupedExtensionBodyInput)(nil)
@@ -4321,6 +4358,7 @@ func allocateSchemaSimpleTypeNodeIDsForRecord(
 	return nil
 }
 
+//nolint:gocognit // Allocate authored inline simple types for each phase-specific body.
 func allocateSchemaSimpleTypeNodeIDsInComplexType(
 	input *schemaComplexTypeInput,
 	source SourceID,
@@ -4344,6 +4382,19 @@ func allocateSchemaSimpleTypeNodeIDsInComplexType(
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		if body == nil || body.group == nil {
 			return newSchemaBridgeInvariant(Loc{}, "grouped extension simple type allocation has no group input")
+		}
+		return nil
+	case *schemaComplexTypeDeferredNestedBodyInput:
+		if body == nil {
+			return newSchemaBridgeInvariant(Loc{}, "deferred nested extension simple type allocation has no input")
+		}
+		for _, reference := range body.references {
+			if reference.element == nil || reference.element.typeInput == nil || reference.element.typeInput.inlineSimpleType == nil {
+				continue
+			}
+			if err := allocateSchemaSimpleTypeNodeID(reference.element.typeInput.inlineSimpleType, source, nextBySource, seen); err != nil {
+				return err
+			}
 		}
 		return nil
 	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeAttributeOnlyBodyInput,
@@ -4426,6 +4477,11 @@ func schemaComplexTypeAttributeUseInputs(body schemaComplexTypeBodyInput) []sche
 			return nil
 		}
 		return typed.attributeUses
+	case *schemaComplexTypeDeferredNestedBodyInput:
+		if typed == nil {
+			return nil
+		}
+		return typed.attributes
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		if typed == nil {
 			return nil

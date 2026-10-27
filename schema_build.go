@@ -1956,6 +1956,12 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 		return nil, err
 	}
 	model := schemaComplexTypeModel(extension)
+	if !anonymousOwner && model != nil && model.name.local == "sequence" && schemaInlineExtensionSequenceHasNestedTerm(model) {
+		deferred, deferredErr := schemaNamedNestedExtensionDeferredInput(extension, model, facts, version, block, base, baseAttributes[0].loc)
+		if deferredErr != nil || deferred != nil {
+			return deferred, deferredErr
+		}
+	}
 	var particle schemaComplexTypeParticleInput
 	if model != nil {
 		occurrences, occurrenceErr := schemaParticleOccurrenceRange(model, version)
@@ -4077,6 +4083,7 @@ func reframeSchemaSimpleTypeBuildError(records []schemaComponentRecord, byName m
 	return err
 }
 
+//nolint:gocognit // Resolve authored inline simple types for each phase-specific body.
 func resolveSchemaSimpleTypeInputsInComplexType(
 	input *schemaComplexTypeInput,
 	source SourceID,
@@ -4100,6 +4107,20 @@ func resolveSchemaSimpleTypeInputsInComplexType(
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		if body == nil || body.group == nil {
 			return newSchemaBridgeInvariant(Loc{}, "grouped extension simple type resolution has no group input")
+		}
+		return nil
+	case *schemaComplexTypeDeferredNestedBodyInput:
+		if body == nil {
+			return newSchemaBridgeInvariant(Loc{}, "deferred nested extension simple type resolution has no input")
+		}
+		for _, reference := range body.references {
+			if reference.element == nil || reference.element.typeInput == nil || reference.element.typeInput.inlineSimpleType == nil {
+				continue
+			}
+			input := reference.element.typeInput
+			if _, err := resolver.resolveInput(input.inlineSimpleType, input.typeLoc, true, source, version); err != nil {
+				return err
+			}
 		}
 		return nil
 	case *schemaComplexTypeEmptyBodyInput, *schemaComplexTypeAttributeOnlyBodyInput,
@@ -6769,6 +6790,8 @@ func (resolver *schemaComplexTypeResolver) resolveBody(
 			attributeUses:     attributeUses,
 			anyAttribute:      anyAttribute,
 		}, nil
+	case *schemaComplexTypeDeferredNestedBodyInput:
+		return resolver.resolveDeferredNestedBody(body, owner, ownerIndex)
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		return resolver.resolveGroupedExtensionBody(body, owner, ownerIndex)
 	default:
@@ -8769,6 +8792,10 @@ func (resolver *schemaComplexTypeResolver) cycleRelatedBaseLocations(target int,
 		var baseLoc Loc
 		switch body := resolver.records[node].complexTypeBody().(type) {
 		case *schemaComplexTypeExtensionBodyInput:
+			if body != nil {
+				baseLoc = body.base.loc
+			}
+		case *schemaComplexTypeDeferredNestedBodyInput:
 			if body != nil {
 				baseLoc = body.base.loc
 			}

@@ -304,7 +304,6 @@ func TestInlineExtensionNestedChoiceOtherOwnersAndUses(t *testing.T) {
 	choice := `<xs:choice minOccurs="0" maxOccurs="0"><xs:element ref="t:first"/></xs:choice>`
 	for _, profile := range nestedGroupChoiceProfiles {
 		for _, test := range []struct{ name, owner, marker string }{
-			{"named extension", `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:openAttrs"><xs:sequence>` + choice + `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`, `minOccurs="0"`},
 			{"named direct", `<xs:complexType name="Derived"><xs:sequence>` + choice + `</xs:sequence></xs:complexType>`, `minOccurs="0"`},
 			{"inline direct", `<xs:element name="other"><xs:complexType><xs:sequence>` + choice + `</xs:sequence></xs:complexType></xs:element>`, `minOccurs="0"`},
 			{"inline extension attribute", `<xs:element name="other"><xs:complexType><xs:complexContent><xs:extension base="t:openAttrs"><xs:sequence>` + choice + `</xs:sequence><xs:attribute name="flag" type="xs:boolean"/></xs:extension></xs:complexContent></xs:complexType></xs:element>`, `<xs:attribute name="flag"`},

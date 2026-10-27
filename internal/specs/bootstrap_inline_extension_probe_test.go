@@ -192,6 +192,54 @@ func inlineProbeAssertNestedChoice(t *testing.T, id, source string, policy goxsd
 	}
 }
 
+func inlineProbeAssertNamedNestedChoice(t *testing.T, id, source string, policy goxsd9.LanguagePolicy) {
+	t.Helper()
+	schema, err := inlineProbeParse(t, id, source, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	components := schema.Components()
+	if len(components) != 6 || components[0].Name().Local() != "openAttrs" || components[1].Name().Local() != "Derived" {
+		t.Fatalf("named components = %v", components)
+	}
+	owner, ok := components[1].ComplexType()
+	if !ok || owner.ID() != components[1].ID() || owner.Loc() != inlineProbeLoc(t, id, source, `<xs:complexType name="Derived"`) || owner.BaseLoc() != inlineProbeLoc(t, id, source, `base="`+inlineProbeBasePrefix(source)+`:openAttrs"`) {
+		t.Fatalf("named owner = %v/%t", owner, ok)
+	}
+	wildcard, ok := owner.AnyAttribute()
+	if !ok || wildcard.Namespace() != "##other" || wildcard.Loc() != inlineProbeLoc(t, id, source, `<xs:anyAttribute`) {
+		t.Fatalf("inherited wildcard = %v", wildcard)
+	}
+	outer, ok := owner.Particle().(goxsd9.SequenceParticle)
+	if !ok || len(outer.Particles()) != 1 || outer.Loc() != inlineProbeLoc(t, id, source, `<xs:sequence>`) {
+		t.Fatalf("named outer sequence = %v", owner.Particle())
+	}
+	choice, ok := outer.Particles()[0].(goxsd9.ChoiceParticle)
+	if !ok || choice.Occurrences().String() != "0/unbounded" || len(choice.Alternatives()) != 4 || choice.Loc() != inlineProbeLoc(t, id, source, `<xs:choice`) {
+		t.Fatalf("named nested choice = %v", outer.Particles()[0])
+	}
+	for index, name := range []string{"include", "import", "redefine", "annotation"} {
+		ref, ok := choice.Alternatives()[index].(goxsd9.ElementReferenceParticle)
+		if !ok || ref.Ref().Local() != name || ref.TargetID() != components[index+2].ID() || ref.RefLoc() != inlineProbeLoc(t, id, source, `ref="`+inlineProbeTermPrefix(source)+`:`+name+`"`) {
+			t.Fatalf("named nested ref %d = %v", index, choice.Alternatives()[index])
+		}
+	}
+}
+
+func inlineProbeBasePrefix(source string) string {
+	if strings.Contains(source, `base="p:openAttrs"`) {
+		return "p"
+	}
+	return "xs"
+}
+
+func inlineProbeTermPrefix(source string) string {
+	if strings.Contains(source, `ref="p:include"`) {
+		return "p"
+	}
+	return "xs"
+}
+
 func TestPinnedInlineExtensionTermGate(t *testing.T) { //nolint:gocognit // Pair pinned admission with unchanged 1.1 and excluded-owner controls.
 	for _, edition := range inlineProbeEditions {
 		t.Run(edition.name, func(t *testing.T) {
@@ -213,9 +261,19 @@ func TestPinnedInlineExtensionTermGate(t *testing.T) { //nolint:gocognit // Pair
 			}
 			namedStart := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="xs:openAttrs"><xs:sequence>`
 			namedEnd := `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`
-			named := inlineProbeSchema(edition, inlineProbeXSDNamespace, namedStart, term, namedEnd, group)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-named-exact", named, edition.policy, edition.marker, edition.specRef)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-named-exact-compat", named, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
+			namedTargets := group
+			if edition.version == "1.0" {
+				namedTargets = `<xs:element name="include" type="xs:integer"/><xs:element name="import" type="xs:integer"/><xs:element name="redefine" type="xs:integer"/><xs:element name="annotation" type="xs:integer"/>`
+			}
+			named := inlineProbeSchema(edition, inlineProbeXSDNamespace, namedStart, term, namedEnd, namedTargets)
+			if edition.version == "1.0" {
+				inlineProbeAssertNamedNestedChoice(t, edition.artifact+"-named-exact", named, edition.policy)
+				inlineProbeAssertNamedNestedChoice(t, edition.artifact+"-named-exact-compat", named, goxsd9.Compatibility)
+			}
+			if edition.version == "1.1" {
+				inlineProbeAssertUnsupported(t, edition.artifact+"-named-exact", named, edition.policy, edition.marker, edition.specRef)
+				inlineProbeAssertUnsupported(t, edition.artifact+"-named-exact-compat", named, goxsd9.Compatibility, edition.marker, "xsd11-structures#cos-particle-extend")
+			}
 			zeroTerm := strings.Replace(term, `maxOccurs="unbounded"`, `maxOccurs="0"`, 1)
 			zero := inlineProbeSchema(edition, inlineProbeXSDNamespace, start, zeroTerm, end, group)
 			if edition.version == "1.0" {
@@ -324,7 +382,12 @@ func TestPinnedInlineExtensionBoundaryExits(t *testing.T) {
 			namedStart := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="p:openAttrs"><xs:sequence>`
 			namedEnd := `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`
 			named := inlineProbeSchema(edition, inlineProbeNamespace, namedStart, aliasTerm, namedEnd, targets)
-			inlineProbeAssertUnsupported(t, edition.artifact+"-named", named, edition.policy, marker, edition.specRef)
+			if edition.version == "1.0" {
+				inlineProbeAssertNamedNestedChoice(t, edition.artifact+"-named", named, edition.policy)
+			}
+			if edition.version == "1.1" {
+				inlineProbeAssertUnsupported(t, edition.artifact+"-named", named, edition.policy, marker, edition.specRef)
+			}
 
 			start, end := inlineProbeAnonymousOwner("p:openAttrs")
 			withAttribute := inlineProbeSchema(edition, inlineProbeNamespace, start, inlineProbeElement, `</xs:sequence><xs:attribute name="flag" type="xs:boolean"/>`+strings.TrimPrefix(end, `</xs:sequence>`), "")

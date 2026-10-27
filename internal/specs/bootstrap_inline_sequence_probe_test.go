@@ -411,10 +411,40 @@ func TestPinnedXSD10InlineSequenceOwnerAndGroupUseGates(t *testing.T) {
 	anonymousStart, anonymousEnd := inlineProbeAnonymousOwner("xs:openAttrs")
 	namedStart := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="xs:openAttrs"><xs:sequence>`
 	namedEnd := `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`
+	namedID := "xsd10-inline-sequence-named-owner"
+	namedSource := inlineProbeSchema(edition, inlineProbeXSDNamespace, namedStart, parts.sequence, namedEnd,
+		parts.schemaTop+parts.redefinable+inlineSequenceStubElements())
+	namedSchema, namedErr := inlineProbeParse(t, namedID, namedSource, goxsd9.Strict10)
+	if namedErr != nil {
+		t.Fatal(namedErr)
+	}
+	components := namedSchema.Components()
+	if len(components) < 3 || components[1].Name().Local() != "Derived" {
+		t.Fatalf("named component order = %v", components)
+	}
+	owner, ok := components[1].ComplexType()
+	if !ok || owner.ID() != components[1].ID() || owner.Loc() != inlineProbeLoc(t, namedID, namedSource, `<xs:complexType name="Derived"`) {
+		t.Fatalf("named owner = %v/%t", owner, ok)
+	}
+	outer, ok := owner.Particle().(goxsd9.SequenceParticle)
+	if !ok || len(outer.Particles()) != 1 {
+		t.Fatalf("named outer sequence = %v", owner.Particle())
+	}
+	nested, ok := outer.Particles()[0].(goxsd9.SequenceParticle)
+	if !ok || nested.Occurrences().String() != "0/unbounded" || len(nested.Particles()) != 2 {
+		t.Fatalf("named nested sequence = %v", outer.Particles()[0])
+	}
+	group, ok := nested.Particles()[0].(goxsd9.ModelGroupReferenceParticle)
+	if !ok || group.TargetID() != inlineSequenceFindGroup(t, namedSchema, "schemaTop").ID() || group.RefLoc() != inlineProbeLoc(t, namedID, namedSource, `ref="xs:schemaTop"`) {
+		t.Fatalf("named group ref = %v", nested.Particles()[0])
+	}
+	annotation, ok := nested.Particles()[1].(goxsd9.ElementReferenceParticle)
+	if !ok || annotation.TargetID() != inlineSequenceFindElement(t, namedSchema, "annotation").ID() || annotation.RefLoc() != inlineProbeLoc(t, namedID, namedSource, `ref="xs:annotation"`) {
+		t.Fatalf("named element ref = %v", nested.Particles()[1])
+	}
 	for _, check := range []struct {
 		name, start, end, term, marker string
 	}{
-		{"named-owner", namedStart, namedEnd, parts.sequence, `minOccurs="0"`},
 		{"direct-group-ref", anonymousStart, anonymousEnd, `<xs:group ref="xs:schemaTop"/>`, `ref="xs:schemaTop"`},
 	} {
 		t.Run(check.name, func(t *testing.T) {
