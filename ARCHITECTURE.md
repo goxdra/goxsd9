@@ -77,8 +77,7 @@ sequence-extension base, one optional direct local ID. Both: default 1/1
 sequence, 0/1 global-element ref.
 Collisions; Strict10 second effective IDs fail.
 Other grouped scalars: empty/use-free bases.
-Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
-`xs:NCName`/`xs:normalizedString`.
+Named empty/choice/sequence/all/grouped/sequence extensions retain facet-free `xs:ID`; these plus direct-group retain built-in/named atomic `xs:NCName`/`xs:normalizedString`.
 Named empty/direct-choice/direct-sequence/direct-all/direct-group owners: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-sequence/grouped extensions likewise. Consumers reject.
 Named owners: token/NMTOKEN built-in/named empty/choice/sequence/direct-sequence/grouped/direct-group; V/G reject.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
@@ -113,7 +112,6 @@ Validated local lists use precisionDecimal; unions pair precisionDecimal/negativ
 Named grouped extensions query optional local `final` through structurally
 matched named `xs:simpleDerivationSet`; its union/list values and consumers reject.
 Strict10 rejects precisionDecimal. Element refs retain ranges.
-Named direct choices/sequences query built-in/named `normalizedString`; consumers reject.
 Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
 
 ## Datatypes

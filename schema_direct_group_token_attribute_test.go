@@ -322,7 +322,7 @@ func TestDirectGroupTokenFamilyOwnerAndFamilyLimits(t *testing.T) {
 				})
 			}
 		}
-		for _, family := range []string{"long", "short", "int", "byte", "unsignedLong", "normalizedString", "QName"} {
+		for _, family := range []string{"long", "short", "int", "byte", "unsignedLong", "ID", "QName"} {
 			t.Run(profile.name+"/"+family+"/excluded sibling", func(t *testing.T) {
 				root := directGroupTokenRoot("choice", `<xs:group ref="r:Fields"/>`, `<xs:attribute name="other" type="xs:`+family+`"/>`, "")
 				failed, err := parseIDUseSchema(t, root, nil, profile.policy)
