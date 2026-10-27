@@ -504,8 +504,9 @@
 // attribute-free extensions over named empty-content bases or named
 // complexContent/restriction over built-in xs:anyType with representable
 // ##other/lax wildcards are queryable as exact immutable facts without expanding
-// target members. Direct model-group references retain `RefLoc`/`TargetID`; their
-// consumer gates use the group RefLoc and reject them.
+// target members. Direct model-group references retain `RefLoc`/`TargetID`.
+// Consumers reject retained attributes at the first authored use Loc before a
+// present group RefLoc; with no earlier gate, they reject the group at RefLoc.
 // A named zero-use direct-group extension may also name a completed direct
 // default 1/1 sequence base, or an empty-base sequence extension with that
 // sequence, containing exactly one 0/1 global element reference. The two
