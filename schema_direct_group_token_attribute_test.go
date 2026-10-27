@@ -135,6 +135,12 @@ func TestDirectGroupTokenFamilyExcludedForms(t *testing.T) {
 				{"ref inline", `<xs:attribute ref="r:a"/>`, `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:token"/></xs:simpleType></xs:attribute>`, `ref="r:a"`, `<xs:attribute name="a"`, errSchemaAttributeReferenceUnsupported, true},
 				{"default", `<xs:attribute name="a" type="xs:` + kind + `" default="one"/>`, "", `default="one"`, "", errSchemaAttributeUseUnsupported, true},
 				{"fixed", `<xs:attribute name="a" type="xs:` + kind + `" fixed="one"/>`, "", `fixed="one"`, "", errSchemaAttributeUseUnsupported, true},
+				{"named default", `<xs:attribute name="a" type="r:Alias" default="one"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType>`, `default="one"`, "", errSchemaAttributeUseUnsupported, true},
+				{"named fixed", `<xs:attribute name="a" type="r:Alias" fixed="one"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType>`, `fixed="one"`, "", errSchemaAttributeUseUnsupported, true},
+				{"inline default", `<xs:attribute name="a" default="one"><xs:simpleType><xs:restriction base="xs:` + kind + `"/></xs:simpleType></xs:attribute>`, "", `default="one"`, "", errSchemaAttributeUseUnsupported, true},
+				{"inline fixed", `<xs:attribute name="a" fixed="one"><xs:simpleType><xs:restriction base="xs:` + kind + `"/></xs:simpleType></xs:attribute>`, "", `fixed="one"`, "", errSchemaAttributeUseUnsupported, true},
+				{"ref default", `<xs:attribute ref="r:a" default="one"/>`, `<xs:attribute name="a" type="xs:token"/>`, `default="one"`, "", errSchemaAttributeUseUnsupported, true},
+				{"ref fixed", `<xs:attribute ref="r:a" fixed="one"/>`, `<xs:attribute name="a" type="xs:token"/>`, `fixed="one"`, "", errSchemaAttributeUseUnsupported, true},
 			} {
 				t.Run(profile.name+"/"+kind+"/"+test.name, func(t *testing.T) {
 					root := directGroupTokenRoot("choice", `<xs:group ref="r:Fields"/>`, test.use, test.extra)
