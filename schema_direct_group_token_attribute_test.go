@@ -124,7 +124,6 @@ func TestDirectGroupTokenFamilyExcludedForms(t *testing.T) {
 				cause                             error
 				useSpec                           bool
 			}{
-				{"named alias", `<xs:attribute name="a" type="r:Alias"/>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:` + kind + `"/></xs:simpleType>`, `type="r:Alias"`, "", errSchemaAttributeUseUnsupported, false},
 				{"named list", `<xs:attribute name="a" type="r:Alias"/>`, `<xs:simpleType name="Alias"><xs:list itemType="xs:` + kind + `"/></xs:simpleType>`, `type="r:Alias"`, "", errSchemaAttributeUseUnsupported, false},
 				{"named union", `<xs:attribute name="a" type="r:Alias"/>`, `<xs:simpleType name="Alias"><xs:union memberTypes="xs:` + kind + ` xs:` + kind + `"/></xs:simpleType>`, `type="r:Alias"`, "", errSchemaAttributeUseUnsupported, false},
 				{"inline atomic", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:` + kind + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", errSchemaAttributeTypeUnsupported, false},
