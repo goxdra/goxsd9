@@ -347,11 +347,6 @@ func TestDirectGroupStringAttributeOwnerAndFamilyLimits(t *testing.T) {
 				assertNCNameDiagnostic(t, failed, failure, FailureUnsupported, UnsupportedSchemaSyntaxCode, elementReferenceTestAttributeLoc(t, root, `ref="r:Fields"`), nil, "xsd10-structures#schema-document", ErrUnsupported)
 			})
 		}
-		t.Run(profile.name+"/ID sibling", func(t *testing.T) {
-			root := directGroupTokenRoot("choice", `<xs:group ref="r:Fields"/>`, `<xs:attribute name="a" type="xs:ID"/>`, "")
-			failed, failure := parseIDUseSchema(t, root, nil, profile.policy)
-			assertNCNameDiagnostic(t, failed, failure, FailureUnsupported, UnsupportedSchemaSyntaxCode, elementReferenceTestAttributeLoc(t, root, `type="xs:ID"`), nil, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeUseUnsupported)
-		})
 	}
 }
 

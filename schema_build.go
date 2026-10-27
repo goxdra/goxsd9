@@ -7612,7 +7612,7 @@ func schemaDirectLocalIDAttributeTypeSupported(reference schemaSimpleTypeReferen
 }
 
 func schemaNamedLocalIDAttributeOwnerSupported(owner schemaComponentRecord) bool {
-	if schemaNamedLocalAtomicAttributeOwnerSupported(owner) {
+	if schemaNamedLocalAtomicAttributeOwnerSupported(owner) || schemaNamedDirectGroupLocalStringAttributeOwnerSupported(owner) {
 		return true
 	}
 	if owner.complexType == nil {
@@ -8409,7 +8409,7 @@ func newSchemaAttributeUseIDDuplicateDiagnostic(loc, first Loc) Diagnostic {
 		loc:     loc,
 		message: "XSD 1.0 complex type has multiple effective ID attribute uses",
 		related: []Loc{first},
-		specRef: "xsd10-structures#cos-ct-props-correct",
+		specRef: "xsd10-structures#ct-props-correct",
 		cause:   errSchemaAttributeUseIDDuplicate,
 	}
 }

@@ -280,7 +280,7 @@ func TestNormalizedStringLocalAttributeDoesNotAcquireIDCardinality(t *testing.T)
 	}
 	root = normalizedStringLocalRoot("1.0", normalizedStringLocalOwner(`<xs:attribute name="first" type="xs:normalizedString"/><xs:attribute name="id" type="xs:ID"/><xs:attribute name="second" type="xs:ID"/>`))
 	schema, err = discoverTestSchemaWithPolicy(t, root, nil, Strict10)
-	assertNCNameDiagnostic(t, schema, err, FailureInvalid, diagnosticSchemaAttributeUseIDDuplicateCode, elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="second"`), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="id"`)}, "xsd10-structures#cos-ct-props-correct", errSchemaAttributeUseIDDuplicate)
+	assertNCNameDiagnostic(t, schema, err, FailureInvalid, diagnosticSchemaAttributeUseIDDuplicateCode, elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="second"`), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="id"`)}, "xsd10-structures#ct-props-correct", errSchemaAttributeUseIDDuplicate)
 }
 
 //nolint:gocognit // Each admitted owner has two independent unsupported consumers.

@@ -179,7 +179,7 @@ func TestDirectAllIDPolicyCardinalityAndOmission(t *testing.T) {
 	schema, err := parseIDUseSchema(t, root, nil, Strict10)
 	assertZeroSchema(t, schema)
 	d := requireDiagnostic(t, err)
-	if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaAttributeUseIDDuplicateCode || d.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="second"`) || !reflect.DeepEqual(d.Related(), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="first"`)}) || d.SpecRef() != "xsd10-structures#cos-ct-props-correct" || !errors.Is(err, errSchemaAttributeUseIDDuplicate) {
+	if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaAttributeUseIDDuplicateCode || d.Loc() != elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="second"`) || !reflect.DeepEqual(d.Related(), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="first"`)}) || d.SpecRef() != "xsd10-structures#ct-props-correct" || !errors.Is(err, errSchemaAttributeUseIDDuplicate) {
 		t.Fatalf("Strict10 two-ID diagnostic = %v related %v", err, d.Related())
 	}
 	one := idUseRoot(idAllOwner(`<xs:attribute name="first" type="xs:ID"/><xs:attribute name="gone" type="xs:ID" use="prohibited"/>`), ``)

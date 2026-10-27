@@ -346,7 +346,7 @@
 // complex types require supported named complex owners. Global inline direct-group
 // owners remain unsupported, including applicable 0/0 occurrences. Local and referenced
 // global targets admit Boolean/integer/decimal plus policy-gated precisionDecimal.
-// Named complex owners with empty, direct choice, direct sequence, direct all, grouped
+// Named complex owners with empty, direct choice, direct sequence, direct all, direct-group, grouped
 // extension, or direct-sequence extension bodies admit built-in or facet-free
 // named effective xs:ID local uses for queries.
 // Named empty, direct choice, direct sequence, and direct all owners admit

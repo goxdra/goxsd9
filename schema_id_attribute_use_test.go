@@ -338,7 +338,7 @@ func TestStrict10RejectsTwoEffectiveIDUses(t *testing.T) {
 	diagnostic := requireDiagnostic(t, err)
 	wantFirst := elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="first"`)
 	wantSecond := elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="second"`)
-	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaAttributeUseIDDuplicateCode || diagnostic.Loc() != wantSecond || !reflect.DeepEqual(diagnostic.Related(), []Loc{wantFirst}) || diagnostic.SpecRef() != "xsd10-structures#cos-ct-props-correct" || !errors.Is(err, errSchemaAttributeUseIDDuplicate) {
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaAttributeUseIDDuplicateCode || diagnostic.Loc() != wantSecond || !reflect.DeepEqual(diagnostic.Related(), []Loc{wantFirst}) || diagnostic.SpecRef() != "xsd10-structures#ct-props-correct" || !errors.Is(err, errSchemaAttributeUseIDDuplicate) {
 		t.Fatalf("Strict10 cardinality diagnostic = %v", err)
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
@@ -371,7 +371,6 @@ func TestIDLocalAttributeUseExclusionsStayLocated(t *testing.T) {
 		{"inline default ID", `<xs:complexType name="Record"><xs:attribute name="id" default="a"><xs:simpleType><xs:restriction base="xs:ID"/></xs:simpleType></xs:attribute></xs:complexType>`, ``, `default="a"`, errSchemaAttributeUseUnsupported, ``, true},
 		{"inline fixed ID", `<xs:complexType name="Record"><xs:attribute name="id" fixed="a"><xs:simpleType><xs:restriction base="xs:ID"/></xs:simpleType></xs:attribute></xs:complexType>`, ``, `fixed="a"`, errSchemaAttributeUseUnsupported, ``, true},
 		{"global ref ID", `<xs:complexType name="Record"><xs:attribute ref="r:id"/></xs:complexType>`, `<xs:attribute name="id" type="xs:ID"/>`, `ref="r:id"`, errSchemaAttributeReferenceUnsupported, `<xs:attribute name="id"`, true},
-		{"direct group ID", `<xs:complexType name="Record"><xs:group ref="r:Fields"/><xs:attribute name="id" type="xs:ID"/></xs:complexType>`, `<xs:group name="Fields"><xs:choice><xs:element ref="r:value"/></xs:choice></xs:group><xs:element name="value" type="xs:integer"/>`, `type="xs:ID"`, errSchemaAttributeUseUnsupported, ``, false},
 		{"simpleContent ID", `<xs:complexType name="Record"><xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="id" type="xs:ID"/></xs:extension></xs:simpleContent></xs:complexType>`, ``, `type="xs:ID"`, errSchemaAttributeUseUnsupported, ``, false},
 		{"inline complex ID", `<xs:element name="root"><xs:complexType><xs:attribute name="id" type="xs:ID"/></xs:complexType></xs:element>`, ``, `type="xs:ID"`, errSchemaAttributeUseUnsupported, ``, false},
 	}

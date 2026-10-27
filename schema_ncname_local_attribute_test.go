@@ -318,7 +318,7 @@ func TestNCNameLocalAttributeDoesNotAcquireIDCardinality(t *testing.T) {
 	}
 	root = ncNameLocalRoot("1.0", ncNameLocalOwner(`<xs:attribute name="first" type="xs:NCName"/><xs:attribute name="id" type="xs:ID"/><xs:attribute name="second" type="xs:ID"/>`))
 	schema, err = discoverTestSchemaWithPolicy(t, root, nil, Strict10)
-	assertNCNameDiagnostic(t, schema, err, FailureInvalid, diagnosticSchemaAttributeUseIDDuplicateCode, elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="second"`), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="id"`)}, "xsd10-structures#cos-ct-props-correct", errSchemaAttributeUseIDDuplicate)
+	assertNCNameDiagnostic(t, schema, err, FailureInvalid, diagnosticSchemaAttributeUseIDDuplicateCode, elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="second"`), []Loc{elementReferenceTestAttributeLoc(t, root, `<xs:attribute name="id"`)}, "xsd10-structures#ct-props-correct", errSchemaAttributeUseIDDuplicate)
 }
 
 //nolint:gocognit // Malformed forms and duplicate names retain distinct public diagnostics.
