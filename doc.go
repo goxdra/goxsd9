@@ -373,7 +373,7 @@
 // Their lexical use order, anonymous owner, base, and built-in facts persist;
 // consumers reject. Inline/list/union types, attribute refs, and values remain
 // unsupported for these uses.
-// Named empty and direct choice/sequence/all owners, plus named direct-sequence
+// Named empty and direct choice/sequence/all/group owners, plus named direct-sequence
 // extensions over supported named empty-content bases without effective
 // attribute uses, admit built-in and supported named effective atomic xs:long
 // locals. Named grouped extensions over those bases admit the same types.

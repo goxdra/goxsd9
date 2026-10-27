@@ -221,7 +221,6 @@ func TestLongLocalAttributeExcludedShapes(t *testing.T) {
 		}
 	}
 	for _, owner := range []struct{ name, body, extra string }{
-		{"group", `<xs:group ref="r:Fields"/>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
 		{"simple content", `<xs:simpleContent><xs:extension base="xs:string"><xs:attribute name="a" type="xs:long"/></xs:extension></xs:simpleContent>`, ""},
 	} {
 		for _, target := range []struct{ name, lexical, extra string }{{"direct", "xs:long", ""}, {"named", "r:Named", named}} {
