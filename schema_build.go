@@ -7769,7 +7769,7 @@ func schemaNamedDirectLocalLongAttributeTypeSupported(reference schemaSimpleType
 			return false
 		}
 		switch body.particle.(type) {
-		case *schemaChoiceParticleInput, *schemaSequenceParticleInput, *schemaAllParticleInput:
+		case *schemaChoiceParticleInput, *schemaSequenceParticleInput, *schemaAllParticleInput, *schemaModelGroupReferenceParticleInput:
 			return true
 		}
 	case *schemaComplexTypeExtensionBodyInput:

@@ -81,7 +81,7 @@ Named empty/choice/sequence/all/grouped/sequence extensions retain facet-free `x
 Named empty/direct-choice/direct-sequence/direct-all/direct-group owners: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-sequence/grouped extensions likewise. Consumers reject.
 Named owners: token/NMTOKEN built-in/named empty/choice/sequence/direct-sequence/grouped/direct-group; V/G reject.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
-`xs:long`: named empty/choice/sequence/all/direct-sequence/grouped owners, built-in/named uses.
+`xs:long`: named empty/choice/sequence/all/direct-group/direct-sequence/grouped owners, built-in/named uses.
 Named empty/all: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; grouped: direct built-ins.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
