@@ -58,13 +58,13 @@ unsupported. Consumers reject.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s and nil particle; dependencies precede owner gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
-Direct/extension particles model integers; named direct adds sign restrictions. Built-in/named integers validate; other extensions remain query-only.
+Selected direct/extension integers query; positive/nonPositiveInteger named-direct only. NegativeInteger validates beside bounded list/union direct sequences; long-family/nonNegativeInteger reject consumers.
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals match `targetNamespace`.
 Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate.
-Groups nest opposites; refs precede `0/0`. Sequences/nested choices retain atomic integer/string/token locals with copied IDs/facets/QNames/`Loc`s/bounds.
-Anonymous empty-base extensions admit ref-only choice, nested group/element-ref sequence, or both; named: one nested alternative amid direct terms. Bounds/order/targets/`Loc`s/wildcard persist.
-Broader nesting/direct groups/wildcards/locals/nested attributes reject.
+Groups nest opposites; refs precede `0/0`. Sequences/nested choices copy atomic integer/string/token IDs/facets/QNames/`Loc`s/bounds.
+Anonymous empty-base extensions admit ref-only choice, group/element-ref sequence, or both; named: one amid direct terms. Bounds/order/targets/`Loc`s/wildcard persist; consumers reject.
+Broader nesting/direct groups/wildcards, nested locals, extension attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; broader nesting/wildcard/`all` reject. Cycles XSD3062; consumers reject at group `RefLoc`.
 Named direct `all`: ordered locals/refs, bounds/`Loc`s; 1.0 maxima≤1,
