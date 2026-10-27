@@ -363,6 +363,8 @@
 // retaining copied whitespace and enumeration facts. Named direct-sequence
 // extensions over supported empty use-free bases admit these same types;
 // named grouped extensions admit direct built-ins and named effective xs:token/xs:NMTOKEN.
+// Named direct-group owners admit direct built-in xs:token and xs:NMTOKEN uses;
+// named aliases remain excluded there.
 // Global-element inline complexContent extensions over
 // supported named empty bases also admit built-in xs:token and xs:anyURI local
 // declarations when the direct sequence contains only global element refs.

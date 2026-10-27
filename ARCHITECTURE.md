@@ -70,20 +70,20 @@ Valid inline-simple/untyped `0/0` omits; broader nesting/wildcard/`all` reject. 
 Named direct `all`: ordered locals/refs, bounds/`Loc`s; 1.0 maxima≤1,
 1.1 repeats/outer `0/0`; anonymous members/consumers reject.
 Models→ordered uses→base; `0/0`/prohibited omit; chameleons adopt; 1.1 `targetNamespace` matches.
-Compatibility/Strict11 omit selected false/0 local `inheritable` after owner checks; Strict10/true/1/refs reject.
+Compatibility/Strict11 omit false/0 local `inheritable` after owner checks; Strict10/true/1/refs reject.
 Direct-sequence: empty bases. Named grouped extensions: use-free
 optional-ref-sequence base, zero effective own uses; immediate completed
 sequence-extension base, one optional direct local ID. Both: default 1/1
-sequence, one 0/1 global-element ref.
+sequence, 0/1 global-element ref.
 Collisions; Strict10 second effective IDs fail.
 Other grouped scalars: empty/use-free bases.
 Named empty/choice/sequence/all/grouped-extension/sequence-extension: facet-free `xs:ID`, built-in/named
 `xs:NCName`/`xs:normalizedString`.
 Named empty/direct-choice/direct-sequence/direct-all/direct-group owners: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-sequence/grouped extensions likewise. Consumers reject.
-Named empty/choice/sequence/direct-sequence/grouped extensions: built-in/named effective `xs:token`/`xs:NMTOKEN`.
+Named owners: token/NMTOKEN built-in/named empty/choice/sequence/direct-sequence/grouped; direct-group built-ins only; V/G reject.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
-`xs:long`: named empty/choice/sequence/all/direct-sequence/grouped owners, built-in/named atomic uses.
-Named empty/all: effective built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; grouped: direct built-ins.
+`xs:long`: named empty/choice/sequence/all/direct-sequence/grouped owners, built-in/named uses.
+Named empty/all: built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; grouped: direct built-ins.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

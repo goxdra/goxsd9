@@ -7689,6 +7689,8 @@ func schemaNamedDirectLocalTokenFamilyAttributeTypeSupported(reference schemaSim
 		switch body.particle.(type) {
 		case *schemaChoiceParticleInput, *schemaSequenceParticleInput:
 			return true
+		case *schemaModelGroupReferenceParticleInput:
+			return reference.kind == SimpleTypeReferenceBuiltin
 		}
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		return body != nil
