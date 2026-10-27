@@ -291,7 +291,7 @@ func TestDirectGroupLanguageAnyURIUseBoundaryDiagnostics(t *testing.T) {
 					case "use":
 						wantSpec = schemaAttributeUseSpecRef(languageUseVersion(policy))
 					case "composition":
-						wantSpec = ""
+						wantSpec = schemaComplexTypeRepresentationSpecRef(languageUseVersion(policy))
 					case "global":
 						wantSpec = schemaGlobalDuplicateSpecRef(languageUseVersion(policy))
 					}

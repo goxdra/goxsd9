@@ -130,6 +130,8 @@ const (
 	schemaComplexContentExtensionXSD11SpecRef   = "xsd11-structures#element-complexContent..extension"
 	schemaGroupParticleXSD10SpecRef             = "xsd10-structures#element-group"
 	schemaGroupParticleXSD11SpecRef             = "xsd11-structures#element-group"
+	schemaComplexTypeRepresentationXSD10SpecRef = "xsd10-structures#element-complexType"
+	schemaComplexTypeRepresentationXSD11SpecRef = "xsd11-structures#element-complexType"
 	schemaComplexTypeExtensionXSD10SpecRef      = "xsd10-structures#cos-ct-extends"
 	schemaComplexTypeExtensionXSD11SpecRef      = "xsd11-structures#cos-ct-extends"
 	schemaComplexParticleExtensionXSD10SpecRef  = "xsd10-structures#cos-particle-extend"
@@ -9146,6 +9148,13 @@ func schemaGroupParticleSpecRef(version XSDVersion) string {
 		return schemaGroupParticleXSD10SpecRef
 	}
 	return schemaGroupParticleXSD11SpecRef
+}
+
+func schemaComplexTypeRepresentationSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaComplexTypeRepresentationXSD10SpecRef
+	}
+	return schemaComplexTypeRepresentationXSD11SpecRef
 }
 
 func schemaComplexTypeExtensionSpecRef(version XSDVersion) string {

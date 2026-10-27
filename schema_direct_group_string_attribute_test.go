@@ -586,6 +586,207 @@ func TestDirectGroupStringAttributeGroupSyntaxDiagnostics(t *testing.T) {
 	}
 }
 
+func assertDirectGroupStringOwnerInvalid(t *testing.T, failed Schema, failure error, wantLoc Loc, wantSpec string) {
+	t.Helper()
+	assertZeroSchema(t, failed)
+	diagnostic := requireDiagnostic(t, failure)
+	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode || diagnostic.Loc() != wantLoc || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != wantSpec || errors.Unwrap(failure) != nil || errors.Is(failure, ErrUnsupported) {
+		t.Fatalf("owner diagnostic = %v; Loc=%s related=%v SpecRef=%q cause=%v", failure, diagnostic.Loc(), diagnostic.Related(), diagnostic.SpecRef(), errors.Unwrap(failure))
+	}
+}
+
+//nolint:gocognit // Cover owner grammar exits before and after direct group validation under each policy.
+func TestDirectGroupStringAttributeOwnerGrammarDiagnostics(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		wantSpec := "xsd11-structures#element-complexType"
+		if profile.version == XSDVersion10 {
+			wantSpec = "xsd10-structures#element-complexType"
+		}
+		for _, kind := range []string{"NCName", "normalizedString"} {
+			for _, target := range []string{"choice", "sequence"} {
+				for _, omitted := range []bool{false, true} {
+					occurrence := ""
+					bounds := "present"
+					if omitted {
+						occurrence = ` minOccurs="0" maxOccurs="0"`
+						bounds = "omitted"
+					}
+					group := `<xs:group ref="r:Fields"` + occurrence + `/>`
+					second := `<xs:group ref="r:Fields" id="second"` + occurrence + `/>`
+					use := `<xs:attribute name="a" type="xs:` + kind + `"/>`
+					choice := `<xs:choice><xs:element ref="r:value"/></xs:choice>`
+					sequence := `<xs:sequence><xs:element ref="r:value"/></xs:sequence>`
+					all := `<xs:all><xs:element ref="r:value"/></xs:all>`
+					for _, test := range []struct {
+						name, body, marker string
+					}{
+						{"late group", use + group, `<xs:group ref="r:Fields"`},
+						{"duplicate group", group + second + use, `<xs:group ref="r:Fields" id="second"`},
+						{"group then choice", group + choice + use, `<xs:choice>`},
+						{"group then sequence", group + sequence + use, `<xs:sequence>`},
+						{"group then all", group + all + use, `<xs:all>`},
+						{"choice then group", choice + group + use, `<xs:group ref="r:Fields"`},
+						{"sequence then group", sequence + group + use, `<xs:group ref="r:Fields"`},
+						{"all then group", all + group + use, `<xs:group ref="r:Fields"`},
+						{"simpleContent then group", `<xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent>` + group + use, `<xs:group ref="r:Fields"`},
+						{"complexContent then group", `<xs:complexContent><xs:extension base="xs:anyType"/></xs:complexContent>` + group + use, `<xs:group ref="r:Fields"`},
+						{"anyAttribute then group", `<xs:anyAttribute namespace="##other"/>` + group + use, `<xs:group ref="r:Fields"`},
+						{"assert then group", `<xs:assert test="true()"/>` + group + use, `<xs:group ref="r:Fields"`},
+						{"group then simpleContent", group + `<xs:simpleContent/>` + use, `<xs:simpleContent`},
+						{"group then complexContent", group + `<xs:complexContent/>` + use, `<xs:complexContent`},
+						{"group then openContent", group + `<xs:openContent mode="none"/>` + use, `<xs:openContent`},
+						{"group then annotation", group + `<xs:annotation/>` + use, `<xs:annotation`},
+						{"group then forbidden child", group + `<xs:element name="extra" type="xs:string"/>` + use, `<xs:element name="extra"`},
+						{"group then text", group + `bad` + use, `bad<xs:attribute`},
+						{"group then foreign child", group + `<f:extra xmlns:f="urn:foreign"/>` + use, `<f:extra`},
+						{"group then wildcard then attribute", group + `<xs:anyAttribute namespace="##other"/>` + use, `<xs:attribute name="a"`},
+						{"group then duplicate wildcard", group + `<xs:anyAttribute namespace="##other"/><xs:anyAttribute namespace="##local"/>` + use, `<xs:anyAttribute namespace="##local"`},
+						{"group then assert then attribute", group + `<xs:assert test="true()"/>` + use, `<xs:attribute name="a"`},
+					} {
+						t.Run(profile.name+"/"+kind+"/"+target+"/"+bounds+"/"+test.name, func(t *testing.T) {
+							root := directGroupTokenRoot(target, test.body, "", "")
+							failed, failure := parseIDUseSchema(t, root, nil, profile.policy)
+							assertDirectGroupStringOwnerInvalid(t, failed, failure, elementReferenceTestAttributeLoc(t, root, test.marker), wantSpec)
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Each owner attribute exit is checked under both group bounds and all policies.
+func TestDirectGroupStringAttributeOwnerAttributeDiagnostics(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		wantSpec := "xsd11-structures#element-complexType"
+		if profile.version == XSDVersion10 {
+			wantSpec = "xsd10-structures#element-complexType"
+		}
+		for _, kind := range []string{"NCName", "normalizedString"} {
+			for _, omitted := range []bool{false, true} {
+				group := `<xs:group ref="r:Fields"/>`
+				bounds := "present"
+				if omitted {
+					group = `<xs:group ref="r:Fields" minOccurs="0" maxOccurs="0"/>`
+					bounds = "omitted"
+				}
+				for _, test := range []struct{ name, attribute string }{
+					{"invalid mixed", `mixed="maybe"`},
+					{"invalid final", `final="bad"`},
+					{"invalid id", `id="bad:name"`},
+				} {
+					t.Run(profile.name+"/"+kind+"/"+bounds+"/"+test.name, func(t *testing.T) {
+						root := directGroupTokenRoot("choice", group, `<xs:attribute name="a" type="xs:`+kind+`"/>`, "")
+						root = strings.Replace(root, `<xs:complexType name="Record"`, `<xs:complexType name="Record" `+test.attribute, 1)
+						failed, failure := parseIDUseSchema(t, root, nil, profile.policy)
+						assertDirectGroupStringOwnerInvalid(t, failed, failure, elementReferenceTestAttributeLoc(t, root, test.attribute), wantSpec)
+					})
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Generic owner-level unsupported exits need the selected owner reference without changing their class or feature.
+func TestDirectGroupStringAttributeOwnerUnsupportedReferences(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		wantSpec := "xsd11-structures#element-complexType"
+		if profile.version == XSDVersion10 {
+			wantSpec = "xsd10-structures#element-complexType"
+		}
+		for _, kind := range []string{"NCName", "normalizedString"} {
+			for _, target := range []string{"choice", "sequence"} {
+				for _, omitted := range []bool{false, true} {
+					group := `<xs:group ref="r:Fields"/>`
+					bounds := "present"
+					if omitted {
+						group = `<xs:group ref="r:Fields" minOccurs="0" maxOccurs="0"/>`
+						bounds = "omitted"
+					}
+					use := `<xs:attribute name="a" type="xs:` + kind + `"/>`
+					for _, test := range []struct {
+						name, child, ownerAttribute, extra, marker string
+					}{
+						{"unknown child", `<xs:future/>`, "", "", `<xs:future`},
+						{"attributeGroup reference", `<xs:attributeGroup ref="r:Attrs"/>`, "", `<xs:attributeGroup name="Attrs"/>`, `<xs:attributeGroup ref="r:Attrs"`},
+						{"mixed true", "", `mixed="true"`, "", `mixed="true"`},
+					} {
+						t.Run(profile.name+"/"+kind+"/"+target+"/"+bounds+"/"+test.name, func(t *testing.T) {
+							root := directGroupTokenRoot(target, group+test.child, use, test.extra)
+							if test.ownerAttribute != "" {
+								root = strings.Replace(root, `<xs:complexType name="Record"`, `<xs:complexType name="Record" `+test.ownerAttribute, 1)
+							}
+							failed, failure := parseIDUseSchema(t, root, nil, profile.policy)
+							assertZeroSchema(t, failed)
+							diagnostic := requireDiagnostic(t, failure)
+							if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.marker) || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != wantSpec || errors.Unwrap(failure) != nil || !errors.Is(failure, ErrUnsupported) {
+								t.Fatalf("owner unsupported = %v; Loc=%s related=%v SpecRef=%q cause=%v", failure, diagnostic.Loc(), diagnostic.Related(), diagnostic.SpecRef(), errors.Unwrap(failure))
+							}
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Narrow fallback must leave existing group, use, policy, and fixed feature references intact.
+func TestDirectGroupStringAttributeSpecificReferencesPreserved(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, kind := range []string{"NCName", "normalizedString"} {
+			for _, omitted := range []bool{false, true} {
+				group := `<xs:group ref="r:Fields"/>`
+				bounds := "present"
+				if omitted {
+					group = `<xs:group ref="r:Fields" minOccurs="0" maxOccurs="0"/>`
+					bounds = "omitted"
+				}
+				badOccurrenceGroup := `<xs:group ref="r:Fields" minOccurs="bad"/>`
+				if omitted {
+					badOccurrenceGroup = `<xs:group ref="r:Fields" minOccurs="bad" maxOccurs="0"/>`
+				}
+				use := `<xs:attribute name="a" type="xs:` + kind + `"/>`
+				for _, test := range []struct {
+					name, group, use, ownerAttribute, marker, code, spec string
+					class                                                FailureClass
+					feature                                              FeatureID
+					cause                                                error
+					lexical                                              bool
+				}{
+					{"group QName", strings.Replace(group, `ref="r:Fields"`, `ref="u:Fields"`, 1), use, "", `ref="u:Fields"`, invalidSchemaConditionalCode, schemaGroupParticleSpecRef(profile.version), FailureInvalid, "", nil, false},
+					{"group occurrence", badOccurrenceGroup, use, "", `minOccurs="bad"`, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.version), FailureInvalid, "", nil, true},
+					{"local use", group, strings.Replace(use, `/>`, ` use="bad"/>`, 1), "", `use="bad"`, invalidSchemaCompositionCode, schemaAttributeUseSpecRef(profile.version), FailureInvalid, "", nil, false},
+					{"nested local child", group, strings.Replace(use, `/>`, `><xs:future/></xs:attribute>`, 1), "", `<xs:future`, UnsupportedSchemaSyntaxCode, "xsd10-structures#schema-document", FailureUnsupported, FeatureSchemaSyntax, ErrUnsupported, false},
+					{"block", group, use, `block="bad"`, `block="bad"`, diagnosticSchemaBlockCode, schemaBlockSpecRef(profile.version, schemaBlockComplex), FailureInvalid, "", errSchemaBlock, false},
+					{"xml base", group, use, `xml:base="urn:base"`, `xml:base="urn:base"`, UnsupportedSchemaSyntaxCode, "xmlbase#matching", FailureUnsupported, featureSchemaXMLBase, ErrUnsupported, false},
+				} {
+					t.Run(profile.name+"/"+kind+"/"+bounds+"/"+test.name, func(t *testing.T) {
+						root := directGroupTokenRoot("choice", test.group, test.use, "")
+						if test.ownerAttribute != "" {
+							root = strings.Replace(root, `<xs:complexType name="Record"`, `<xs:complexType name="Record" `+test.ownerAttribute, 1)
+						}
+						failed, failure := parseIDUseSchema(t, root, nil, profile.policy)
+						assertZeroSchema(t, failed)
+						diagnostic := requireDiagnostic(t, failure)
+						if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Feature() != test.feature || diagnostic.Loc() != elementReferenceTestAttributeLoc(t, root, test.marker) || len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != test.spec || test.cause != nil && !errors.Is(failure, test.cause) {
+							t.Fatalf("specific diagnostic = %v; Loc=%s related=%v SpecRef=%q cause=%v", failure, diagnostic.Loc(), diagnostic.Related(), diagnostic.SpecRef(), errors.Unwrap(failure))
+						}
+						if test.lexical {
+							var lexical Diagnostic
+							if !errors.As(errors.Unwrap(failure), &lexical) || lexical.Code() != InvalidIntegerLexicalCode || lexical.Loc() != diagnostic.Loc() {
+								t.Fatalf("occurrence lexical cause = %v", errors.Unwrap(failure))
+							}
+						}
+						if !test.lexical && (test.cause == nil || test.class == FailureUnsupported) && errors.Unwrap(failure) != nil {
+							t.Fatalf("specific diagnostic gained cause = %v", errors.Unwrap(failure))
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
 //nolint:gocognit // The selected policy controls local-attribute syntax independently of schema/@version.
 func TestDirectGroupStringAttributePolicyAndExactBounds(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
