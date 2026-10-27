@@ -2717,7 +2717,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			modelSeen = true
 			groupErr := validateUnsupportedModelParticle(child, version)
 			if len(syntaxAttributesByLocal(parent, "name")) == 1 {
-				groupErr = validateSupportedGroupParticle(child, version)
+				groupErr = schemaInvalidWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version))
 			}
 			if err := groupErr; err != nil {
 				if !candidate.considerError(err) {

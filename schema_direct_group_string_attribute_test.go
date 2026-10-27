@@ -544,6 +544,48 @@ func TestDirectGroupStringAttributeFacetSyntaxAndFinalExits(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Every direct group syntax exit is checked before either omission path under each policy.
+func TestDirectGroupStringAttributeGroupSyntaxDiagnostics(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, kind := range []string{"NCName", "normalizedString"} {
+			for _, omitted := range []bool{false, true} {
+				for _, test := range []struct {
+					name, group, marker, code string
+				}{
+					{"malformed QName", `<xs:group@ ref="r::Fields"/>`, `ref="r::Fields"`, invalidSchemaConditionalCode},
+					{"empty QName", `<xs:group@ ref=""/>`, `ref=""`, invalidSchemaCompositionCode},
+					{"unbound QName", `<xs:group@ ref="u:Fields"/>`, `ref="u:Fields"`, invalidSchemaConditionalCode},
+					{"missing ref", `<xs:group@/>`, `<xs:group`, invalidSchemaCompositionCode},
+					{"forbidden attribute", `<xs:group@ ref="r:Fields" name="bad"/>`, `name="bad"`, invalidSchemaCompositionCode},
+					{"forbidden qualified attribute", `<xs:group@ ref="r:Fields" xs:bogus="bad"/>`, `xs:bogus="bad"`, invalidSchemaCompositionCode},
+					{"invalid id", `<xs:group@ ref="r:Fields" id="bad:name"/>`, `id="bad:name"`, invalidSchemaCompositionCode},
+					{"forbidden child", `<xs:group@ ref="r:Fields"><xs:element ref="r:value"/></xs:group>`, `<xs:element ref="r:value"`, invalidSchemaCompositionCode},
+					{"nonwhitespace text", `<xs:group@ ref="r:Fields">bad</xs:group>`, `bad</xs:group>`, invalidSchemaCompositionCode},
+					{"duplicate annotation", `<xs:group@ ref="r:Fields"><xs:annotation><xs:documentation>first</xs:documentation></xs:annotation><xs:annotation/></xs:group>`, `<xs:annotation/></xs:group>`, invalidSchemaCompositionCode},
+				} {
+					occurrence := ""
+					if omitted {
+						occurrence = ` minOccurs="0" maxOccurs="0"`
+					}
+					for _, target := range []string{"choice", "sequence"} {
+						t.Run(profile.name+"/"+kind+"/"+target+"/"+map[bool]string{false: "present", true: "omitted"}[omitted]+"/"+test.name, func(t *testing.T) {
+							group := strings.Replace(test.group, "@", occurrence, 1)
+							root := directGroupTokenRoot(target, group, `<xs:attribute name="a" type="xs:`+kind+`"/>`, "")
+							failed, failure := parseIDUseSchema(t, root, nil, profile.policy)
+							assertZeroSchema(t, failed)
+							diagnostic := requireDiagnostic(t, failure)
+							wantLoc := elementReferenceTestAttributeLoc(t, root, test.marker)
+							if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != schemaGroupParticleSpecRef(profile.version) || len(diagnostic.Related()) != 0 || errors.Unwrap(failure) != nil || errors.Is(failure, ErrUnsupported) {
+								t.Fatalf("group syntax diagnostic = %v; Loc=%s related=%v SpecRef=%q cause=%v", failure, diagnostic.Loc(), diagnostic.Related(), diagnostic.SpecRef(), errors.Unwrap(failure))
+							}
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
 //nolint:gocognit // The selected policy controls local-attribute syntax independently of schema/@version.
 func TestDirectGroupStringAttributePolicyAndExactBounds(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
