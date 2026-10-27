@@ -399,7 +399,7 @@ func TestPinnedInheritedUsesStrict10IDCardinality(t *testing.T) {
 			diagnostic := simpleDerivationSetDiagnostic(t, err)
 			wantLoc := simpleDerivationSetLoc(t, id, source, `<xs:attribute name="name" type="xs:ID">`, 0)
 			wantRelated := simpleDerivationSetLoc(t, id, source, `<xs:attribute name="id" type="xs:ID"/>`, 0)
-			if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != "XSD3061" || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != "xsd10-structures#cos-ct-props-correct" || !reflect.DeepEqual(diagnostic.Related(), []goxsd9.Loc{wantRelated}) {
+			if diagnostic.Class() != goxsd9.FailureInvalid || diagnostic.Code() != "XSD3061" || diagnostic.Loc() != wantLoc || diagnostic.SpecRef() != "xsd10-structures#ct-props-correct" || !reflect.DeepEqual(diagnostic.Related(), []goxsd9.Loc{wantRelated}) {
 				t.Fatalf("Strict10 diagnostic = %v, related %v", diagnostic, diagnostic.Related())
 			}
 			if unwrapped := errors.Unwrap(diagnostic); unwrapped == nil || !strings.Contains(unwrapped.Error(), "multiple ID attribute uses") {

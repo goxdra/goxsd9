@@ -542,7 +542,7 @@ func TestDirectAllLanguageAnyURIStrict10IndependentIDGate(t *testing.T) {
 			badSchema, badErr := parseIDUseSchema(t, bad, nil, Strict10)
 			assertZeroSchema(t, badSchema)
 			d := requireDiagnostic(t, badErr)
-			if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaAttributeUseIDDuplicateCode || d.Loc() != elementReferenceTestAttributeLoc(t, bad, `<xs:attribute name="other"`) || d.SpecRef() != "xsd10-structures#cos-ct-props-correct" || !reflect.DeepEqual(d.Related(), []Loc{elementReferenceTestAttributeLoc(t, bad, `<xs:attribute name="id"`)}) || !errors.Is(badErr, errSchemaAttributeUseIDDuplicate) {
+			if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaAttributeUseIDDuplicateCode || d.Loc() != elementReferenceTestAttributeLoc(t, bad, `<xs:attribute name="other"`) || d.SpecRef() != "xsd10-structures#ct-props-correct" || !reflect.DeepEqual(d.Related(), []Loc{elementReferenceTestAttributeLoc(t, bad, `<xs:attribute name="id"`)}) || !errors.Is(badErr, errSchemaAttributeUseIDDuplicate) {
 				t.Fatalf("two effective IDs = %v, related %v", badErr, d.Related())
 			}
 		})

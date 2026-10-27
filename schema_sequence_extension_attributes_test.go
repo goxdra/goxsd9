@@ -297,7 +297,7 @@ func TestSequenceExtensionAttributeIDCardinalityAndBaseCycle(t *testing.T) {
 		}
 		assertZeroSchema(t, schema)
 		d := requireDiagnostic(t, err)
-		if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaAttributeUseIDDuplicateCode || d.Loc() != complexContentTestLoc(t, root, `<xs:attribute name="second"`) || d.SpecRef() != "xsd10-structures#cos-ct-props-correct" || !reflect.DeepEqual(d.Related(), []Loc{complexContentTestLoc(t, root, `<xs:attribute name="first"`)}) || !errors.Is(err, errSchemaAttributeUseIDDuplicate) {
+		if d.Class() != FailureInvalid || d.Code() != diagnosticSchemaAttributeUseIDDuplicateCode || d.Loc() != complexContentTestLoc(t, root, `<xs:attribute name="second"`) || d.SpecRef() != "xsd10-structures#ct-props-correct" || !reflect.DeepEqual(d.Related(), []Loc{complexContentTestLoc(t, root, `<xs:attribute name="first"`)}) || !errors.Is(err, errSchemaAttributeUseIDDuplicate) {
 			t.Fatalf("ID diagnostic: %v related=%v", err, d.Related())
 		}
 	}

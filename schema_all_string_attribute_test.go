@@ -550,7 +550,7 @@ func TestDirectAllStringAttributeStrict10IDGate(t *testing.T) {
 			}
 			bad := strings.Replace(root, `use="prohibited"`, `use="required"`, 1)
 			schema, err = parseIDUseSchema(t, bad, nil, Strict10)
-			checkStringAllDiagnostic(t, schema, err, FailureInvalid, diagnosticSchemaAttributeUseIDDuplicateCode, elementReferenceTestAttributeLoc(t, bad, `<xs:attribute name="gone"`), []Loc{elementReferenceTestAttributeLoc(t, bad, `<xs:attribute name="first"`)}, "xsd10-structures#cos-ct-props-correct", errSchemaAttributeUseIDDuplicate)
+			checkStringAllDiagnostic(t, schema, err, FailureInvalid, diagnosticSchemaAttributeUseIDDuplicateCode, elementReferenceTestAttributeLoc(t, bad, `<xs:attribute name="gone"`), []Loc{elementReferenceTestAttributeLoc(t, bad, `<xs:attribute name="first"`)}, "xsd10-structures#ct-props-correct", errSchemaAttributeUseIDDuplicate)
 		}
 	}
 }
