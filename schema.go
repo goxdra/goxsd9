@@ -3507,7 +3507,7 @@ func resolveSchemaBuildResults(
 	if err := validateSchemaModelGroupLocalOverlaps(records, modelGroups, version); err != nil {
 		return schemaBuildResolution{}, err
 	}
-	if err := validateSchemaNamedNestedExtensions(records, complexTypes, modelGroups, version); err != nil {
+	if err := validateSchemaNamedNestedExtensions(records, complexTypes, modelGroups, elements, version); err != nil {
 		return schemaBuildResolution{}, err
 	}
 	return schemaBuildResolution{

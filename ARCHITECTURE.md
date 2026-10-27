@@ -63,8 +63,8 @@ Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals match `targetNamespace`.
 Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate.
 Groups nest opposites; refs precede `0/0`. Sequences/nested choices copy atomic integer/string/token IDs/facets/QNames/`Loc`s/bounds.
-Anonymous empty-base extensions admit ref-only choice, group/element-ref sequence, or both; named: one amid direct terms. Bounds/order/targets/`Loc`s/wildcard persist; consumers reject.
-Broader nesting/direct groups/wildcards/`all`, nested locals, attributes with either nested form reject.
+Anonymous empty-base: ref-only choice and/or group/element-ref sequence; named: one amid direct terms. Bounds/order/targets/`Loc`s/wildcard persist; consumers reject. Fixed-count proof bounded; unproved overlaps reject.
+Deeper nesting/direct groups/wildcards/`all`, nested locals, nested-form attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
 Valid inline-simple/untyped `0/0` omits; cycles XSD3062; consumers reject at group `RefLoc`.
 Named direct `all`: ordered locals/refs, bounds/`Loc`s; 1.0 maxima≤1,

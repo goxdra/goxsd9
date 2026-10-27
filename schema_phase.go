@@ -2929,6 +2929,17 @@ func validateComplexTypeContentChild(parent, element *syntaxElement, version XSD
 			return nil
 		}
 		extension := schemaComplexContentExtensionChild(element)
+		if extension != nil && len(syntaxAttributesByLocal(parent, "name")) == 1 &&
+			schemaInlineExtensionSequenceHasNestedTerm(schemaComplexTypeModel(extension)) &&
+			schemaComplexContentExtensionHasAnyAttribute(extension) {
+			if schemaBooleanAttributeTrue(parent) || schemaBooleanAttributeTrue(element) {
+				return reframeSchemaComplexContentExtensionUnsupported(
+					newSchemaSyntaxUnsupportedForVersion(element.loc, "complexContent extension with mixed content is not implemented", version),
+					version, schemaComplexTypeModel(extension), nil,
+				)
+			}
+			return nil
+		}
 		if boundedComplexContentExtensionCandidate(extension) {
 			if schemaBooleanAttributeTrue(parent) || schemaBooleanAttributeTrue(element) {
 				return reframeSchemaComplexContentExtensionUnsupported(
@@ -2949,6 +2960,19 @@ func validateComplexTypeContentChild(parent, element *syntaxElement, version XSD
 		return nil
 	}
 	return newSchemaSyntaxUnsupported(element.loc, element.name.local+" is not implemented")
+}
+
+func schemaComplexContentExtensionHasAnyAttribute(extension *syntaxElement) bool {
+	if extension == nil {
+		return false
+	}
+	for _, node := range extension.children {
+		child, ok := node.(*syntaxElement)
+		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == "anyAttribute" {
+			return true
+		}
+	}
+	return false
 }
 
 func schemaSimpleContentExtensionChild(element *syntaxElement) *syntaxElement {
@@ -3327,6 +3351,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if err := anyAttributeErr; err != nil && !candidate.considerError(err) {
 				return err
 			}
+			if namedNestedTerm && anyAttributeErr == nil {
+				candidate.considerAtVersion(child.loc, "named extension nested term with anyAttribute is not implemented", version)
+			}
 		case "assert":
 			assertSeen = true
 			if err := validateComplexTypeAssert(child, version); err != nil && !candidate.considerError(err) {
@@ -3360,7 +3387,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 		framed := reframeSchemaComplexContentExtensionUnsupported(derivationErr, version, schemaComplexTypeModel(element), particleUnsupported)
 		if namedNestedTerm {
 			framed = locateNamedExtensionNestedUnsupported(framed, schemaComplexTypeModel(element), version)
-			return deferNamedNestedBodyDiagnostic(framed, deferNamedBodyUnsupported && (particleUnsupported != nil || attributesSeen))
+			return deferNamedNestedBodyDiagnostic(framed, deferNamedBodyUnsupported && (particleUnsupported != nil || attributesSeen || anyAttributeSeen))
 		}
 		return framed
 	}

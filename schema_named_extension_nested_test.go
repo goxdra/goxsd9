@@ -268,6 +268,103 @@ func TestNamedExtensionNestedUPAAndConsistency(t *testing.T) {
 	}
 }
 
+func TestNamedExtensionNestedFixedCountAttribution(t *testing.T) { //nolint:gocognit // Both admitted compositors retain exact counts across all policies.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, alternative := range []struct{ name, body string }{
+			{"choice", `<xs:choice minOccurs="2" maxOccurs="2"><xs:element ref="t:first"/></xs:choice>`},
+			{"sequence", `<xs:sequence minOccurs="2" maxOccurs="2"><xs:group ref="t:Target"/><xs:element ref="t:first"/></xs:sequence>`},
+		} {
+			t.Run(profile.name+"/"+alternative.name, func(t *testing.T) {
+				root := namedExtensionNestedSchema(profile.version, alternative.body, "", "")
+				root = strings.Replace(root, `<xs:element ref="t:last"/></xs:sequence>`, `<xs:element ref="t:first"/></xs:sequence>`, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				outer, ok := namedExtensionNestedOwner(t, schema).Particle().(SequenceParticle)
+				if !ok || len(outer.Particles()) != 3 || outer.Particles()[1].Occurrences().String() != "2/2" || outer.Particles()[1].Loc() != complexContentTestLoc(t, root, `<xs:`+alternative.name+` minOccurs="2"`) {
+					t.Fatalf("fixed repetition facts = %v", namedExtensionNestedOwner(t, schema).Particle())
+				}
+				last, ok := outer.Particles()[2].(ElementReferenceParticle)
+				first := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:named-nested", "first"))
+				if !ok || len(first) != 1 || last.TargetID() != first[0].ID() || last.RefLoc() != complexContentTestLoc(t, root, `ref="t:first"/></xs:sequence></xs:extension>`) {
+					t.Fatalf("fixed repetition following ref = %v", outer.Particles()[2])
+				}
+			})
+		}
+		root := namedExtensionNestedSchema(profile.version, `<xs:choice minOccurs="1" maxOccurs="2"><xs:element ref="t:first"/></xs:choice>`, "", "")
+		root = strings.Replace(root, `<xs:element ref="t:last"/></xs:sequence>`, `<xs:element ref="t:first"/></xs:sequence>`, 1)
+		assertNamedExtensionNestedFailure(t, root, profile.policy, `ref="t:first"/></xs:sequence></xs:extension>`, FailureInvalid, diagnosticSchemaNamedExtensionUPACode, schemaGroupNonAmbiguousSpecRef(profile.factVersion), errSchemaNamedExtensionUPA, `ref="t:first"/></xs:choice>`)
+		huge := namedExtensionNestedSchema(profile.version, `<xs:choice minOccurs="18446744073709551616" maxOccurs="18446744073709551616"><xs:element ref="t:first"/></xs:choice>`, "", "")
+		huge = strings.Replace(huge, `<xs:element ref="t:last"/></xs:sequence>`, `<xs:element ref="t:first"/></xs:sequence>`, 1)
+		assertNamedExtensionNestedFailure(t, huge, profile.policy, `ref="t:first"/></xs:sequence></xs:extension>`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaGroupNonAmbiguousSpecRef(profile.factVersion), ErrUnsupported, `ref="t:first"/></xs:choice>`)
+	}
+}
+
+func TestNamedExtensionNestedFixedLeafCountAttribution(t *testing.T) { //nolint:gocognit // Child particle ranges need the same count-sensitive proof as compositors.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, alternative := range []struct{ name, body string }{
+			{"choice", `<xs:choice><xs:element ref="t:first" minOccurs="2" maxOccurs="2"/></xs:choice>`},
+			{"sequence", `<xs:sequence><xs:group ref="t:Target"/><xs:element ref="t:first" minOccurs="2" maxOccurs="2"/></xs:sequence>`},
+		} {
+			t.Run(profile.name+"/"+alternative.name, func(t *testing.T) {
+				root := namedExtensionNestedSchema(profile.version, alternative.body, "", "")
+				root = strings.Replace(root, `<xs:element ref="t:last"/></xs:sequence>`, `<xs:element ref="t:first"/></xs:sequence>`, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				outer, ok := namedExtensionNestedOwner(t, schema).Particle().(SequenceParticle)
+				if !ok || len(outer.Particles()) != 3 {
+					t.Fatalf("outer = %v", namedExtensionNestedOwner(t, schema).Particle())
+				}
+				var inner ElementReferenceParticle
+				if alternative.name == "choice" {
+					choice, choiceOK := outer.Particles()[1].(ChoiceParticle)
+					if !choiceOK || len(choice.Alternatives()) != 1 {
+						t.Fatalf("nested choice = %v", outer.Particles()[1])
+					}
+					inner, ok = choice.Alternatives()[0].(ElementReferenceParticle)
+				}
+				if alternative.name == "sequence" {
+					sequence, sequenceOK := outer.Particles()[1].(SequenceParticle)
+					if !sequenceOK || len(sequence.Particles()) != 2 {
+						t.Fatalf("nested sequence = %v", outer.Particles()[1])
+					}
+					inner, ok = sequence.Particles()[1].(ElementReferenceParticle)
+				}
+				if !ok || inner.Occurrences().String() != "2/2" || inner.RefLoc() != complexContentTestLoc(t, root, `ref="t:first" minOccurs="2"`) {
+					t.Fatalf("fixed child facts = %v", inner)
+				}
+				variable := strings.Replace(root, `minOccurs="2" maxOccurs="2"`, `minOccurs="1" maxOccurs="2"`, 1)
+				assertNamedExtensionNestedFailure(t, variable, profile.policy, `ref="t:first"/></xs:sequence></xs:extension>`, FailureInvalid, diagnosticSchemaNamedExtensionUPACode, schemaGroupNonAmbiguousSpecRef(profile.factVersion), errSchemaNamedExtensionUPA, `ref="t:first" minOccurs="1" maxOccurs="2"`)
+			})
+		}
+	}
+}
+
+func TestNamedExtensionNestedSharedSubstitutionAttribution(t *testing.T) {
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, test := range []struct{ name, extra string }{
+			{"shared", `<xs:element name="shared" type="xs:integer" substitutionGroup="t:first t:second"/>`},
+			{"transitive", `<xs:element name="middle" type="xs:integer" substitutionGroup="t:first"/><xs:element name="shared" type="xs:integer" substitutionGroup="t:middle t:second"/>`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				root := namedExtensionNestedSchema(profile.version, `<xs:choice><xs:element ref="t:first"/><xs:element ref="t:second"/></xs:choice>`, "", test.extra)
+				if profile.policy == Strict10 {
+					marker := `substitutionGroup="t:first t:second"`
+					if test.name == "transitive" {
+						marker = `substitutionGroup="t:middle t:second"`
+					}
+					assertNamedExtensionNestedFailure(t, root, profile.policy, marker, FailureInvalid, invalidSchemaCompositionCode, schemaSubstitutionAffiliationXSD10SpecRef, errSchemaSubstitutionCardinality)
+					return
+				}
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `ref="t:second"/></xs:choice>`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaGroupNonAmbiguousSpecRef(profile.factVersion), ErrUnsupported, `ref="t:first"/><xs:element`)
+			})
+		}
+	}
+}
+
 func TestNamedExtensionNestedExcludedShapes(t *testing.T) {
 	for _, profile := range nestedGroupChoiceProfiles {
 		for _, test := range []struct {
@@ -568,6 +665,51 @@ func TestNamedExtensionNestedDeferredDependencyPrecedence(t *testing.T) {
 				}
 				assertNamedExtensionNestedFailure(t, root, profile.policy, test.marker, test.class, test.code, test.spec, test.cause, test.related...)
 			})
+		}
+	}
+}
+
+func TestNamedExtensionNestedOwnWildcardDependencyPrecedence(t *testing.T) {
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, alternative := range []struct{ name, nested string }{
+			{"choice", namedExtensionChoice},
+			{"sequence", namedExtensionSequence},
+		} {
+			wildcardRoot := func(base string) string {
+				root := namedExtensionNestedSchema(profile.version, alternative.nested, base, "")
+				return strings.Replace(root, `</xs:sequence></xs:extension>`, `</xs:sequence><xs:anyAttribute namespace="##other" processContents="lax"/></xs:extension>`, 1)
+			}
+			t.Run(profile.name+"/"+alternative.name+"/missing base", func(t *testing.T) {
+				root := strings.Replace(wildcardRoot(""), `base="t:Base"`, `base="t:Missing"`, 1)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `base="t:Missing"`, FailureInvalid, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.factVersion), errSchemaComplexTypeBaseUnresolved)
+			})
+			t.Run(profile.name+"/"+alternative.name+"/final base", func(t *testing.T) {
+				root := wildcardRoot(`<xs:complexType name="Base" final="extension"/>`)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `base="t:Base"`, FailureInvalid, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.factVersion), errSchemaComplexTypeBaseUnsupported, `final="extension"`)
+			})
+			t.Run(profile.name+"/"+alternative.name+"/base cycle", func(t *testing.T) {
+				root := wildcardRoot(`<xs:complexType name="Base"><xs:complexContent><xs:extension base="t:Derived"/></xs:complexContent></xs:complexType>`)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `base="t:Derived"`, FailureInvalid, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.factVersion), errSchemaComplexTypeBaseCycle, `base="t:Base"`)
+			})
+			t.Run(profile.name+"/"+alternative.name+"/invalid nested ref", func(t *testing.T) {
+				root := strings.Replace(wildcardRoot(""), `ref="t:first"`, `ref="t:Missing"`, 1)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `ref="t:Missing"`, FailureInvalid, diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(profile.factVersion), errSchemaElementReferenceUnresolved)
+			})
+			t.Run(profile.name+"/"+alternative.name+"/omitted invalid nested ref", func(t *testing.T) {
+				root := strings.Replace(wildcardRoot(""), `maxOccurs="18446744073709551616"`, `maxOccurs="0"`, 1)
+				root = strings.Replace(root, `ref="t:first"`, `ref="t:Missing"`, 1)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `ref="t:Missing"`, FailureInvalid, diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(profile.factVersion), errSchemaElementReferenceUnresolved)
+			})
+			if alternative.name == "sequence" {
+				t.Run(profile.name+"/sequence/group cycle", func(t *testing.T) {
+					root := strings.Replace(wildcardRoot(""), `<xs:group name="Target"><xs:sequence><xs:element ref="t:second"/></xs:sequence></xs:group>`, `<xs:group name="Target"><xs:sequence><xs:group ref="t:Target"/></xs:sequence></xs:group>`, 1)
+					groupSpec := "xsd11-structures#mg-props-correct"
+					if profile.factVersion == XSDVersion10 {
+						groupSpec = "xsd10-structures#mg-props-correct"
+					}
+					assertNamedExtensionNestedFailure(t, root, profile.policy, `ref="t:Target"/></xs:sequence></xs:group>`, FailureInvalid, diagnosticSchemaModelGroupReferenceCycleCode, groupSpec, errSchemaModelGroupReferenceCycle, `<xs:group name="Target"`)
+				})
+			}
 		}
 	}
 }

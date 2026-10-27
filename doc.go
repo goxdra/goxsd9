@@ -487,7 +487,8 @@
 // same base admits exactly one of those nested alternatives with surrounding
 // supported direct terms. Exact occurrences, ordered resolved targets, source
 // locations, and the inherited base wildcard persist; refs and base cycles
-// precede 0/0 omission. Broader nested sequences, direct nested groups,
+// precede 0/0 omission. Named attribution unfolds bounded fixed counts and
+// rejects larger unproved overlaps. Broader nested sequences, direct nested groups,
 // wildcards, nested local declarations, deeper nesting, and attributes combined
 // with these forms reject.
 // Validation and generation reject the admitted extension.
