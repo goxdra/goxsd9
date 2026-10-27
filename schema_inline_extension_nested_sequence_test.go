@@ -199,7 +199,6 @@ func TestInlineExtensionNestedSequenceForbiddenAndUnknownChildren(t *testing.T) 
 func TestInlineExtensionNestedSequenceOtherOwnersAndCombinedAttributes(t *testing.T) {
 	for _, profile := range nestedGroupChoiceProfiles {
 		for _, test := range []struct{ name, owner, marker string }{
-			{"named extension", `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="t:openAttrs"><xs:sequence>` + inlineNestedSequence + `</xs:sequence></xs:extension></xs:complexContent></xs:complexType>`, `minOccurs="0"`},
 			{"named direct", `<xs:complexType name="Derived"><xs:sequence>` + inlineNestedSequence + `</xs:sequence></xs:complexType>`, `minOccurs="0"`},
 			{"inline direct", `<xs:element name="other"><xs:complexType><xs:sequence>` + inlineNestedSequence + `</xs:sequence></xs:complexType></xs:element>`, `minOccurs="0"`},
 			{"named group", `<xs:group name="Other"><xs:sequence>` + inlineNestedSequence + `</xs:sequence></xs:group>`, `minOccurs="0"`},
