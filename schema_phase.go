@@ -865,6 +865,62 @@ const (
 )
 
 func validateGlobalSchemaDeclaration(element *syntaxElement, version XSDVersion) error {
+	err := validateGlobalSchemaDeclarationCore(element, version)
+	if err == nil || !schemaNamedComplexTypeWithDirectGroupChild(element) {
+		return err
+	}
+	err = schemaInvalidWithSpecRef(err, schemaComplexTypeRepresentationSpecRef(version))
+	return schemaDirectGroupOwnerUnsupportedWithSpecRef(err, element, version)
+}
+
+func schemaNamedComplexTypeWithDirectGroupChild(element *syntaxElement) bool {
+	if element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "complexType" || len(syntaxAttributesByLocal(element, "name")) != 1 {
+		return false
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if ok && child.name.namespace == xsdNamespaceURI && child.name.local == "group" {
+			return true
+		}
+	}
+	return false
+}
+
+func schemaDirectGroupOwnerUnsupportedWithSpecRef(err error, element *syntaxElement, version XSDVersion) error {
+	if err == nil || errors.Is(err, errLanguagePolicyMismatch) {
+		return err
+	}
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
+		return err
+	}
+	feature, ok := LookupUnsupportedFeature(FeatureSchemaSyntax)
+	if !ok || diagnostic.SpecRef() != feature.SpecRef() || !schemaDirectGroupOwnerImmediateLoc(element, diagnostic.Loc()) {
+		return err
+	}
+	diagnostic.specRef = schemaComplexTypeRepresentationSpecRef(version)
+	return diagnostic
+}
+
+func schemaDirectGroupOwnerImmediateLoc(element *syntaxElement, loc Loc) bool {
+	if element.loc == loc {
+		return true
+	}
+	for _, attribute := range element.attrs {
+		if attribute.loc == loc {
+			return true
+		}
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if ok && child.loc == loc {
+			return true
+		}
+	}
+	return false
+}
+
+func validateGlobalSchemaDeclarationCore(element *syntaxElement, version XSDVersion) error {
 	kind, ok := schemaDeclarationKind(element.name.local)
 	if !ok {
 		return newSchemaBridgeInvariant(element.loc, "global declaration has an unknown kind")
@@ -2717,7 +2773,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			modelSeen = true
 			groupErr := validateUnsupportedModelParticle(child, version)
 			if len(syntaxAttributesByLocal(parent, "name")) == 1 {
-				groupErr = validateSupportedGroupParticle(child, version)
+				groupErr = schemaInvalidWithSpecRef(validateSupportedGroupParticle(child, version), schemaGroupParticleSpecRef(version))
 			}
 			if err := groupErr; err != nil {
 				if !candidate.considerError(err) {

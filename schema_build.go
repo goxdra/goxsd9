@@ -130,6 +130,8 @@ const (
 	schemaComplexContentExtensionXSD11SpecRef   = "xsd11-structures#element-complexContent..extension"
 	schemaGroupParticleXSD10SpecRef             = "xsd10-structures#element-group"
 	schemaGroupParticleXSD11SpecRef             = "xsd11-structures#element-group"
+	schemaComplexTypeRepresentationXSD10SpecRef = "xsd10-structures#element-complexType"
+	schemaComplexTypeRepresentationXSD11SpecRef = "xsd11-structures#element-complexType"
 	schemaComplexTypeExtensionXSD10SpecRef      = "xsd10-structures#cos-ct-extends"
 	schemaComplexTypeExtensionXSD11SpecRef      = "xsd11-structures#cos-ct-extends"
 	schemaComplexParticleExtensionXSD10SpecRef  = "xsd10-structures#cos-particle-extend"
@@ -7814,7 +7816,7 @@ func schemaNamedLocalNCNameAttributeTypeSupported(reference schemaSimpleTypeRefe
 		return false
 	}
 	_, ok := reference.facets.(schemaStringFacetVariant)
-	return ok && (schemaNamedLocalAtomicAttributeOwnerSupported(owner) || schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner))
+	return ok && (schemaNamedLocalAtomicAttributeOwnerSupported(owner) || schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner) || schemaNamedDirectGroupLocalStringAttributeOwnerSupported(owner))
 }
 
 func schemaNamedLocalNormalizedStringAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent, owner schemaComponentRecord) bool {
@@ -7825,7 +7827,19 @@ func schemaNamedLocalNormalizedStringAttributeTypeSupported(reference schemaSimp
 		return false
 	}
 	_, ok := reference.facets.(schemaStringFacetVariant)
-	return ok && (schemaNamedLocalAtomicAttributeOwnerSupported(owner) || schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner))
+	return ok && (schemaNamedLocalAtomicAttributeOwnerSupported(owner) || schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner) || schemaNamedDirectGroupLocalStringAttributeOwnerSupported(owner))
+}
+
+func schemaNamedDirectGroupLocalStringAttributeOwnerSupported(owner schemaComponentRecord) bool {
+	if owner.complexType == nil {
+		return false
+	}
+	body, ok := owner.complexType.body.(*schemaComplexTypeDirectBodyInput)
+	if !ok || body == nil {
+		return false
+	}
+	_, group := body.particle.(*schemaModelGroupReferenceParticleInput)
+	return group
 }
 
 func schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner schemaComponentRecord) bool {
@@ -9134,6 +9148,13 @@ func schemaGroupParticleSpecRef(version XSDVersion) string {
 		return schemaGroupParticleXSD10SpecRef
 	}
 	return schemaGroupParticleXSD11SpecRef
+}
+
+func schemaComplexTypeRepresentationSpecRef(version XSDVersion) string {
+	if version == XSDVersion10 {
+		return schemaComplexTypeRepresentationXSD10SpecRef
+	}
+	return schemaComplexTypeRepresentationXSD11SpecRef
 }
 
 func schemaComplexTypeExtensionSpecRef(version XSDVersion) string {

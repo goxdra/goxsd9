@@ -409,7 +409,6 @@ func TestDirectAllStringAttributeBoundsAndOmission(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Owner grammar remains narrow for built-in and named forms of both types.
 func TestDirectAllStringAttributeExcludedOwners(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		for _, kind := range []string{"NCName", "normalizedString"} {
@@ -423,17 +422,12 @@ func TestDirectAllStringAttributeExcludedOwners(t *testing.T) {
 				attribute := `<xs:attribute name="a" type="` + lexical + `"/>`
 				for _, shape := range []struct{ name, body, extra, marker, spec string }{
 					{"anonymous all", `<xs:element name="root"><xs:complexType><xs:all><xs:element name="field" type="xs:integer"/></xs:all>` + attribute + `</xs:complexType></xs:element>`, "", `<xs:all>`, schemaSyntaxSpecRefForVersion(XSDVersion10)},
-					{"grouped direct", `<xs:complexType name="Record"><xs:group ref="r:Fields"/>` + attribute + `</xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="r:field"/></xs:sequence></xs:group><xs:element name="field" type="xs:integer"/>`, `type="` + lexical + `"`, schemaAttributeTypeSpecRef(profile.version)},
 					{"direct all extension", `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="r:Base"><xs:all><xs:element name="field" type="xs:integer"/></xs:all>` + attribute + `</xs:extension></xs:complexContent></xs:complexType>`, "", `<xs:attribute name="a"`, extensionSpecForNormalizedAll(profile.version)},
 				} {
 					t.Run(profile.name+"/"+kind+"/"+form+"/"+shape.name, func(t *testing.T) {
 						root := idUseRoot(shape.body, extra+shape.extra)
 						schema, err := parseIDUseSchema(t, root, nil, profile.policy)
-						cause := ErrUnsupported
-						if shape.name == "grouped direct" {
-							cause = errSchemaAttributeUseUnsupported
-						}
-						checkStringAllDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, elementReferenceTestAttributeLoc(t, root, shape.marker), nil, shape.spec, ErrUnsupported, cause)
+						checkStringAllDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, elementReferenceTestAttributeLoc(t, root, shape.marker), nil, shape.spec, ErrUnsupported, ErrUnsupported)
 					})
 				}
 			}

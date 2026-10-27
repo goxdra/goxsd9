@@ -209,7 +209,7 @@
 // restrictions remain queryable, while mapped nonzero local anonymous
 // restrictions fail at the local type location with no schema. Built-in and
 // supported named effective atomic NCName local declarations on named empty,
-// direct choice/sequence/all, grouped, and direct-sequence extension owners retain
+// direct choice/sequence/all/group, grouped, and direct-sequence extension owners retain
 // their written type QName, target identity, type location, and copied effective
 // enumeration facts. Inline restrictions, refs, and value constraints remain
 // excluded. NCName instance validation and Go generation remain unsupported.
@@ -364,7 +364,9 @@
 // extensions over supported empty use-free bases admit these same types;
 // named grouped extensions admit direct built-ins and named effective xs:token/xs:NMTOKEN.
 // Named direct-group owners admit built-in and named effective atomic xs:token
-// and xs:NMTOKEN uses.
+// and xs:NMTOKEN uses. They also admit built-in and named effective atomic
+// xs:NCName and xs:normalizedString local declarations, retaining the opaque
+// group reference and completed type facts; consumers reject them.
 // Global-element inline complexContent extensions over
 // supported named empty bases also admit built-in xs:token and xs:anyURI local
 // declarations when the direct sequence contains only global element refs.
