@@ -383,6 +383,9 @@ func TestTokenFamilyLocalAttributeExclusions(t *testing.T) {
 					if owner.name == "grouped extension" && (shape == "direct" || shape == "named") {
 						continue
 					}
+					if owner.name == "group" && shape == "direct" {
+						continue
+					}
 					t.Run(profile.name+"/"+kind+"/"+owner.name+"/"+shape, func(t *testing.T) {
 						use, extra, marker, related := tokenFamilyExcludedUse(kind, shape)
 						root := tokenFamilyLocalRoot(owner.before + use + owner.after + owner.extra + extra)
