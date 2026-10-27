@@ -16,9 +16,14 @@ var errSchemaNamedExtensionUPA = errors.New("named extension particle attributio
 
 type schemaNamedExtensionPosition struct {
 	schemaGroupLeaf
-	target ComponentID
-	source Loc
-	via    Loc
+	target     ComponentID
+	originPath []schemaNamedExtensionOriginStep
+	termLoc    Loc
+}
+
+type schemaNamedExtensionOriginStep struct {
+	index int
+	loc   Loc
 }
 
 type schemaNamedExtensionExpression struct {
@@ -54,7 +59,7 @@ func validateSchemaNamedNestedExtensions(records []schemaComponentRecord, comple
 			continue
 		}
 		proof := schemaNamedExtensionProof{records: records, groups: groups, elements: elements, version: version}
-		expression, err := proof.expression(body.particle, Loc{})
+		expression, err := proof.expression(body.particle, Loc{}, nil)
 		if err != nil {
 			return err
 		}
@@ -94,7 +99,7 @@ func schemaNamedExtensionHasNestedTerm(input *schemaComplexTypeInput) bool {
 	return false
 }
 
-func (proof *schemaNamedExtensionProof) expression(particle Particle, via Loc) (schemaNamedExtensionExpression, error) { //nolint:gocognit // Preserve the exact-count branch and conservative fallback together.
+func (proof *schemaNamedExtensionProof) expression(particle Particle, via Loc, path []schemaNamedExtensionOriginStep) (schemaNamedExtensionExpression, error) { //nolint:gocognit // Preserve the exact-count branch and conservative fallback together.
 	occurrences := particle.Occurrences()
 	maximum, finite := occurrences.Maximum().Finite()
 	if finite && maximum.Compare(occurrences.Minimum()) == 0 && maximum.Sign() > 0 && maximum.Canonical() != "1" {
@@ -102,20 +107,20 @@ func (proof *schemaNamedExtensionProof) expression(particle Particle, via Loc) (
 			var result schemaNamedExtensionExpression
 			result.nullable = true
 			for copyIndex := int64(0); copyIndex < maximum.value.Int64(); copyIndex++ {
-				member, err := proof.expressionOnce(particle, via)
+				member, err := proof.expressionOnce(particle, via, path)
 				if err != nil {
 					return result, err
 				}
 				result = proof.sequence(result, member)
 				if len(proof.positions) > schemaNamedExtensionMaxProofPositions {
-					return result, proof.unproved(particle.Loc(), Loc{}, "named extension fixed repetition exceeds the attribution proof budget")
+					return result, proof.unproved(particle.Loc(), nil, "named extension fixed repetition exceeds the attribution proof budget")
 				}
 			}
 			return result, nil
 		}
 		proof.uncertainFixed = true
 	}
-	expression, err := proof.expressionOnce(particle, via)
+	expression, err := proof.expressionOnce(particle, via, path)
 	if err != nil {
 		return expression, err
 	}
@@ -132,7 +137,7 @@ func (proof *schemaNamedExtensionProof) expression(particle Particle, via Loc) (
 	return expression, nil
 }
 
-func (proof *schemaNamedExtensionProof) expressionOnce(particle Particle, via Loc) (schemaNamedExtensionExpression, error) { //nolint:gocognit // The four resolved particle variants form one bounded grammar.
+func (proof *schemaNamedExtensionProof) expressionOnce(particle Particle, via Loc, path []schemaNamedExtensionOriginStep) (schemaNamedExtensionExpression, error) { //nolint:gocognit // The four resolved particle variants form one bounded grammar.
 	var expression schemaNamedExtensionExpression
 	switch term := particle.(type) {
 	case ElementParticle:
@@ -141,7 +146,7 @@ func (proof *schemaNamedExtensionProof) expressionOnce(particle Particle, via Lo
 		}
 		expression = proof.leaf(schemaNamedExtensionPosition{schemaGroupLeaf: schemaGroupLeaf{
 			name: term.Name(), declaredType: term.DeclaredType(), loc: schemaGroupLeafLoc(term.Loc(), via), local: true,
-		}, source: term.Loc(), via: via})
+		}, originPath: cloneSchemaNamedExtensionOriginPath(path), termLoc: term.Loc()})
 	case ElementReferenceParticle:
 		if term.facts == nil {
 			return expression, newSchemaBridgeInvariant(particle.Loc(), "named extension element reference has no facts")
@@ -153,20 +158,20 @@ func (proof *schemaNamedExtensionProof) expressionOnce(particle Particle, via Lo
 		expression = proof.leaf(schemaNamedExtensionPosition{schemaGroupLeaf: schemaGroupLeaf{
 			name: term.Ref(), declaredType: proof.records[index].element.declaredType,
 			loc: schemaGroupLeafLoc(term.RefLoc(), via), reference: true,
-		}, target: term.TargetID(), source: term.RefLoc(), via: via})
+		}, target: term.TargetID(), originPath: cloneSchemaNamedExtensionOriginPath(path), termLoc: term.RefLoc()})
 	case ModelGroupReferenceParticle:
 		index := schemaGroupRecordByID(proof.records, term.TargetID())
 		if index < 0 || index >= len(proof.groups) || !proof.groups[index].present || proof.groups[index].particle == nil {
 			return expression, newSchemaBridgeInvariant(term.RefLoc(), "named extension group target is absent")
 		}
 		var err error
-		expression, err = proof.expression(proof.groups[index].particle, schemaGroupLeafLoc(term.RefLoc(), via))
+		expression, err = proof.expression(proof.groups[index].particle, schemaGroupLeafLoc(term.RefLoc(), via), path)
 		if err != nil {
 			return expression, err
 		}
 	case ChoiceParticle:
-		for _, child := range term.Alternatives() {
-			member, err := proof.expression(child, via)
+		for childIndex, child := range term.Alternatives() {
+			member, err := proof.expression(child, via, appendSchemaNamedExtensionOriginStep(path, childIndex, child))
 			if err != nil {
 				return expression, err
 			}
@@ -176,8 +181,8 @@ func (proof *schemaNamedExtensionProof) expressionOnce(particle Particle, via Lo
 		}
 	case SequenceParticle:
 		expression.nullable = true
-		for _, child := range term.Particles() {
-			member, err := proof.expression(child, via)
+		for childIndex, child := range term.Particles() {
+			member, err := proof.expression(child, via, appendSchemaNamedExtensionOriginStep(path, childIndex, child))
 			if err != nil {
 				return expression, err
 			}
@@ -187,6 +192,23 @@ func (proof *schemaNamedExtensionProof) expressionOnce(particle Particle, via Lo
 		return expression, newSchemaBridgeInvariant(particle.Loc(), "named extension has an unexpected resolved particle")
 	}
 	return expression, nil
+}
+
+func cloneSchemaNamedExtensionOriginPath(path []schemaNamedExtensionOriginStep) []schemaNamedExtensionOriginStep {
+	return append([]schemaNamedExtensionOriginStep(nil), path...)
+}
+
+func appendSchemaNamedExtensionOriginStep(path []schemaNamedExtensionOriginStep, index int, child Particle) []schemaNamedExtensionOriginStep {
+	stepLoc := child.Loc()
+	if reference, ok := child.(ModelGroupReferenceParticle); ok {
+		stepLoc = reference.RefLoc()
+	}
+	if reference, ok := child.(ElementReferenceParticle); ok {
+		stepLoc = reference.RefLoc()
+	}
+	next := make([]schemaNamedExtensionOriginStep, len(path), len(path)+1)
+	copy(next, path)
+	return append(next, schemaNamedExtensionOriginStep{index: index, loc: stepLoc})
 }
 
 func (proof *schemaNamedExtensionProof) sequence(left, right schemaNamedExtensionExpression) schemaNamedExtensionExpression {
@@ -255,21 +277,22 @@ func (proof *schemaNamedExtensionProof) checkCompeting(positions []int) error { 
 	for later := range positions {
 		for first := 0; first < later; first++ {
 			a, b := proof.positions[positions[first]], proof.positions[positions[later]]
-			if a.source == b.source && a.via == b.via && a.target == b.target {
+			if sameSchemaNamedExtensionOrigin(a.originPath, b.originPath) {
 				continue
 			}
 			if a.name != b.name && !proof.mayShareSubstitutionMember(a, b) {
 				continue
 			}
+			related := schemaNamedExtensionCompetingRelated(a, b)
 			if a.name != b.name {
-				return proof.unproved(b.loc, a.loc, "named extension substitution-group attribution is not proved")
+				return proof.unproved(b.loc, related, "named extension substitution-group attribution is not proved")
 			}
 			if proof.uncertainFixed {
-				return proof.unproved(b.loc, a.loc, "named extension fixed repetition attribution is not proved")
+				return proof.unproved(b.loc, related, "named extension fixed repetition attribution is not proved")
 			}
 			return Diagnostic{
 				class: FailureInvalid, code: diagnosticSchemaNamedExtensionUPACode,
-				loc: b.loc, related: []Loc{a.loc},
+				loc: b.loc, related: related,
 				message: fmt.Sprintf("named extension elements %q compete for one input", b.name),
 				specRef: schemaGroupNonAmbiguousSpecRef(proof.version), cause: errSchemaNamedExtensionUPA,
 			}
@@ -278,11 +301,43 @@ func (proof *schemaNamedExtensionProof) checkCompeting(positions []int) error { 
 	return nil
 }
 
-func (proof *schemaNamedExtensionProof) unproved(loc, related Loc, message string) Diagnostic {
-	diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, message, proof.version)
-	if !related.IsZero() {
-		diagnostic.related = []Loc{related}
+func sameSchemaNamedExtensionOrigin(a, b []schemaNamedExtensionOriginStep) bool {
+	if len(a) != len(b) {
+		return false
 	}
+	for index, step := range a {
+		if step.index != b[index].index {
+			return false
+		}
+	}
+	return true
+}
+
+func schemaNamedExtensionCompetingRelated(a, b schemaNamedExtensionPosition) []Loc {
+	if a.loc != b.loc {
+		return []Loc{a.loc}
+	}
+	for index, step := range a.originPath {
+		if index >= len(b.originPath) {
+			break
+		}
+		if step.index == b.originPath[index].index {
+			continue
+		}
+		if !step.loc.IsZero() && !b.originPath[index].loc.IsZero() && step.loc != b.originPath[index].loc {
+			return []Loc{step.loc, b.originPath[index].loc}
+		}
+		break
+	}
+	if !a.termLoc.IsZero() && !b.termLoc.IsZero() {
+		return []Loc{a.termLoc, b.termLoc}
+	}
+	return []Loc{a.loc}
+}
+
+func (proof *schemaNamedExtensionProof) unproved(loc Loc, related []Loc, message string) Diagnostic {
+	diagnostic := newSchemaSyntaxUnsupportedForVersion(loc, message, proof.version)
+	diagnostic.related = related
 	diagnostic.specRef = schemaGroupNonAmbiguousSpecRef(proof.version)
 	return diagnostic
 }

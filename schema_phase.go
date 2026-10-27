@@ -4285,6 +4285,9 @@ func validateModelParticleChildrenWithOptions(element *syntaxElement, model stri
 				if inlineExtensionNested {
 					candidate.considerAtVersion(child.loc, "inline extension nested choice sequence wildcard is not implemented", version)
 				}
+				if namedExtensionNested {
+					candidate.considerAtVersion(child.loc, "named extension nested sequence wildcard is not implemented", version)
+				}
 				continue
 			}
 			if err := validateUnsupportedParticle(child, version); err != nil {

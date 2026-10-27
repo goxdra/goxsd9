@@ -713,3 +713,132 @@ func TestNamedExtensionNestedOwnWildcardDependencyPrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestNamedExtensionNestedGroupUsePaths(t *testing.T) { //nolint:gocognit // The same leaf through distinct authored uses must remain distinct under every policy.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, test := range []struct {
+			name, rootModel, groups, firstUse, secondUse string
+		}{
+			{
+				name:      "repeated",
+				rootModel: `<xs:choice><xs:group ref="t:G" id="first"/><xs:group ref="t:G" id="second"/></xs:choice>`,
+				groups:    `<xs:group name="G"><xs:sequence><xs:element ref="t:first"/></xs:sequence></xs:group>`,
+				firstUse:  `ref="t:G" id="first"`, secondUse: `ref="t:G" id="second"`,
+			},
+			{
+				name:      "transitive",
+				rootModel: `<xs:choice><xs:group ref="t:A"/><xs:group ref="t:B"/></xs:choice>`,
+				groups: `<xs:group name="Leaf"><xs:sequence><xs:element ref="t:first"/></xs:sequence></xs:group>` +
+					`<xs:group name="A"><xs:sequence><xs:group ref="t:Leaf"/></xs:sequence></xs:group>` +
+					`<xs:group name="B"><xs:sequence><xs:group ref="t:Leaf"/></xs:sequence></xs:group>`,
+				firstUse: `ref="t:A"`, secondUse: `ref="t:B"`,
+			},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				nested := `<xs:sequence><xs:group ref="t:Root"/><xs:element ref="t:second"/></xs:sequence>`
+				root := namedExtensionNestedSchema(profile.version, nested, "", test.groups+`<xs:group name="Root">`+test.rootModel+`</xs:group>`)
+				for repeat := 0; repeat < 3; repeat++ {
+					assertNamedExtensionNestedFailure(t, root, profile.policy, `ref="t:Root"`, FailureInvalid, diagnosticSchemaNamedExtensionUPACode, schemaGroupNonAmbiguousSpecRef(profile.factVersion), errSchemaNamedExtensionUPA, test.firstUse, test.secondUse)
+				}
+			})
+		}
+		t.Run(profile.name+"/sequential reuse", func(t *testing.T) {
+			nested := `<xs:sequence><xs:group ref="t:Root"/><xs:element ref="t:second"/></xs:sequence>`
+			groups := `<xs:group name="G"><xs:sequence><xs:element ref="t:first"/></xs:sequence></xs:group>` +
+				`<xs:group name="Root"><xs:sequence><xs:group ref="t:G"/><xs:group ref="t:G"/></xs:sequence></xs:group>`
+			root := namedExtensionNestedSchema(profile.version, nested, "", groups)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			outer, ok := namedExtensionNestedOwner(t, schema).Particle().(SequenceParticle)
+			if !ok || len(outer.Particles()) != 3 {
+				t.Fatalf("outer = %v", namedExtensionNestedOwner(t, schema).Particle())
+			}
+			inner, ok := outer.Particles()[1].(SequenceParticle)
+			if !ok || len(inner.Particles()) != 2 {
+				t.Fatalf("inner = %v", outer.Particles()[1])
+			}
+			group, ok := inner.Particles()[0].(ModelGroupReferenceParticle)
+			rootGroups := schema.FindKind(ComponentKindModelGroupDefinition, mustTestQName(t, "urn:named-nested", "Root"))
+			if !ok || len(rootGroups) != 1 || group.TargetID() != rootGroups[0].ID() || group.RefLoc() != complexContentTestLoc(t, root, `ref="t:Root"`) {
+				t.Fatalf("sequential group facts = %v", inner.Particles()[0])
+			}
+		})
+	}
+}
+
+func TestNamedExtensionNestedDirectWildcardExcluded(t *testing.T) { //nolint:gocognit // Cross the three policies, two shapes, positions, and zero/nonzero ranges.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, alternative := range []struct{ name, xml string }{{"choice", namedExtensionChoice}, {"sequence", namedExtensionSequence}} {
+			for _, position := range []string{"before", "after"} {
+				for _, wildcard := range []struct{ name, xml string }{
+					{"nonzero", `<xs:any namespace="##other"/>`},
+					{"zero", `<xs:any namespace="##other" minOccurs="0" maxOccurs="0"/>`},
+				} {
+					t.Run(profile.name+"/"+alternative.name+"/"+position+"/"+wildcard.name, func(t *testing.T) {
+						root := namedExtensionNestedSchema(profile.version, alternative.xml, "", "")
+						insert := wildcard.xml + alternative.xml
+						if position == "after" {
+							insert = alternative.xml + wildcard.xml
+						}
+						root = strings.Replace(root, alternative.xml, insert, 1)
+						assertNamedExtensionNestedFailure(t, root, profile.policy, `<xs:any namespace="##other"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaComplexParticleExtensionSpecRef(profile.factVersion), ErrUnsupported)
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestNamedExtensionNestedDirectWildcardPrecedence(t *testing.T) { //nolint:gocognit // Validate syntax and dependencies before this named-body exclusion.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, alternative := range []struct{ name, xml string }{{"choice", namedExtensionChoice}, {"sequence", namedExtensionSequence}} {
+			makeRoot := func(wildcard, base string) string {
+				root := namedExtensionNestedSchema(profile.version, alternative.xml, base, "")
+				return strings.Replace(root, alternative.xml, wildcard+alternative.xml, 1)
+			}
+			t.Run(profile.name+"/"+alternative.name+"/invalid bound", func(t *testing.T) {
+				root := makeRoot(`<xs:any namespace="##other" minOccurs="2" maxOccurs="1"/>`, "")
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `<xs:any namespace="##other"`, FailureInvalid, invalidSchemaCompositionCode, schemaParticleCorrectSpecRef(profile.factVersion), errParticleOccurrenceMinimumExceedsMaximum, `minOccurs="2"`, `maxOccurs="1"`)
+			})
+			t.Run(profile.name+"/"+alternative.name+"/malformed bound", func(t *testing.T) {
+				root := makeRoot(`<xs:any namespace="##other" minOccurs="bad"/>`, "")
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `minOccurs="bad"`, FailureInvalid, invalidSchemaCompositionCode, schemaParticleOccurrenceDatatypeSpecRef(profile.factVersion), nil)
+				_, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+				var lexical Diagnostic
+				if !errors.As(requireDiagnostic(t, err).Unwrap(), &lexical) || lexical.Code() != InvalidIntegerLexicalCode || lexical.Loc() != complexContentTestLoc(t, root, `minOccurs="bad"`) {
+					t.Fatalf("wildcard malformed occurrence lost lexical cause: %v", err)
+				}
+			})
+			t.Run(profile.name+"/"+alternative.name+"/invalid ref under zero wildcard", func(t *testing.T) {
+				root := makeRoot(`<xs:any namespace="##other" minOccurs="0" maxOccurs="0"/>`, "")
+				root = strings.Replace(root, `ref="t:first"`, `ref="t:Missing"`, 1)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `ref="t:Missing"`, FailureInvalid, diagnosticSchemaElementReferenceUnresolvedCode, schemaElementReferenceSpecRef(profile.factVersion), errSchemaElementReferenceUnresolved)
+			})
+			t.Run(profile.name+"/"+alternative.name+"/final base", func(t *testing.T) {
+				root := makeRoot(`<xs:any namespace="##other"/>`, `<xs:complexType name="Base" final="extension"/>`)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `base="t:Base"`, FailureInvalid, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.factVersion), errSchemaComplexTypeBaseUnsupported, `final="extension"`)
+			})
+			t.Run(profile.name+"/"+alternative.name+"/unresolved base", func(t *testing.T) {
+				root := strings.Replace(makeRoot(`<xs:any namespace="##other"/>`, ""), `base="t:Base"`, `base="t:Missing"`, 1)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `base="t:Missing"`, FailureInvalid, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.factVersion), errSchemaComplexTypeBaseUnresolved)
+			})
+			t.Run(profile.name+"/"+alternative.name+"/base cycle", func(t *testing.T) {
+				root := makeRoot(`<xs:any namespace="##other"/>`, `<xs:complexType name="Base"><xs:complexContent><xs:extension base="t:Derived"/></xs:complexContent></xs:complexType>`)
+				assertNamedExtensionNestedFailure(t, root, profile.policy, `base="t:Derived"`, FailureInvalid, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.factVersion), errSchemaComplexTypeBaseCycle, `base="t:Base"`)
+			})
+			if alternative.name == "sequence" {
+				t.Run(profile.name+"/sequence/group cycle", func(t *testing.T) {
+					root := makeRoot(`<xs:any namespace="##other"/>`, "")
+					root = strings.Replace(root, `<xs:group name="Target"><xs:sequence><xs:element ref="t:second"/></xs:sequence></xs:group>`, `<xs:group name="Target"><xs:sequence><xs:group ref="t:Target"/></xs:sequence></xs:group>`, 1)
+					groupSpec := "xsd11-structures#mg-props-correct"
+					if profile.factVersion == XSDVersion10 {
+						groupSpec = "xsd10-structures#mg-props-correct"
+					}
+					assertNamedExtensionNestedFailure(t, root, profile.policy, `ref="t:Target"/></xs:sequence></xs:group>`, FailureInvalid, diagnosticSchemaModelGroupReferenceCycleCode, groupSpec, errSchemaModelGroupReferenceCycle, `<xs:group name="Target"`)
+				})
+			}
+		}
+	}
+}
