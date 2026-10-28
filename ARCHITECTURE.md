@@ -76,14 +76,14 @@ optional-ref-sequence base, zero effective own uses; immediate completed
 sequence-extension base, one optional direct local ID. Both: default 1/1
 sequence, 0/1 global-element ref.
 Collisions; Strict10 second effective IDs fail.
-Other grouped scalars: empty/use-free bases.
+Named effective `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` grouped uses: empty/use-free bases.
 Named empty/choice/sequence/all/direct-group/grouped/sequence extensions retain facet-free `xs:ID`; these retain built-in/named atomic `xs:NCName`/`xs:normalizedString`.
 Named empty/direct-choice/direct-sequence/direct-all/direct-group owners: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-sequence/grouped extensions likewise. Consumers reject.
 Named owners: token/NMTOKEN built-in/named empty/choice/sequence/direct-sequence/grouped/direct-group; V/G reject.
 Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers reject.
 `xs:long`: named empty/choice/sequence/all/direct-group/direct-sequence/grouped owners, built-in/named uses.
-Named empty/choice/sequence/all and empty-base direct-sequence extensions:
-built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`; grouped: built-ins. Consumers reject.
+Named empty/choice/sequence/all and empty-base direct-sequence/grouped extensions:
+built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`. Consumers reject.
 Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
 NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;

@@ -386,8 +386,10 @@
 // bounds, digits, enumeration, and type provenance. Named direct-sequence
 // extensions over supported empty use-free bases admit the same built-in and
 // named atomic uses, retaining their particle ranges and inherited wildcard.
-// Named grouped extensions over empty use-free bases admit direct built-ins. Inline/list/union, refs,
-// values, other owners, validation, and generation remain unsupported.
+// Named grouped extensions over empty use-free bases admit the same built-in
+// and named atomic uses, preserving group and inherited wildcard facts.
+// Inline/list/union, refs, values, other owners, validation, and generation
+// remain unsupported.
 // A named global complex type with an empty body also admits an effective-empty
 // block under Compatibility, Strict10, and Strict11. An explicit empty or
 // XML-whitespace-only block overrides even blockDefault="#all"; the empty set
@@ -526,8 +528,9 @@
 // a second effective ID in Strict10 fail before publication. AttributeUses
 // returns each declaration's authored slice; BaseReference links inherited facts.
 // The copied inherited-ID chain has optional direct final:xs:simpleDerivationSet
-// and name:xs:NCName uses. Other grouped scalar pairings above are documented
-// over empty/use-free bases; consumers still reject this inherited-ID chain.
+// and name:xs:NCName uses. Named effective xs:short/xs:int/xs:byte/
+// xs:unsignedLong grouped uses require empty/use-free bases. Consumers still
+// reject the inherited-ID chain.
 // Named and global-element inline complexContent restrictions expose completed
 // named empty, attribute-only, direct, extension, or restriction bases with nil
 // effective particle and zero effective attribute uses. Derived wildcards need

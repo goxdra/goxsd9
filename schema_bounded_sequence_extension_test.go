@@ -420,6 +420,7 @@ func TestBoundedSequenceExtensionDatatypeAndOccurrenceExits(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // The existing grouped control now proves both built-in and named public facts.
 func TestBoundedSequenceExtensionGroupedControl(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
 		for _, family := range boundedLocalFamilies() {
@@ -440,8 +441,21 @@ func TestBoundedSequenceExtensionGroupedControl(t *testing.T) {
 			assertAllIntegerBounds(t, ref, profile.version, family.minimum, family.maximum, Loc{}, Loc{})
 			named := strings.Replace(builtIn, `type="xs:`+family.name+`"`, `type="t:Alias"`, 1)
 			named = strings.Replace(named, `</xs:schema>`, `<xs:simpleType name="Alias"><xs:restriction base="xs:`+family.name+`"/></xs:simpleType></xs:schema>`, 1)
-			failed, failure := discoverTestSchemaWithPolicy(t, named, nil, profile.policy)
-			assertNCNameDiagnostic(t, failed, failure, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, named, `type="t:Alias"`), nil, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeUseUnsupported)
+			namedSchema, namedErr := discoverTestSchemaWithPolicy(t, named, nil, profile.policy)
+			if namedErr != nil {
+				t.Fatal(namedErr)
+			}
+			namedOwner := modelGroupReferenceTestComplexTypeNamed(t, namedSchema, "urn:root", "Derived")
+			namedUse, ok := namedOwner.AttributeUses()[0].(LocalAttributeUse)
+			if !ok {
+				t.Fatalf("grouped named use = %T", namedOwner.AttributeUses()[0])
+			}
+			namedRef, ok := namedUse.TypeReference()
+			namedID, hasID := namedUse.TypeID()
+			if !ok || !namedRef.IsNamed() || !hasID || namedID != componentIDForName(t, namedSchema, mustTestQName(t, "urn:root", "Alias")) || namedUse.TypeLoc() != complexContentTestLoc(t, named, `type="t:Alias"`) {
+				t.Fatalf("grouped named type = %#v", namedUse)
+			}
+			assertAllIntegerBounds(t, namedRef, profile.version, family.minimum, family.maximum, Loc{}, Loc{})
 		}
 	}
 }

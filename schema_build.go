@@ -7803,7 +7803,7 @@ func schemaNamedLocalBoundedIntegerAttributeTypeSupported(reference schemaSimple
 		return true
 	}
 	if body, ok := owner.complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput); ok {
-		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
+		return body != nil
 	}
 	if body, ok := owner.complexType.body.(*schemaComplexTypeExtensionBodyInput); ok {
 		return schemaNamedSequenceExtensionTokenFamilySupported(body)
@@ -8472,6 +8472,16 @@ func (resolver *schemaComplexTypeResolver) resolveExtensionBase(
 			if err == nil {
 				err = resolver.rejectComposedAttributeReferences(baseUses, derivedUses, resolver.records[candidate].loc)
 			}
+			if err == nil {
+				if useLoc, found := schemaGroupedNamedBoundedUseLoc(derivedUses); found {
+					err = resolver.unsupportedExtensionBase(
+						input.loc,
+						"named bounded integer uses over an inherited attribute base are not implemented",
+						[]Loc{resolver.records[candidate].loc, useLoc},
+						fmt.Errorf("%w: named bounded integer attribute-use composition", errSchemaComplexTypeBaseUnsupported),
+					)
+				}
+			}
 		}
 	}
 	if owner.complexType != nil && group && len(derivedUses) == 0 && !composed {
@@ -8508,6 +8518,24 @@ func schemaComposeOptionalReferenceSequenceUseBase(body schemaComplexTypeBodyRes
 		return schemaEffectiveExtensionContent{}, nil, false
 	}
 	return content, base.attributeUses, true
+}
+
+func schemaGroupedNamedBoundedUseLoc(uses []AttributeUse) (Loc, bool) {
+	for _, use := range uses {
+		local, ok := use.(LocalAttributeUse)
+		if !ok || local.facts == nil {
+			continue
+		}
+		reference := local.facts.typeReference
+		if reference.kind != SimpleTypeReferenceNamed || reference.variety != SimpleTypeVarietyAtomicRestriction {
+			continue
+		}
+		if reference.atomicKind != schemaSimpleTypeAtomicShort && reference.atomicKind != schemaSimpleTypeAtomicInt && reference.atomicKind != schemaSimpleTypeAtomicByte && reference.atomicKind != schemaSimpleTypeAtomicUnsignedLong {
+			continue
+		}
+		return local.Loc(), true
+	}
+	return Loc{}, false
 }
 
 func (resolver *schemaComplexTypeResolver) checkComposedAttributeUses(baseUses, derivedUses []AttributeUse) error {
