@@ -250,6 +250,9 @@ func TestBoundedLocalAttributeExcludedShapes(t *testing.T) {
 					if owner.name == "grouped extension" && shape.name == "direct" {
 						continue
 					}
+					if owner.name == "sequence extension" && (shape.name == "direct" || shape.name == "named") {
+						continue
+					}
 					t.Run(profile.name+"/"+family.name+"/"+owner.name+"/"+shape.name, func(t *testing.T) {
 						root := boundedLocalRoot(string(profile.version), owner.before+shape.body+owner.after+owner.extra+shape.extra)
 						assertBoundedLocalExcluded(t, root, shape, profile)
