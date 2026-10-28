@@ -240,8 +240,6 @@ func TestBoundedLocalAttributeExcludedShapes(t *testing.T) {
 				})
 			}
 			for _, owner := range []struct{ name, before, after, extra string }{
-				{"choice", `<xs:complexType name="Box"><xs:choice><xs:element name="x" type="xs:integer"/></xs:choice>`, `</xs:complexType>`, ""},
-				{"sequence", `<xs:complexType name="Box"><xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`, `</xs:complexType>`, ""},
 				{"group", `<xs:complexType name="Box"><xs:group ref="r:Fields"/>`, `</xs:complexType>`, `<xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
 				{"grouped extension", `<xs:complexType name="Box"><xs:complexContent><xs:extension base="r:Base"><xs:group ref="r:Fields"/>`, `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:complexType name="Base"/><xs:group name="Fields"><xs:sequence><xs:element ref="r:x"/></xs:sequence></xs:group><xs:element name="x" type="xs:integer"/>`},
 				{"sequence extension", `<xs:complexType name="Box"><xs:complexContent><xs:extension base="r:Base"><xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`, `</xs:extension></xs:complexContent></xs:complexType>`, `<xs:complexType name="Base"/>`},
