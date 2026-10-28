@@ -528,8 +528,9 @@
 // a second effective ID in Strict10 fail before publication. AttributeUses
 // returns each declaration's authored slice; BaseReference links inherited facts.
 // The copied inherited-ID chain has optional direct final:xs:simpleDerivationSet
-// and name:xs:NCName uses. Other grouped scalar pairings above are documented
-// over empty/use-free bases; consumers still reject this inherited-ID chain.
+// and name:xs:NCName uses. Named effective xs:short/xs:int/xs:byte/
+// xs:unsignedLong grouped uses require empty/use-free bases. Consumers still
+// reject the inherited-ID chain.
 // Named and global-element inline complexContent restrictions expose completed
 // named empty, attribute-only, direct, extension, or restriction bases with nil
 // effective particle and zero effective attribute uses. Derived wildcards need

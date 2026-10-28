@@ -76,7 +76,7 @@ optional-ref-sequence base, zero effective own uses; immediate completed
 sequence-extension base, one optional direct local ID. Both: default 1/1
 sequence, 0/1 global-element ref.
 Collisions; Strict10 second effective IDs fail.
-Other grouped scalars: empty/use-free bases.
+Named effective `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong` grouped uses: empty/use-free bases.
 Named empty/choice/sequence/all/direct-group/grouped/sequence extensions retain facet-free `xs:ID`; these retain built-in/named atomic `xs:NCName`/`xs:normalizedString`.
 Named empty/direct-choice/direct-sequence/direct-all/direct-group owners: built-in/facet-free named `xs:language`/`xs:anyURI`; named direct-sequence/grouped extensions likewise. Consumers reject.
 Named owners: token/NMTOKEN built-in/named empty/choice/sequence/direct-sequence/grouped/direct-group; V/G reject.

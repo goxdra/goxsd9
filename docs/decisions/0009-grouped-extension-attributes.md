@@ -141,11 +141,11 @@ and source locations, supported digits and enumeration facets, and type
 provenance. Anonymous owners, inline atomic/list/union types, attribute refs,
 value constraints, richer bases, and both consumers remain outside this long
 admission.
-The same named grouped owners also query built-in and named effective atomic
-`xs:short`, `xs:int`, `xs:byte`, and `xs:unsignedLong` uses with exact bounds, including
-unsigned values beyond `int64`. Inline varieties, attribute
-references, value constraints, richer bases, and both consumers remain outside
-this bounded-integer admission.
+Named grouped owners query built-in and named atomic `xs:short`, `xs:int`,
+`xs:byte`, and `xs:unsignedLong` uses with exact bounds beyond `int64`.
+Named references require empty/use-free bases; G1 inherited-ID bases reject after
+dependency checks. Inline varieties, refs, values, richer bases, and consumers
+remain unsupported.
 
 ## Phase representation and invariants
 

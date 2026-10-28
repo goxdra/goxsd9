@@ -248,3 +248,110 @@ func TestGroupedNamedBoundedOmissionAndDependencies(t *testing.T) {
 		}
 	}
 }
+
+func groupedNamedBoundedInheritedSchema(f boundedLocalFamily, chain, prohibited bool) string {
+	use := `<xs:attribute name="bounded" type="t:Alias"/>`
+	if prohibited {
+		use = `<xs:attribute name="bounded" type="t:Alias" use="prohibited"/>`
+	}
+	derived := strings.Replace(syntheticInheritedDerived, `</xs:extension>`, use+`</xs:extension>`, 1)
+	alias := `<xs:simpleType name="Alias"><xs:restriction base="xs:` + f.name + `"/></xs:simpleType>`
+	if chain {
+		alias = `<xs:simpleType name="Alias"><xs:restriction base="t:Parent"/></xs:simpleType><xs:simpleType name="Parent"><xs:restriction base="xs:` + f.name + `"/></xs:simpleType>`
+	}
+	return syntheticInheritedSchema("urn:owner", "", derived+syntheticInheritedGroup+syntheticInheritedAnnotated+syntheticInheritedOpen+syntheticInheritedTargets+alias)
+}
+
+func TestGroupedNamedBoundedInheritedBaseExcluded(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, family := range boundedLocalFamilies() {
+			for _, chain := range []bool{false, true} {
+				name := "direct"
+				if chain {
+					name = "chain"
+				}
+				t.Run(profile.name+"/"+family.name+"/"+name, func(t *testing.T) {
+					root := groupedNamedBoundedInheritedSchema(family, chain, false)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)
+					assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, root, `base="t:Annotated"`), []Loc{complexContentTestLoc(t, root, `<xs:complexType name="Annotated"`), complexContentTestLoc(t, root, `<xs:attribute name="bounded"`)}, schemaComplexTypeExtensionSpecRef(profile.version), errSchemaComplexTypeBaseUnsupported)
+					zero := strings.Replace(root, `ref="t:Derivation"`, `ref="t:Derivation" minOccurs="0" maxOccurs="0"`, 1)
+					schema, err = discoverTestSchemaWithPolicy(t, zero, nil, profile.policy)
+					assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, zero, `base="t:Annotated"`), []Loc{complexContentTestLoc(t, zero, `<xs:complexType name="Annotated"`), complexContentTestLoc(t, zero, `<xs:attribute name="bounded"`)}, schemaComplexTypeExtensionSpecRef(profile.version), errSchemaComplexTypeBaseUnsupported)
+				})
+			}
+		}
+	}
+}
+
+//nolint:gocognit // The existing built-in G1 use and omitted named use remain public controls.
+func TestGroupedNamedBoundedInheritedBaseControls(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, family := range boundedLocalFamilies() {
+			root := groupedNamedBoundedInheritedSchema(family, false, false)
+			builtIn := strings.Replace(root, `type="t:Alias"`, `type="xs:`+family.name+`"`, 1)
+			schema, err := discoverTestSchemaWithPolicy(t, builtIn, nil, profile.policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := modelGroupReferenceTestComplexTypeNamed(t, schema, "urn:owner", "Derived")
+			uses := owner.AttributeUses()
+			if len(uses) != 3 {
+				t.Fatalf("built-in G1 uses = %v", uses)
+			}
+			use, ok := uses[2].(LocalAttributeUse)
+			if !ok {
+				t.Fatalf("built-in G1 use = %T", uses[2])
+			}
+			ref, ok := use.TypeReference()
+			if !ok || !ref.IsBuiltin() || use.TypeLoc() != complexContentTestLoc(t, builtIn, `type="xs:`+family.name+`"`) {
+				t.Fatalf("built-in G1 reference = %#v", ref)
+			}
+			assertAllIntegerBounds(t, ref, profile.version, family.minimum, family.maximum, Loc{}, Loc{})
+			prohibited := groupedNamedBoundedInheritedSchema(family, false, true)
+			schema, err = discoverTestSchemaWithPolicy(t, prohibited, nil, profile.policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner = modelGroupReferenceTestComplexTypeNamed(t, schema, "urn:owner", "Derived")
+			if len(owner.AttributeUses()) != 2 || owner.AttributeUses()[0].Name().Local() != "final" || owner.AttributeUses()[1].Name().Local() != "name" {
+				t.Fatalf("prohibited named use was published: %v", owner.AttributeUses())
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Dependency and base diagnostics must precede the new G1 unsupported exit.
+func TestGroupedNamedBoundedInheritedBasePrecedence(t *testing.T) {
+	for _, profile := range tokenPolicyProfiles() {
+		for _, family := range boundedLocalFamilies() {
+			root := groupedNamedBoundedInheritedSchema(family, false, false)
+			for _, tc := range []struct {
+				name, source, marker, code string
+				class                      FailureClass
+				related                    []Loc
+				spec                       func(XSDVersion) string
+				cause                      error
+			}{
+				{"missing group", strings.Replace(root, `ref="t:Derivation"`, `ref="t:Missing"`, 1), `ref="t:Missing"`, diagnosticSchemaModelGroupReferenceUnresolvedCode, FailureInvalid, nil, schemaModelGroupReferenceSpecRef, errSchemaModelGroupReferenceUnresolved},
+				{"missing group and type", strings.Replace(strings.Replace(root, `ref="t:Derivation"`, `ref="t:Missing"`, 1), `type="t:Alias"`, `type="t:Missing"`, 1), `ref="t:Missing"`, diagnosticSchemaModelGroupReferenceUnresolvedCode, FailureInvalid, nil, schemaModelGroupReferenceSpecRef, errSchemaModelGroupReferenceUnresolved},
+				{"missing type", strings.Replace(root, `type="t:Alias"`, `type="t:Missing"`, 1), `type="t:Missing"`, diagnosticSchemaAttributeTypeUnresolvedCode, FailureInvalid, nil, schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnresolved},
+				{"prohibited missing type", strings.Replace(groupedNamedBoundedInheritedSchema(family, false, true), `type="t:Alias"`, `type="t:Missing"`, 1), `type="t:Missing"`, diagnosticSchemaAttributeTypeUnresolvedCode, FailureInvalid, nil, schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnresolved},
+				{"missing type and final base", strings.Replace(strings.Replace(root, `type="t:Alias"`, `type="t:Missing"`, 1), `<xs:complexType name="Annotated">`, `<xs:complexType name="Annotated" final="extension">`, 1), `type="t:Missing"`, diagnosticSchemaAttributeTypeUnresolvedCode, FailureInvalid, nil, schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnresolved},
+				{"final base", strings.Replace(root, `<xs:complexType name="Annotated">`, `<xs:complexType name="Annotated" final="extension">`, 1), `base="t:Annotated"`, invalidSchemaCompositionCode, FailureInvalid, nil, schemaComplexTypeExtensionSpecRef, errSchemaComplexTypeBaseUnsupported},
+				{"duplicate inherited name", strings.Replace(root, `name="bounded"`, `name="id"`, 1), `<xs:attribute name="id"`, diagnosticSchemaAttributeUseDuplicateCode, FailureInvalid, nil, schemaAttributeUseSpecRef, errSchemaAttributeUseDuplicate},
+			} {
+				t.Run(profile.name+"/"+family.name+"/"+tc.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, tc.source, nil, profile.policy)
+					related := tc.related
+					if tc.name == "final base" {
+						related = []Loc{complexContentTestLoc(t, tc.source, `final="extension"`)}
+					}
+					if tc.name == "duplicate inherited name" {
+						related = []Loc{allParticleTestTokenLoc(t, "root.xsd", tc.source, `<xs:attribute name="id"`, 2)}
+					}
+					assertNCNameDiagnostic(t, schema, err, tc.class, tc.code, complexContentTestLoc(t, tc.source, tc.marker), related, tc.spec(profile.version), tc.cause)
+				})
+			}
+		}
+	}
+}
