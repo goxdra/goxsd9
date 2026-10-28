@@ -7,7 +7,7 @@ no partial schemas.
 
 `NewResolvedSource`/`ParseSchema`/`Resolver` resolve mixed XSD 1.0/1.1 graphs.
 Resolvers receive URNs/locations.
-`ParseSchemaWithPolicy` selects policy; queries/walks deterministic.
+`ParseSchemaWithPolicy` selects policy.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
 Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Grouped datatype claims require empty/use-free bases except named grouped inherited-ID: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: default 1/1 sequence, use-free base; consumers reject. Named attribute-free simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
 
@@ -29,8 +29,8 @@ Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:no
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
 default integer/decimal sequence refs; other targets/occurrences reject.
-Named direct choice/sequence query built-in/named effective
-short/int/byte/unsignedLong attributes; consumers reject.
+Named choice/sequence and empty-base direct-sequence extensions query
+built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
