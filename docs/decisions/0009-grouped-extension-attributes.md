@@ -142,10 +142,10 @@ provenance. Anonymous owners, inline atomic/list/union types, attribute refs,
 value constraints, richer bases, and both consumers remain outside this long
 admission.
 Named grouped owners query built-in and named atomic `xs:short`, `xs:int`,
-`xs:byte`, and `xs:unsignedLong` uses with exact bounds beyond `int64`.
-Named references require empty/use-free bases; G1 inherited-ID bases reject after
-dependency checks. Inline varieties, refs, values, richer bases, and consumers
-remain unsupported.
+`xs:byte`, and `xs:unsignedLong` uses with exact bounds; `xs:unsignedLong`
+reaches beyond `int64`. Named references require empty/use-free bases; G1
+inherited-ID bases reject them after dependency checks while retaining built-in
+uses. Inline varieties, refs, values, and consumers remain unsupported.
 
 ## Phase representation and invariants
 
