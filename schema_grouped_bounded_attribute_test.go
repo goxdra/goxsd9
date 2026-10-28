@@ -155,7 +155,6 @@ func TestGroupedBoundedBuiltinExcludedForms(t *testing.T) {
 				spec                              func(XSDVersion) string
 				cause                             error
 			}{
-				{"named alias", `<xs:attribute name="a" type="t:Alias"/>`, alias, `type="t:Alias"`, "", schemaAttributeTypeSpecRef, errSchemaAttributeUseUnsupported},
 				{"inline atomic", `<xs:attribute name="a">` + inline + `</xs:attribute>`, "", `<xs:simpleType`, "", schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnsupported},
 				{"inline list", `<xs:attribute name="a"><xs:simpleType><xs:list itemType="xs:` + family.name + `"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnsupported},
 				{"inline union", `<xs:attribute name="a"><xs:simpleType><xs:union memberTypes="xs:` + family.name + ` xs:integer"/></xs:simpleType></xs:attribute>`, "", `<xs:simpleType`, "", schemaAttributeTypeSpecRef, errSchemaAttributeTypeUnsupported},
@@ -192,6 +191,10 @@ func TestGroupedBoundedBuiltinExcludedForms(t *testing.T) {
 			anonymous := anonymousGroupedExtensionSchema(string(profile.version), "", groupedBoundedUse(family))
 			schema, err := discoverTestSchemaWithPolicy(t, anonymous, nil, profile.policy)
 			assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, anonymous, `type="xs:`+family.name+`"`), nil, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeUseUnsupported)
+			anonymous = anonymousGroupedExtensionSchema(string(profile.version), "", `<xs:attribute name="bounded" type="t:Alias"/>`)
+			anonymous = strings.Replace(anonymous, `</xs:schema>`, alias+`</xs:schema>`, 1)
+			schema, err = discoverTestSchemaWithPolicy(t, anonymous, nil, profile.policy)
+			assertNCNameDiagnostic(t, schema, err, FailureUnsupported, UnsupportedSchemaSyntaxCode, complexContentTestLoc(t, anonymous, `type="t:Alias"`), nil, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeUseUnsupported)
 		}
 	}
 }

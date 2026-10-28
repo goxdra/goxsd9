@@ -247,7 +247,7 @@ func TestBoundedLocalAttributeExcludedShapes(t *testing.T) {
 				{"inline empty", `<xs:element name="root"><xs:complexType>`, `</xs:complexType></xs:element>`, ""},
 			} {
 				for _, shape := range shapes {
-					if owner.name == "grouped extension" && shape.name == "direct" {
+					if owner.name == "grouped extension" && (shape.name == "direct" || shape.name == "named") {
 						continue
 					}
 					if owner.name == "sequence extension" && (shape.name == "direct" || shape.name == "named") {

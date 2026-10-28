@@ -7803,7 +7803,7 @@ func schemaNamedLocalBoundedIntegerAttributeTypeSupported(reference schemaSimple
 		return true
 	}
 	if body, ok := owner.complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput); ok {
-		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
+		return body != nil
 	}
 	if body, ok := owner.complexType.body.(*schemaComplexTypeExtensionBodyInput); ok {
 		return schemaNamedSequenceExtensionTokenFamilySupported(body)

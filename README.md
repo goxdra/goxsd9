@@ -29,7 +29,7 @@ Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:no
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
 default integer/decimal sequence refs; other targets/occurrences reject.
-Named choice/sequence and empty-base direct-sequence extensions query
+Named choice/sequence and empty-base direct-sequence/grouped extensions query
 built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,

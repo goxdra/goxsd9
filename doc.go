@@ -386,8 +386,10 @@
 // bounds, digits, enumeration, and type provenance. Named direct-sequence
 // extensions over supported empty use-free bases admit the same built-in and
 // named atomic uses, retaining their particle ranges and inherited wildcard.
-// Named grouped extensions over empty use-free bases admit direct built-ins. Inline/list/union, refs,
-// values, other owners, validation, and generation remain unsupported.
+// Named grouped extensions over empty use-free bases admit the same built-in
+// and named atomic uses, preserving group and inherited wildcard facts.
+// Inline/list/union, refs, values, other owners, validation, and generation
+// remain unsupported.
 // A named global complex type with an empty body also admits an effective-empty
 // block under Compatibility, Strict10, and Strict11. An explicit empty or
 // XML-whitespace-only block overrides even blockDefault="#all"; the empty set

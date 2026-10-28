@@ -141,9 +141,9 @@ and source locations, supported digits and enumeration facets, and type
 provenance. Anonymous owners, inline atomic/list/union types, attribute refs,
 value constraints, richer bases, and both consumers remain outside this long
 admission.
-The same named grouped owners also query direct built-in `xs:short`, `xs:int`,
-`xs:byte`, and `xs:unsignedLong` uses with exact intrinsic bounds, including
-unsigned values beyond `int64`. Named aliases, inline varieties, attribute
+The same named grouped owners also query built-in and named effective atomic
+`xs:short`, `xs:int`, `xs:byte`, and `xs:unsignedLong` uses with exact bounds, including
+unsigned values beyond `int64`. Inline varieties, attribute
 references, value constraints, richer bases, and both consumers remain outside
 this bounded-integer admission.
 
