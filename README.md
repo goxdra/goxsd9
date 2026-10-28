@@ -9,7 +9,7 @@ no partial schemas.
 Resolvers receive URNs/locations.
 `ParseSchemaWithPolicy` selects policy; queries/walks deterministic.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN and short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Grouped datatype claims require empty/use-free bases except named grouped inherited-ID: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: default 1/1 sequence, use-free base; consumers reject. Named attribute-free simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
+Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Grouped datatype claims require empty/use-free bases except named grouped inherited-ID: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: default 1/1 sequence, use-free base; consumers reject. Named attribute-free simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -17,7 +17,7 @@ precisionDecimal lists/unions. Compatibility/Strict11 validate ordered
 precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits `xs:byte`/`xs:long`/`xs:int`/`xs:unsignedLong`:
 built-ins: `StrictInteger`; named: generated types.
-Selected precisionDecimal attributes validate; `GenerateGo` rejects uses.
+Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
 Named empty/choice/sequence/all/direct-group/grouped/sequence-extension query facet-free `xs:ID`; inline grouped/sequence extensions query atomic uses. Consumers reject. Empty `block` overrides named empty complexes/untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals, anonymous global-element inline grouped/direct-sequence non-ID locals, and untyped globals; refs reject.
 See [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
