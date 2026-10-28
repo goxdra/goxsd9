@@ -381,7 +381,7 @@
 // extensions retain representable inherited wildcards. Inline varieties,
 // attribute refs, values, other owners,
 // validation, and generation reject.
-// Named empty and direct-all owners admit built-in and supported named
+// Named empty and direct choice/sequence/all owners admit built-in and supported named
 // effective atomic xs:short, xs:int, xs:byte, and xs:unsignedLong locals with exact
 // bounds, digits, enumeration, and type provenance. Named grouped extensions
 // over empty use-free bases admit direct built-ins. Inline/list/union, refs,

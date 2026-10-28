@@ -7805,6 +7805,12 @@ func schemaNamedLocalBoundedIntegerAttributeTypeSupported(reference schemaSimple
 	if body, ok := owner.complexType.body.(*schemaComplexTypeGroupedExtensionBodyInput); ok {
 		return body != nil && reference.kind == SimpleTypeReferenceBuiltin
 	}
+	if body, ok := owner.complexType.body.(*schemaComplexTypeDirectBodyInput); ok && body != nil {
+		switch body.particle.(type) {
+		case *schemaChoiceParticleInput, *schemaSequenceParticleInput:
+			return true
+		}
+	}
 	return schemaNamedDirectAllLocalStringAttributeOwnerSupported(owner)
 }
 
