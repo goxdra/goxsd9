@@ -11,12 +11,12 @@ Root owns claim/decomposition/lifecycle; do not repeat delegated research,
 source inspection, implementation, or test diagnosis absent ambiguity.
 
 Children use exact `.codex/agents/` roles, `fork_turns: "none"`, task-local context.
-Scribe/Mason default fresh read-only; exemption requires recorded narrow mechanical
-reason. Smith writes source/tests/remediation; root writing needs the same exemption.
+Smith writes source/tests/remediation; root writing needs a recorded exemption.
 Curator is fresh per-head; Examiner fresh/challenge-bound.
 
 Handoffs state decisions, evidence locations, risks, next actions; Smith
 names changed paths/tests. Preserve Curator/Examiner JSON.
+Clean terminal no-source/no-PR claim: `handoff ISSUE --body-file FILE --needs-human --terminal-no-pr`.
 
 ## Protocol
 
