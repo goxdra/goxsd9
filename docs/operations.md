@@ -19,12 +19,12 @@ Archived sibling: current claimant runs `go tool workflowctl claim release-archi
 PR resume: `go tool workflowctl pr resume PR --expected-head SHA --acknowledge-needs-human [--dry-run]`.
 Agent/checkout/transport/challenge failures remain retryable. Three
 authenticated Examiner `fail` receipts add `needs-human`/Backlog. Write
-blocker/evidence Markdown; run
-`go tool workflowctl handoff ISSUE --body-file FILE --needs-human`; it proves
-OPEN/Project identity, applies `needs-human`/Backlog, then posts last.
-Reread incomplete/ambiguous phases.
+blocker/evidence Markdown; run `go tool workflowctl handoff ISSUE --body-file
+FILE --needs-human [--terminal-no-pr]`. Checks OPEN/Project, labels, Backlog;
+comments last. Terminal no-PR adds grammar validation and byte snapshot before
+mutation.
 Resume binds handoff/run/head, lease, no-PR, Project. Unpublished renews remotely; `--integrate` preserves merge.
-Clean no-source/no-PR forms cover all PR/pull-request/workflow-path mentions; exceptions are issue-scoped.
+No-source/no-PR forms cover PR/workflow-path mentions; exceptions are issue-scoped.
 Head labels: one full SHA. Same-run markers: exact messages, unchanged trees,
 one parent, valid refs to oldest acquisition lease. Reject source-bearing
 markers/merges/malformed refs; source commits may intervene; leases may differ.

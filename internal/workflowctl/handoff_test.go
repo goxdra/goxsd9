@@ -30,6 +30,9 @@ type handoffFixture struct {
 	raceProject       bool
 	bodyPath          string
 	body              string
+	postedBody        string
+	commentPath       string
+	beforeComment     func()
 	comments          []issueCommentAPI
 	commands          []string
 	failCommand       string
@@ -99,10 +102,11 @@ func (f *handoffFixture) executeGitHub(command string) (string, error) {
 	case "project item-edit --project-id PVT_kwDOEupz2s4Bgc9A --id item-14 --field-id status-id --single-select-option-id backlog-id":
 		f.projectStatus = "Backlog"
 		return "", nil
-	case "issue comment 14 --repo goxdra/goxsd9 --body-file " + f.bodyPath:
-		f.comments = append(f.comments, issueCommentAPI{ID: int64(len(f.comments) + 1), Body: f.body, CreatedAt: time.Now().UTC(), User: issueCommentUser(trustedActor)})
-		return "https://github.com/goxdra/goxsd9/issues/14#issuecomment-1", nil
 	default:
+		const commentPrefix = "issue comment 14 --repo goxdra/goxsd9 --body-file "
+		if strings.HasPrefix(command, commentPrefix) {
+			return f.postComment(strings.TrimPrefix(command, commentPrefix))
+		}
 		if strings.HasPrefix(command, "api graphql -f query="+claimResumeProjectIssueQuery) {
 			f.projectReads++
 			if f.raceProject && f.projectReads == 2 {
@@ -115,6 +119,21 @@ func (f *handoffFixture) executeGitHub(command string) (string, error) {
 		}
 		return "", fmt.Errorf("unexpected gh command: %s", command)
 	}
+}
+
+func (f *handoffFixture) postComment(path string) (string, error) {
+	if f.beforeComment != nil {
+		f.beforeComment()
+	}
+	f.commentPath = path
+	// #nosec G304 -- the test fixture reads the explicit body-file command argument.
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	f.postedBody = string(body)
+	f.comments = append(f.comments, issueCommentAPI{ID: int64(len(f.comments) + 1), Body: f.postedBody, CreatedAt: time.Now().UTC(), User: issueCommentUser(trustedActor)})
+	return "https://github.com/goxdra/goxsd9/issues/14#issuecomment-1", nil
 }
 
 func (f *handoffFixture) issueStateJSON() string {
@@ -242,6 +261,133 @@ func TestHandoffNeedsHumanParsesAndUsesSafeOrder(t *testing.T) {
 	}
 	if !fixture.needsHuman || fixture.projectStatus != "Backlog" {
 		t.Fatalf("transition state = needs-human %t, Project %s", fixture.needsHuman, fixture.projectStatus)
+	}
+}
+
+//nolint:gocognit // One command boundary checks posted bytes, cleanup, and mutation order.
+func TestHandoffTerminalNoPRPostsValidatedSnapshot(t *testing.T) {
+	body := claimResumeHandoffBodyWithNoPRForm(14, "/repo/claim", terminalGenericFormTwo)
+	if err := validateTerminalClaimHandoffBody(body, 14); err != nil {
+		t.Fatalf("recovery parser rejects accepted handoff: %v", err)
+	}
+	fixture := newHandoffFixture()
+	bodyPath := filepath.Join(t.TempDir(), "handoff.md")
+	if err := fixture.withBody(bodyPath, body); err != nil {
+		t.Fatalf("write body: %v", err)
+	}
+	fixture.beforeComment = func() {
+		if err := os.WriteFile(bodyPath, []byte("substituted body\n"), 0o600); err != nil {
+			t.Fatalf("change caller body: %v", err)
+		}
+	}
+	var stdout bytes.Buffer
+	application := app{stdout: &stdout, executeCommand: fixture.execute}
+	if err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human", "--terminal-no-pr"}); err != nil {
+		t.Fatalf("terminal handoff: %v", err)
+	}
+	if fixture.postedBody != body || len(fixture.comments) != 1 || fixture.comments[0].Body != body {
+		t.Fatalf("posted body differs from validated body: %q", fixture.postedBody)
+	}
+	if err := validateTerminalClaimHandoffBody(fixture.comments[0].Body, 14); err != nil {
+		t.Fatalf("posted body fails recovery parser: %v", err)
+	}
+	if fixture.commentPath == bodyPath || fixture.commentPath == "" {
+		t.Fatalf("comment used caller body path %q", fixture.commentPath)
+	}
+	if _, err := os.Stat(fixture.commentPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("snapshot was not removed: %v", err)
+	}
+	if !fixture.needsHuman || fixture.projectStatus != "Backlog" {
+		t.Fatalf("transition state = needs-human %t, Project %s", fixture.needsHuman, fixture.projectStatus)
+	}
+	writes := make([]string, 0, 3)
+	for _, command := range fixture.commands {
+		if strings.HasPrefix(command, "gh issue edit ") || strings.HasPrefix(command, "gh project item-edit ") || strings.HasPrefix(command, "gh issue comment ") {
+			writes = append(writes, command)
+		}
+	}
+	if len(writes) != 3 || !strings.HasPrefix(writes[0], "gh issue edit ") || !strings.HasPrefix(writes[1], "gh project item-edit ") || !strings.HasPrefix(writes[2], "gh issue comment ") {
+		t.Fatalf("terminal handoff mutation order = %#v", writes)
+	}
+	if !strings.Contains(stdout.String(), "issuecomment-1") {
+		t.Fatalf("missing comment URL: %q", stdout.String())
+	}
+}
+
+func TestHandoffTerminalNoPRDeduplicatesTrustedComment(t *testing.T) {
+	body := claimResumeHandoffBodyWithNoPRForm(14, "/repo/claim", terminalGenericFormTwo)
+	fixture := newHandoffFixture()
+	fixture.comments = []issueCommentAPI{{ID: 17, Body: body, CreatedAt: time.Now().UTC(), User: issueCommentUser(trustedActor)}}
+	bodyPath := filepath.Join(t.TempDir(), "handoff.md")
+	if err := fixture.withBody(bodyPath, body); err != nil {
+		t.Fatalf("write body: %v", err)
+	}
+	var stdout bytes.Buffer
+	application := app{stdout: &stdout, executeCommand: fixture.execute}
+	if err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human", "--terminal-no-pr"}); err != nil {
+		t.Fatalf("retry terminal handoff: %v", err)
+	}
+	if len(fixture.comments) != 1 || fixture.commentPath != "" {
+		t.Fatalf("retry posted duplicate comment: %#v", fixture.comments)
+	}
+	if !fixture.needsHuman || fixture.projectStatus != "Backlog" || !strings.Contains(stdout.String(), "already recorded") {
+		t.Fatalf("retry state = needs-human %t, Project %s, output %q", fixture.needsHuman, fixture.projectStatus, stdout.String())
+	}
+}
+
+//nolint:gocognit // Malformed forms share one pre-mutation refusal boundary.
+func TestHandoffTerminalNoPRRejectsBeforeRemoteMutation(t *testing.T) {
+	valid := claimResumeHandoffBodyWithNoPRForm(14, "/repo/claim", terminalGenericFormTwo)
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "extra workflow path assertion", body: valid + "Run `go tool workflowctl check` before the PR workflow.\n"},
+		{name: "extra PR assertion", body: valid + "No PR was published.\n"},
+		{name: "malformed heading", body: strings.Replace(valid, "## Next action", "## Next steps", 1)},
+		{name: "wrong issue mention", body: strings.Replace(valid, "Issue #14", "Issue #904", 1)},
+		{name: "trailing whitespace", body: strings.Replace(valid, "## Blocker\n", "## Blocker \n", 1)},
+		{name: "missing newline", body: strings.TrimSuffix(valid, "\n")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parserErr := validateTerminalClaimHandoffBody(test.body, 14)
+			if parserErr == nil {
+				t.Fatal("test body unexpectedly accepted by recovery parser")
+			}
+			fixture := newHandoffFixture()
+			bodyPath := filepath.Join(t.TempDir(), "handoff.md")
+			if err := fixture.withBody(bodyPath, test.body); err != nil {
+				t.Fatalf("write body: %v", err)
+			}
+			application := app{executeCommand: fixture.execute}
+			err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--needs-human", "--terminal-no-pr"})
+			if err == nil || !strings.Contains(err.Error(), parserErr.Error()) {
+				t.Fatalf("handoff error = %v, want parser cause %v", err, parserErr)
+			}
+			if len(fixture.commands) != 1 || fixture.commands[0] != "git rev-parse --show-toplevel" {
+				t.Fatalf("invalid terminal body reached remote command: %#v", fixture.commands)
+			}
+			if fixture.needsHuman || fixture.projectStatus != "Ready" || len(fixture.comments) != 0 {
+				t.Fatal("invalid terminal body changed issue state")
+			}
+		})
+	}
+}
+
+func TestHandoffTerminalNoPRRequiresNeedsHuman(t *testing.T) {
+	fixture := newHandoffFixture()
+	bodyPath := filepath.Join(t.TempDir(), "handoff.md")
+	if err := fixture.withBody(bodyPath, "ordinary handoff\n"); err != nil {
+		t.Fatalf("write body: %v", err)
+	}
+	application := app{executeCommand: fixture.execute}
+	err := application.runHandoff([]string{"14", "--body-file", bodyPath, "--terminal-no-pr"})
+	if err == nil || !strings.Contains(err.Error(), "--terminal-no-pr requires --needs-human") {
+		t.Fatalf("mode error = %v", err)
+	}
+	if len(fixture.commands) != 0 {
+		t.Fatalf("invalid mode ran commands: %#v", fixture.commands)
 	}
 }
 

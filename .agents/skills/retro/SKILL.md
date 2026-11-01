@@ -38,3 +38,7 @@ do not add a prose diary to the repository.
 7. Create and link actionable follow-up issues, synchronize the Project, then
    close the retrospective issue. Do not leave the retro issue as a second
    backlog.
+
+For a clean terminal no-source/no-PR claimed issue, use `workflowctl handoff
+ISSUE --body-file FILE --needs-human --terminal-no-pr` with the recovery body
+described in `docs/operations.md`.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -674,7 +675,7 @@ func issueNumberFromURL(url string) (int, error) {
 
 func (a app) runHandoff(args []string) error {
 	if len(args) == 0 {
-		return usageError("usage: workflowctl handoff ISSUE --body-file FILE [--needs-human]")
+		return usageError("usage: workflowctl handoff ISSUE --body-file FILE [--needs-human [--terminal-no-pr]]")
 	}
 	number, err := positiveNumber(args[0])
 	if err != nil {
@@ -684,11 +685,15 @@ func (a app) runHandoff(args []string) error {
 	flags.SetOutput(io.Discard)
 	bodyFile := flags.String("body-file", "", "Markdown body file")
 	needsHuman := flags.Bool("needs-human", false, "mark the issue needs-human before recording the handoff")
+	terminalNoPR := flags.Bool("terminal-no-pr", false, "validate a terminal no-PR claim handoff before escalation")
 	if parseErr := flags.Parse(args[1:]); parseErr != nil {
 		return usageError("handoff: %v", parseErr)
 	}
 	if flags.NArg() != 0 || *bodyFile == "" {
-		return usageError("usage: workflowctl handoff ISSUE --body-file FILE [--needs-human]")
+		return usageError("usage: workflowctl handoff ISSUE --body-file FILE [--needs-human [--terminal-no-pr]]")
+	}
+	if *terminalNoPR && !*needsHuman {
+		return usageError("handoff: --terminal-no-pr requires --needs-human")
 	}
 	if fileErr := requireRegularFile(*bodyFile); fileErr != nil {
 		return fileErr
@@ -698,7 +703,7 @@ func (a app) runHandoff(args []string) error {
 		return err
 	}
 	if *needsHuman {
-		return a.handoffNeedsHuman(root, number, *bodyFile)
+		return a.handoffNeedsHuman(root, number, *bodyFile, *terminalNoPR)
 	}
 	output, err := a.command(root, "gh", "issue", "comment", strconv.Itoa(number), "--repo", repositoryKey,
 		"--body-file", *bodyFile)
@@ -708,11 +713,32 @@ func (a app) runHandoff(args []string) error {
 	return writeLine(a.stdout, "%s", output)
 }
 
-func (a app) handoffNeedsHuman(root string, number int, bodyFile string) error {
+func (a app) handoffNeedsHuman(root string, number int, bodyFile string, terminalNoPR bool) error {
 	body, err := readHandoffBody(bodyFile)
 	if err != nil {
 		return fmt.Errorf("handoff issue #%d: validate body: %w", number, err)
 	}
+	if terminalNoPR {
+		return a.handoffNeedsHumanTerminal(root, number, body)
+	}
+	return a.handoffNeedsHumanBody(root, number, bodyFile, body)
+}
+
+func (a app) handoffNeedsHumanTerminal(root string, number int, body string) (resultErr error) {
+	if err := validateTerminalClaimHandoffBody(body, number); err != nil {
+		return fmt.Errorf("handoff issue #%d: validate terminal no-PR body: %w", number, err)
+	}
+	snapshot, directory, err := snapshotTerminalHandoffBody(body)
+	if err != nil {
+		return fmt.Errorf("handoff issue #%d: snapshot terminal no-PR body: %w", number, err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, os.RemoveAll(directory))
+	}()
+	return a.handoffNeedsHumanBody(root, number, snapshot, body)
+}
+
+func (a app) handoffNeedsHumanBody(root string, number int, bodyFile, body string) error {
 	status, err := a.readIssueStatus(root, number)
 	if err != nil {
 		return fmt.Errorf("handoff issue #%d: preflight issue state: %w", number, err)
@@ -756,6 +782,18 @@ func (a app) handoffNeedsHuman(root string, number int, bodyFile string) error {
 			number, errors.Join(err, readErr)))
 	}
 	return writeLine(a.stdout, "%s", output)
+}
+
+func snapshotTerminalHandoffBody(body string) (string, string, error) {
+	directory, err := os.MkdirTemp("", "workflowctl-terminal-handoff-")
+	if err != nil {
+		return "", "", err
+	}
+	path := filepath.Join(directory, "body.md")
+	if err := os.WriteFile(path, []byte(body), 0o400); err != nil {
+		return "", "", errors.Join(err, os.RemoveAll(directory))
+	}
+	return path, directory, nil
 }
 
 func (a app) verifyHandoffTarget(root string, number int, initialStatus issueStatus,
