@@ -108,7 +108,7 @@ func TestReferenceOnlyNamedGroupChoiceBlockedDerivationNeedsProof(t *testing.T) 
 			assertZeroSchema(t, schema)
 			diagnostic := requireDiagnostic(t, err)
 			wantRelated := []Loc{referenceChoiceLoc(t, root, `ref="g:h"`), namedGroupChoiceLoc(t, root, `<xs:element name="m" type="g:Narrow"`)}
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != namedGroupChoiceLoc(t, root, `ref="g:m"`) || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || diagnostic.SpecRef() != schemaGroupNonAmbiguousSpecRef(profile.factVersion) || !errors.Is(err, ErrUnsupported) {
+			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != namedGroupChoiceLoc(t, root, `ref="g:m"`) || !reflect.DeepEqual(diagnostic.Related(), wantRelated) || diagnostic.SpecRef() != schemaGroupNonAmbiguousSpecRef(profile.factVersion) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaGroupReferenceChoiceDerivationProof) {
 				t.Fatalf("blocked derivation diagnostic = %s related %v cause %v", diagnostic, diagnostic.Related(), err)
 			}
 		})

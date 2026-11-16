@@ -8,6 +8,7 @@ import (
 const diagnosticSchemaGroupReferenceChoiceUPACode = "XSD3064"
 
 var errSchemaGroupReferenceChoiceUPA = errors.New("named model-group choice has overlapping element references")
+var errSchemaGroupReferenceChoiceDerivationProof = errors.New("named model-group choice derivation-block attribution is not implemented")
 
 // validateSchemaModelGroupReferenceChoices checks completed named-group choices
 // independently of their use sites, including unused and zero-use definitions.
@@ -89,6 +90,7 @@ func checkSchemaReferenceChoiceAlternatives(alternatives []Particle, records []s
 					diagnostic := newSchemaSyntaxUnsupportedForVersion(later.RefLoc(), "named model-group choice attribution through a blocked type derivation is not implemented", version)
 					diagnostic.related = []Loc{first.RefLoc(), member.loc}
 					diagnostic.specRef = schemaGroupNonAmbiguousSpecRef(version)
+					diagnostic.cause = errors.Join(diagnostic.cause, errSchemaGroupReferenceChoiceDerivationProof)
 					return diagnostic
 				}
 				return newSchemaGroupReferenceChoiceUPADiagnostic(first, later, member, firstPath, laterPath, records, elements, version)
