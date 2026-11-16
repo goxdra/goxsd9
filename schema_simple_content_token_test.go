@@ -368,7 +368,7 @@ func TestTokenSimpleContentComplexBaseChainOrder(t *testing.T) {
 				diagnostic := requireDiagnostic(t, err)
 				want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)
 				related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, `<xs:complexType name="Inner"`)}
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) || errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
 					t.Fatalf("complex base chain diagnostic = %s", diagnostic)
 				}
 			})
@@ -458,7 +458,7 @@ func TestTokenSimpleContentComplexBaseFinalPolicy(t *testing.T) {
 						return
 					}
 					related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, `<xs:complexType name="Inner"`)}
-					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) || errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
 						t.Fatalf("permitted complex final diagnostic = %s", diagnostic)
 					}
 				})
@@ -494,12 +494,12 @@ func TestTokenSimpleContentComplexBaseFinalDefaultDocument(t *testing.T) {
 	}
 }
 
-//nolint:gocognit // Both final and atomic-kind exits require exact diagnostic provenance.
-func TestTokenSimpleContentComplexBaseFinalBeforeAtomicFallback(t *testing.T) {
+//nolint:gocognit // Both final and unsupported exits require exact diagnostic provenance.
+func TestTokenSimpleContentComplexBaseFinalBeforeUnsupported(t *testing.T) {
 	for _, profile := range tokenSimpleContentPolicies() {
 		for _, test := range []struct{ name, final, code, marker string }{
 			{"prohibited", ` final="extension"`, invalidSchemaCompositionCode, `final="extension"`},
-			{"permitted", ` final=""`, diagnosticSchemaSimpleContentBaseWrongKindCode, `<xs:complexType name="Inner"`},
+			{"permitted", ` final=""`, UnsupportedSchemaSyntaxCode, `<xs:complexType name="Inner"`},
 		} {
 			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
 				inner := strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:string", ""), `name="Inner"`, `name="Inner"`+test.final, 1)
@@ -512,11 +512,11 @@ func TestTokenSimpleContentComplexBaseFinalBeforeAtomicFallback(t *testing.T) {
 				diagnostic := requireDiagnostic(t, err)
 				want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)
 				related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, test.marker)}
-				cause, spec := errSchemaComplexTypeBaseUnsupported, schemaComplexTypeExtensionSpecRef(profile.version)
+				cause, spec, class := errSchemaComplexTypeBaseUnsupported, schemaComplexTypeExtensionSpecRef(profile.version), FailureInvalid
 				if test.name == "permitted" {
-					cause, spec = errSchemaSimpleContentBaseWrongKind, schemaSimpleContentSpecRef(profile.version)
+					cause, spec, class = errSchemaSimpleContentBaseUnsupported, schemaSimpleContentSpecRef(profile.version), FailureUnsupported
 				}
-				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != spec || !errors.Is(err, cause) {
+				if diagnostic.Class() != class || diagnostic.Code() != test.code || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != spec || !errors.Is(err, cause) || errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
 					t.Fatalf("non-token final diagnostic = %s", diagnostic)
 				}
 			})

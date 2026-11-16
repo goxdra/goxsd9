@@ -276,8 +276,8 @@ func TestLanguageURISimpleContentComplexBaseUnsupported(t *testing.T) {
 						root := languageURISimpleContentRoot(order.declarations)
 						schema, err := parseLanguageURISimpleContent(t, root, nil, profile.policy)
 						assertLanguageURISimpleContentDiagnostic(t, schema, err, root, `base="t:Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported, `<xs:complexType name="Inner"`)
-						if !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
-							t.Fatalf("resolved complex-base cause lost: %v", err)
+						if errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+							t.Fatalf("completed complex base retained wrong-kind cause: %v", err)
 						}
 					})
 				}
@@ -297,7 +297,7 @@ func TestLanguageURISimpleContentComplexBaseAlternateExits(t *testing.T) {
 				cause                                                         error
 			}{
 				{"unresolved inner", tokenSimpleContentNamedOwner("Inner", "t:Missing", ""), "", "", `base="t:Missing"`, "", diagnosticSchemaSimpleContentBaseUnresolvedCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseUnresolved},
-				{"other atomic kind", tokenSimpleContentNamedOwner("Inner", "xs:string", ""), "", "", `base="t:Inner"`, `<xs:complexType name="Inner"`, diagnosticSchemaSimpleContentBaseWrongKindCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseWrongKind},
+				{"other atomic kind", tokenSimpleContentNamedOwner("Inner", "xs:string", ""), "", "", `base="t:Inner"`, `<xs:complexType name="Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
 				{"inner final", strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:"+kind, ""), `name="Inner"`, `name="Inner" final="extension"`, 1), "", "", `base="t:Inner"`, `final="extension"`, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.version), FailureInvalid, errSchemaComplexTypeBaseUnsupported},
 				{"finalDefault", tokenSimpleContentNamedOwner("Inner", "xs:"+kind, ""), "", ` finalDefault="extension"`, `base="t:Inner"`, `finalDefault="extension"`, invalidSchemaCompositionCode, schemaComplexTypeExtensionSpecRef(profile.version), FailureInvalid, errSchemaComplexTypeBaseUnsupported},
 				{"final override", strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:"+kind, ""), `name="Inner"`, `name="Inner" final=""`, 1), "", ` finalDefault="extension"`, `base="t:Inner"`, `<xs:complexType name="Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
@@ -310,8 +310,8 @@ func TestLanguageURISimpleContentComplexBaseAlternateExits(t *testing.T) {
 						return
 					}
 					assertLanguageURISimpleContentDiagnostic(t, schema, err, root, test.primary, test.code, test.spec, test.class, test.cause, test.related)
-					if test.class == FailureUnsupported && !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
-						t.Fatalf("complex-base wrong-kind cause lost: %v", err)
+					if test.class == FailureUnsupported && errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+						t.Fatalf("completed complex base retained wrong-kind cause: %v", err)
 					}
 				})
 			}

@@ -332,7 +332,7 @@ func TestNormalizedStringSimpleContentGraphPrecedence(t *testing.T) {
 			d := requireDiagnostic(t, err)
 			want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)
 			related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, `<xs:complexType name="Inner"`)}
-			if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != want || !reflect.DeepEqual(d.Related(), related) || d.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) {
+			if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != want || !reflect.DeepEqual(d.Related(), related) || d.SpecRef() != schemaSimpleContentSpecRef(profile.version) || errors.Is(err, errSchemaSimpleContentBaseWrongKind) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) {
 				t.Fatalf("complex override = %s", d)
 			}
 		})

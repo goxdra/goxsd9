@@ -6947,15 +6947,12 @@ func (resolver *schemaComplexTypeResolver) resolveSimpleContentExtension(body *s
 	if finalErr := resolver.rejectExtensionFinal(base, body.base.name, body.base.loc); finalErr != nil {
 		return schemaSimpleContentExtension{}, finalErr
 	}
-	if schemaSimpleContentNamedOnlyBaseKind(targetBody.extension.typeReference.atomicKind) == "" {
-		return schemaSimpleContentExtension{}, err
-	}
 	return schemaSimpleContentExtension{}, unsupportedSchemaSimpleContentBase(
 		body.base.loc,
 		fmt.Sprintf("simpleContent complex base %q is not implemented", body.base.name),
 		[]Loc{target.loc},
 		resolver.version,
-		errors.Join(err, errSchemaSimpleContentBaseUnsupported),
+		errSchemaSimpleContentBaseUnsupported,
 	)
 }
 

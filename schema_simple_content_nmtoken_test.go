@@ -338,8 +338,8 @@ func TestNMTOKENSimpleContentGraphAndPrecedence(t *testing.T) {
 				if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != test.spec || !errors.Is(err, test.cause) {
 					t.Fatalf("graph exit = %s; got related %v spec %s, want %v spec %s", diagnostic, diagnostic.Related(), diagnostic.SpecRef(), related, test.spec)
 				}
-				if test.name == "complex NMTOKEN chain" && (!errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind)) {
-					t.Fatalf("complex chain lost wrong-kind cause: %v", err)
+				if test.name == "complex NMTOKEN chain" && (!errors.Is(err, ErrUnsupported) || errors.Is(err, errSchemaSimpleContentBaseWrongKind)) {
+					t.Fatalf("complex chain cause = %v", err)
 				}
 			})
 		}
@@ -377,7 +377,7 @@ func TestNMTOKENSimpleContentComplexBaseUnsupported(t *testing.T) {
 					diagnostic := requireDiagnostic(t, err)
 					want := tokenSimpleContentLoc(t, "root.xsd", root, `base="t:Inner"`)
 					related := []Loc{tokenSimpleContentLoc(t, "root.xsd", root, `<xs:complexType name="Inner"`)}
-					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != schemaSimpleContentSpecRef(profile.version) || !errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseUnsupported) || errors.Is(err, errSchemaSimpleContentBaseWrongKind) {
 						t.Fatalf("complex NMTOKEN base diagnostic = %s; related %v, want %v", diagnostic, diagnostic.Related(), related)
 					}
 				})
@@ -400,7 +400,7 @@ func TestNMTOKENSimpleContentComplexBaseAlternateExits(t *testing.T) {
 			{"final override", strings.Replace(tokenSimpleContentNamedOwner("Inner", "xs:NMTOKEN", ""), `name="Inner"`, `name="Inner" final=""`, 1), "", ` finalDefault="extension"`, `base="t:Inner"`, `<xs:complexType name="Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
 			{"named simple final", tokenSimpleContentNamedOwner("Inner", "t:Named", ""), strings.Replace(nmtokenSimpleContentNamed("Named"), `name="Named"`, `name="Named" final="extension"`, 1), "", `base="t:Named"`, `final="extension"`, diagnosticSchemaSimpleTypeBaseCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleTypeInvalidDerivation},
 			{"inner unresolved", tokenSimpleContentNamedOwner("Inner", "t:Missing", ""), "", "", `base="t:Missing"`, "", diagnosticSchemaSimpleContentBaseUnresolvedCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseUnresolved},
-			{"other atomic kind", tokenSimpleContentNamedOwner("Inner", "xs:string", ""), "", "", `base="t:Inner"`, `<xs:complexType name="Inner"`, diagnosticSchemaSimpleContentBaseWrongKindCode, schemaSimpleContentSpecRef(profile.version), FailureInvalid, errSchemaSimpleContentBaseWrongKind},
+			{"other atomic kind", tokenSimpleContentNamedOwner("Inner", "xs:string", ""), "", "", `base="t:Inner"`, `<xs:complexType name="Inner"`, UnsupportedSchemaSyntaxCode, schemaSimpleContentSpecRef(profile.version), FailureUnsupported, errSchemaSimpleContentBaseUnsupported},
 		} {
 			if profile.policy == Strict10 && test.name == "named simple final" {
 				continue
@@ -418,7 +418,7 @@ func TestNMTOKENSimpleContentComplexBaseAlternateExits(t *testing.T) {
 				if diagnostic.Class() != test.class || diagnostic.Code() != test.code || diagnostic.Loc() != want || !reflect.DeepEqual(diagnostic.Related(), related) || diagnostic.SpecRef() != test.spec || !errors.Is(err, test.cause) {
 					t.Fatalf("alternate exit = %s; got related %v, want %v", diagnostic, diagnostic.Related(), related)
 				}
-				if test.class == FailureUnsupported && (!errors.Is(err, ErrUnsupported) || !errors.Is(err, errSchemaSimpleContentBaseWrongKind)) {
+				if test.class == FailureUnsupported && (!errors.Is(err, ErrUnsupported) || errors.Is(err, errSchemaSimpleContentBaseWrongKind)) {
 					t.Fatalf("unsupported cause chain = %v", err)
 				}
 			})
