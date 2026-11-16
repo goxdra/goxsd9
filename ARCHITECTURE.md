@@ -62,7 +62,7 @@ Direct/extension particles model selected integers; named direct adds sign restr
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals match `targetNamespace`.
 Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate.
-Choices reject direct-ref substitution overlaps despite group refs; group-ref attribution unchecked. Nested particles retain IDs/facets/QNames/`Loc`s/bounds.
+Named-group choices reject direct-ref substitution overlaps despite group refs; group-ref attribution unchecked. Nested particles retain IDs/facets/QNames/`Loc`s/bounds.
 Anonymous empty-base extensions admit ref-only choice, nested group/element-ref sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
 Broader nesting/direct groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
