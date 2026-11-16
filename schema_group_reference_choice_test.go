@@ -48,6 +48,66 @@ func TestReferenceOnlyNamedGroupChoiceSubstitutionUPA(t *testing.T) {
 	}
 }
 
+func TestNamedGroupChoiceDirectReferencesBesideGroupReferenceUPA(t *testing.T) {
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, shape := range []struct{ name, choice string }{
+			{"group after", `<xs:element ref="g:h"/><xs:element ref="g:m"/><xs:group ref="g:G"/>`},
+			{"group between", `<xs:element ref="g:h"/><xs:group ref="g:G"/><xs:element ref="g:m"/>`},
+			{"group before", `<xs:group ref="g:G"/><xs:element ref="g:h"/><xs:element ref="g:m"/>`},
+		} {
+			t.Run(profile.name+"/"+shape.name, func(t *testing.T) {
+				declarations := `<xs:element name="h" type="xs:integer" abstract="true"/><xs:element name="m" type="xs:integer" substitutionGroup="g:h"/>`
+				root := referenceChoiceRoot(profile.version, `<xs:complexType name="Owner"><xs:group ref="g:Bad"/></xs:complexType>`, shape.choice, declarations)
+				schema, err := parseReferenceChoicePublic(t, root, profile.policy)
+				assertReferenceChoiceUPA(t, schema, err, root, `ref="g:m"`, []string{`ref="g:h"/></xs:choice></xs:group>`, `<xs:element name="h" type="xs:integer" abstract="true"`, `<xs:element name="m" type="xs:integer"`, `substitutionGroup="g:h"`}, profile.factVersion)
+			})
+		}
+	}
+}
+
+func TestNamedGroupChoiceDirectReferencesBesideDisjointGroup(t *testing.T) { //nolint:gocognit // Public component assertions cover all three ordered alternatives under each policy.
+	for _, profile := range nestedGroupChoiceProfiles {
+		for _, test := range []struct{ name, declarations string }{
+			{"distinct names", `<xs:element name="h" type="xs:integer"/><xs:element name="m" type="xs:integer"/><xs:element name="z" type="xs:integer"/>`},
+			{"blocked substitution", `<xs:element name="h" type="xs:integer" block="substitution"/><xs:element name="m" type="xs:integer" substitutionGroup="g:h"/><xs:element name="z" type="xs:integer"/>`},
+		} {
+			t.Run(profile.name+"/"+test.name, func(t *testing.T) {
+				choice := `<xs:element ref="g:h" minOccurs="2" maxOccurs="5"/><xs:group ref="g:Safe"/><xs:element ref="g:m"/>`
+				root := referenceChoiceRoot(profile.version, `<xs:complexType name="Owner"><xs:group ref="g:Bad"/></xs:complexType>`, choice, test.declarations)
+				root = strings.Replace(root, `<xs:group name="Bad">`, `<xs:group name="Safe"><xs:choice><xs:element ref="g:z"/></xs:choice></xs:group>`+"\n  "+`<xs:group name="Bad">`, 1)
+				schema, err := parseReferenceChoicePublic(t, root, profile.policy)
+				if err != nil {
+					t.Fatal(err)
+				}
+				group := schema.FindKind(ComponentKindModelGroupDefinition, mustTestQName(t, "urn:test", "Bad"))
+				if len(group) != 1 {
+					t.Fatal("missing group")
+				}
+				definition, ok := group[0].ModelGroupDefinition()
+				if !ok {
+					t.Fatal("missing group definition")
+				}
+				alternatives, ok := definition.Particle().(ChoiceParticle)
+				if !ok || len(alternatives.Alternatives()) != 3 {
+					t.Fatalf("choice = %T", definition.Particle())
+				}
+				first, ok := alternatives.Alternatives()[0].(ElementReferenceParticle)
+				if !ok || first.TargetID().IsZero() || first.Ref() != mustTestQName(t, "urn:test", "h") || first.RefLoc() != referenceChoiceLoc(t, root, `ref="g:h"`) || first.Occurrences().String() != "2/5" {
+					t.Fatalf("first reference lost facts: %v", alternatives.Alternatives()[0])
+				}
+				middle, ok := alternatives.Alternatives()[1].(ModelGroupReferenceParticle)
+				if !ok || middle.TargetID().IsZero() || middle.Ref() != mustTestQName(t, "urn:test", "Safe") || middle.RefLoc() != namedGroupChoiceLoc(t, root, `ref="g:Safe"`) || middle.Occurrences().String() != "1/1" {
+					t.Fatalf("group reference lost facts: %v", alternatives.Alternatives()[1])
+				}
+				last, ok := alternatives.Alternatives()[2].(ElementReferenceParticle)
+				if !ok || last.TargetID().IsZero() || last.Ref() != mustTestQName(t, "urn:test", "m") || last.RefLoc() != namedGroupChoiceLoc(t, root, `ref="g:m"`) || last.Occurrences().String() != "1/1" {
+					t.Fatalf("last reference lost facts: %v", alternatives.Alternatives()[2])
+				}
+			})
+		}
+	}
+}
+
 func TestReferenceOnlyNamedGroupChoiceTransitiveAndSharedMember(t *testing.T) { //nolint:gocognit // Each policy checks the same public witness and positive control.
 	for _, profile := range nestedGroupChoiceProfiles {
 		for _, test := range []struct {

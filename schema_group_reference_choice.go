@@ -27,14 +27,12 @@ func validateSchemaModelGroupReferenceChoices(records []schemaComponentRecord, g
 	return nil
 }
 
-func checkSchemaGroupReferenceChoices(particle Particle, records []schemaComponentRecord, elements []schemaElementTypeResult, version XSDVersion) error { //nolint:gocognit // Ordered recursive particle walk handles the two supported container variants.
+func checkSchemaGroupReferenceChoices(particle Particle, records []schemaComponentRecord, elements []schemaElementTypeResult, version XSDVersion) error {
 	switch term := particle.(type) {
 	case ChoiceParticle:
 		alternatives := term.Alternatives()
-		if schemaChoiceHasOnlyElementReferences(alternatives) {
-			if err := checkSchemaReferenceChoiceAlternatives(alternatives, records, elements, version); err != nil {
-				return err
-			}
+		if err := checkSchemaReferenceChoiceAlternatives(alternatives, records, elements, version); err != nil {
+			return err
 		}
 		for _, alternative := range alternatives {
 			if err := checkSchemaGroupReferenceChoices(alternative, records, elements, version); err != nil {
@@ -51,28 +49,16 @@ func checkSchemaGroupReferenceChoices(particle Particle, records []schemaCompone
 	return nil
 }
 
-func schemaChoiceHasOnlyElementReferences(alternatives []Particle) bool {
-	if len(alternatives) < 2 {
-		return false
-	}
-	for _, alternative := range alternatives {
-		if _, ok := alternative.(ElementReferenceParticle); !ok {
-			return false
-		}
-	}
-	return true
-}
-
 func checkSchemaReferenceChoiceAlternatives(alternatives []Particle, records []schemaComponentRecord, elements []schemaElementTypeResult, version XSDVersion) error { //nolint:gocognit // Ordered pairs and candidate declarations choose one reproducible witness.
 	for laterIndex := 1; laterIndex < len(alternatives); laterIndex++ {
 		later, ok := alternatives[laterIndex].(ElementReferenceParticle)
 		if !ok {
-			return newSchemaBridgeInvariant(alternatives[laterIndex].Loc(), "reference-only choice has a non-reference alternative")
+			continue
 		}
 		for firstIndex := 0; firstIndex < laterIndex; firstIndex++ {
 			first, ok := alternatives[firstIndex].(ElementReferenceParticle)
 			if !ok {
-				return newSchemaBridgeInvariant(alternatives[firstIndex].Loc(), "reference-only choice has a non-reference alternative")
+				continue
 			}
 			for memberIndex, member := range records {
 				if member.element == nil || !elements[memberIndex].present {

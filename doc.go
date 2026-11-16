@@ -138,8 +138,9 @@
 // child refs without duplicate checks before child omission. Named groups check
 // duplicate element refs. As repository policy, named choices and sequences
 // resolve direct group refs, including repeated refs and 0/0 terms, before
-// owner/child omission. Completed reference-only named-group choices reject
-// effective substitution overlaps before publication, even when unused or
+// owner/child omission. Completed named-group choices reject effective
+// substitution overlaps between direct element refs, including choices with
+// group-ref alternatives, before publication, even when unused or
 // referenced with 0/0 occurrences. Mapped non-0/0 unsupported scalar forms
 // return located schema-syntax diagnostics. Ordinary 0/0 forms are admitted only after the
 // applicable gates, then the local public particle
