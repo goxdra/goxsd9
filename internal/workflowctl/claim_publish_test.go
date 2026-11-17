@@ -170,6 +170,32 @@ func TestClaimPublishExistingDraftUpdatesFixedAndExactPRHead(t *testing.T) {
 	}
 }
 
+func TestClaimPublishExactIssueMarkerWithPrefixCompanion(t *testing.T) {
+	f := newPublicationFixture(t)
+	first := runGitTest(t, f.worktree, "rev-parse", "HEAD")
+	companion := createResumeTestCommit(t, f.worktree, first, claimMessage(9250, "run-companion", f.lease))
+	runGitTest(t, f.worktree, "reset", "--hard", companion)
+	a := f.application(t)
+	a.claimMetadataReader = nil
+	if err := a.run([]string{"claim", "publish"}); err != nil {
+		t.Fatalf("publish prefix companion: %v", err)
+	}
+	if got := f.remote(t); got != companion {
+		t.Fatalf("fixed companion head = %s, want %s", got, companion)
+	}
+	if err := a.run([]string{"claim", "publish"}); err != nil {
+		t.Fatalf("idempotent prefix companion publication: %v", err)
+	}
+	f.pr = true
+	remediation := f.commit(t, "fix(workflow): publish after prefix companion")
+	if err := a.run([]string{"claim", "publish"}); err != nil {
+		t.Fatalf("remediation after prefix companion: %v", err)
+	}
+	if got := f.remote(t); got != remediation || f.pushes != 2 {
+		t.Fatalf("fixed head = %s with %d pushes, want %s with two", got, f.pushes, remediation)
+	}
+}
+
 func TestClaimPublishRejectsWithoutRemoteMutation(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -240,6 +266,38 @@ func TestClaimPublishRejectsMovedRefAtPush(t *testing.T) {
 	}
 	if f.remote(t) == before || f.remote(t) == runGitTest(t, f.worktree, "rev-parse", "HEAD") {
 		t.Fatal("raced push overwrote the competing remote head")
+	}
+}
+
+func TestClaimPublishRejectsDeletedRefAtPushWithoutRecreation(t *testing.T) {
+	f := newPublicationFixture(t)
+	f.beforePush = func() {
+		runGitTest(t, f.worktree, "push", "origin", ":refs/heads/"+claimBranch(f.issue))
+	}
+	err := f.application(t).run([]string{"claim", "publish"})
+	if err == nil || !strings.Contains(err.Error(), "publish fixed claim branch") {
+		t.Fatalf("deleted-ref publication error = %v", err)
+	}
+	if got := runGitTest(t, f.worktree, "ls-remote", "--heads", "origin", "refs/heads/"+claimBranch(f.issue)); got != "" {
+		t.Fatalf("deleted fixed ref was recreated: %q", got)
+	}
+	if f.pushes != 1 {
+		t.Fatalf("publication push count = %d, want one rejected attempt", f.pushes)
+	}
+}
+
+func TestClaimPublishRejectsAncestralRefMoveAtPush(t *testing.T) {
+	f := newPublicationFixture(t)
+	ancestor := runGitTest(t, f.worktree, "rev-parse", "origin/main")
+	f.beforePush = func() {
+		runGitTest(t, f.worktree, "push", "--force", "origin", ancestor+":refs/heads/"+claimBranch(f.issue))
+	}
+	err := f.application(t).run([]string{"claim", "publish"})
+	if err == nil || !strings.Contains(err.Error(), "publish fixed claim branch") {
+		t.Fatalf("ancestral-move publication error = %v", err)
+	}
+	if got := f.remote(t); got != ancestor || f.pushes != 1 {
+		t.Fatalf("ancestral remote head = %s with %d publication pushes, want %s and one", got, f.pushes, ancestor)
 	}
 }
 

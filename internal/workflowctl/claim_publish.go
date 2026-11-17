@@ -61,11 +61,8 @@ func (a app) publishClaim() error {
 	if err := a.verifyPublicationSource(root, local); err != nil {
 		return err
 	}
-	if local != remote {
-		ref := "refs/heads/" + branch
-		if _, err := a.command(root, "git", "push", "origin", local+":"+ref); err != nil {
-			return stateError("publish fixed claim branch %s from %s to %s: %v", branch, remote, local, err)
-		}
+	if err := a.pushFrozenClaimHead(root, branch, remote, local); err != nil {
+		return err
 	}
 	if err := a.verifyPublicationRemoteHead(root, branch, local); err != nil {
 		return err
@@ -83,6 +80,19 @@ func (a app) publishClaim() error {
 		}
 	}
 	return writeLine(a.stdout, "published claim #%d %s to %s at %s", issue, localBranch, branch, local)
+}
+
+func (a app) pushFrozenClaimHead(root, branch, remote, local string) error {
+	if local == remote {
+		return nil
+	}
+	ref := "refs/heads/" + branch
+	// Exact old-OID leasing and proven ancestry make every accepted update a fast-forward.
+	leaseArg := "--force-with-lease=" + ref + ":" + remote
+	if _, err := a.command(root, "git", "push", "--no-follow-tags", leaseArg, "origin", local+":"+ref); err != nil {
+		return stateError("publish fixed claim branch %s from %s to %s: %w", branch, remote, local, err)
+	}
+	return nil
 }
 
 func (a app) verifyPublicationSource(root, expectedHead string) error {
@@ -135,8 +145,8 @@ func (a app) verifyPublicationOrigin(root string) error {
 }
 
 func (a app) verifyPublicationRemoteRun(root, branch string, issue int, runID, remote string) error {
-	marker, err := a.command(root, "git", "log", "-1", "--first-parent", "--format=%H", "--fixed-strings",
-		"--grep=Agent-Issue: "+strconv.Itoa(issue), "origin/"+branch)
+	marker, err := a.command(root, "git", "log", "-1", "--first-parent", "--format=%H",
+		"--grep=^Agent-Issue: "+strconv.Itoa(issue)+"$", remote)
 	if err != nil {
 		return fmt.Errorf("read fixed claim run: %w", err)
 	}
