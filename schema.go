@@ -2183,7 +2183,7 @@ type WildcardNamespaceConstraintVariety string
 const (
 	// WildcardNamespaceConstraintAny identifies the any namespace constraint.
 	WildcardNamespaceConstraintAny WildcardNamespaceConstraintVariety = "any"
-	// WildcardNamespaceConstraintEnumeration identifies a positive namespace set.
+	// WildcardNamespaceConstraintEnumeration identifies a namespace set, possibly empty.
 	WildcardNamespaceConstraintEnumeration WildcardNamespaceConstraintVariety = "enumeration"
 	// WildcardNamespaceConstraintNot identifies a negative namespace set.
 	WildcardNamespaceConstraintNot WildcardNamespaceConstraintVariety = "not"
@@ -2191,7 +2191,8 @@ const (
 
 // WildcardNamespaceConstraint is an immutable effective namespace constraint.
 // Namespaces contains the included names for enumeration or the excluded names
-// for not. An absent namespace is represented by the empty string.
+// for not. A zero-length enumeration allows no namespace; within a nonempty
+// enumeration, the empty string names the absent namespace.
 type WildcardNamespaceConstraint struct {
 	variety    WildcardNamespaceConstraintVariety
 	namespaces []string
@@ -2205,7 +2206,8 @@ func (constraint WildcardNamespaceConstraint) Variety() WildcardNamespaceConstra
 }
 
 // Namespaces returns sorted, unique effective namespace names. The names are
-// exclusions for the not variety. The empty string represents absence.
+// exclusions for the not variety. The empty string names the absent namespace;
+// an empty slice in an enumeration permits none.
 func (constraint WildcardNamespaceConstraint) Namespaces() []string {
 	return append([]string(nil), constraint.namespaces...)
 }

@@ -236,7 +236,8 @@
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
 // processContents="skip", and ##other/strict, ##other/lax, and ##other/skip forms,
-// plus positive namespace constraints (##local, ##targetNamespace, and URI lists) with strict,
+// plus explicit empty namespace lists and positive namespace constraints
+// (##local, ##targetNamespace, and URI lists) with strict,
 // lax, or explicit skip processing, are exposed as immutable WildcardParticle values.
 // Compatibility and Strict11 also expose direct notNamespace lists with omitted or explicit
 // strict, lax, or skip processing; Strict10 reports a located edition mismatch. Positive sets contain
@@ -253,8 +254,8 @@
 // Nonzero wildcard particles remain unsupported to validation
 // and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
-// anyAttribute facts for effective ##any and ##other constraints, plus positive
-// ##local, ##targetNamespace, and URI namespace enumerations with strict
+// anyAttribute facts for effective ##any and ##other constraints, plus empty and
+// positive ##local, ##targetNamespace, and URI namespace enumerations with strict
 // processing (omitted processContents defaults to strict). NamespaceConstraint
 // resolves markers against the owner's effective schema namespace and returns
 // copied, sorted, deduplicated effective values. Normalized lexical forms and

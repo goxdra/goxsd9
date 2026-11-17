@@ -544,54 +544,6 @@ func assertParticleCopy(t *testing.T, get func() []Particle, wantLength int) {
 	}
 }
 
-//nolint:gocognit // Keep the cross-edition and policy unsupported-form matrix explicit.
-func TestSchemaBridgeRejectsNonDefaultDirectAnyParticleConstraints(t *testing.T) {
-	forms := []struct {
-		name       string
-		attributes string
-		marker     string
-	}{
-		{name: "empty_namespace", attributes: ` namespace="&#x9;"`, marker: `namespace="&#x9;"`},
-	}
-	for _, version := range []string{"1.0", "1.1"} {
-		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
-			for _, form := range forms {
-				for _, extension := range []bool{false, true} {
-					suffix := "/direct"
-					if extension {
-						suffix = "/extension"
-					}
-					t.Run(version+"/"+string(policy)+"/"+form.name+suffix, func(t *testing.T) {
-						root := directWildcardSchema(version, "choice", extension, form.attributes)
-						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-						if err == nil {
-							t.Fatal("explicit direct wildcard constraint unexpectedly succeeded")
-						}
-						assertZeroSchema(t, schema)
-						diagnostic := requireDiagnostic(t, err)
-						if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Feature() != FeatureSchemaSyntax {
-							t.Fatalf("diagnostic = %s/%q/%q, want schema-syntax unsupported", diagnostic, diagnostic.Code(), diagnostic.Feature())
-						}
-						if diagnostic.Loc() != wildcardParticleTestLoc(t, root, form.marker) {
-							t.Fatalf("diagnostic location = %s, want explicit constraint location", diagnostic.Loc())
-						}
-						if !errors.Is(err, errSchemaAnyParticleUnsupported) {
-							t.Fatalf("explicit wildcard constraint lost stable cause: %v", err)
-						}
-						selectedVersion := XSDVersion11
-						if policy == Strict10 {
-							selectedVersion = XSDVersion10
-						}
-						if got, want := diagnostic.SpecRef(), schemaAnyParticleSpecRef(selectedVersion); got != want {
-							t.Fatalf("diagnostic spec ref = %q, want %q", got, want)
-						}
-					})
-				}
-			}
-		}
-	}
-}
-
 //nolint:gocognit // Keep the choice/sequence lexical-order assertions parallel.
 func TestSchemaBridgePreservesMultipleWildcardLexicalOrder(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {

@@ -2807,7 +2807,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			modelSeen = true
 			sequenceErr := validateSupportedSequenceParticle(child, version)
 			if sequenceErr == nil && len(syntaxAttributesByLocal(parent, "name")) != 1 {
-				sequenceErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
+				sequenceErr = unsupportedNondirectWildcardConstraints(child, version)
 			}
 			if sequenceErr != nil && !candidate.considerError(sequenceErr) {
 				return sequenceErr
@@ -3006,7 +3006,8 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 }
 
 func isExplicitRestrictionAnyAttribute(element *syntaxElement) bool {
-	return len(syntaxAttributesByLocal(element, "namespace")) == 1 &&
+	namespace := syntaxAttributesByLocal(element, "namespace")
+	return len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) != "" &&
 		len(syntaxAttributesByLocal(element, "processContents")) == 1 &&
 		len(syntaxAttributesByLocal(element, "notNamespace")) == 0
 }
@@ -3250,7 +3251,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 					particleErr = validateInlineExtensionSequenceParticle(child, version)
 				}
 				if particleErr == nil {
-					particleErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
+					particleErr = unsupportedNondirectWildcardConstraints(child, version)
 				}
 			}
 			if particleErr != nil {
@@ -3274,7 +3275,7 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			if complexContent && element.name.local == "extension" {
 				particleErr = validateChoiceParticleWithOptions(child, version, true, true)
 				if particleErr == nil {
-					particleErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
+					particleErr = unsupportedNondirectWildcardConstraints(child, version)
 				}
 			}
 			if particleErr != nil {
@@ -3860,12 +3861,15 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	case "##other":
 		return processContents == "strict" || processContents == "skip"
 	default:
-		return isPositiveWildcardNamespace(namespace) && processContents == "strict"
+		return (namespace == "" && len(namespaceAttributes) == 1 || isPositiveWildcardNamespace(namespace)) && processContents == "strict"
 	}
 }
 
 func isSupportedDirectAnyAttributeQName(attribute syntaxAttribute, namespace, processContents string) bool {
-	if processContents != "strict" || namespace != "##any" && !isPositiveWildcardNamespace(namespace) {
+	if processContents != "strict" || namespace != "##any" && namespace != "" && !isPositiveWildcardNamespace(namespace) {
+		return false
+	}
+	if namespace == "" && collapseXMLWhitespace(attribute.value) == "" {
 		return false
 	}
 	for _, token := range strings.Fields(collapseXMLWhitespace(attribute.value)) {
@@ -5445,8 +5449,8 @@ func validateAnyParticle(element *syntaxElement, version XSDVersion) error {
 	return validateAnyParticleWithOptions(element, version, false)
 }
 
-func isSupportedDirectAnyParticleFacts(namespace, processContents string) bool {
-	supportedNamespace := namespace == "##any" || namespace == "##other" || isPositiveWildcardNamespace(namespace)
+func isSupportedDirectAnyParticleFacts(namespace, processContents string, explicitNamespace bool) bool {
+	supportedNamespace := namespace == "##any" || namespace == "##other" || isPositiveWildcardNamespace(namespace) || explicitNamespace && namespace == ""
 	supportedProcess := processContents == "strict" || processContents == "lax" || processContents == "skip"
 	return supportedNamespace && supportedProcess
 }
@@ -5490,7 +5494,7 @@ func isSupportedDirectAnyParticle(element *syntaxElement) bool {
 	if len(notNamespaceAttributes) == 1 {
 		return processContents == "strict" || processContents == "lax" || processContents == "skip"
 	}
-	return isSupportedDirectAnyParticleFacts(namespace, processContents)
+	return isSupportedDirectAnyParticleFacts(namespace, processContents, len(namespaceAttributes) == 1)
 }
 
 //nolint:gocognit,funlen // Keep wildcard particle grammar and unsupported classification together.
@@ -5646,6 +5650,9 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 	if len(attributes) != 1 {
 		return false
 	}
+	if namespace := syntaxAttributesByLocal(element, "namespace"); len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) == "" && collapseXMLWhitespace(attributes[0].value) == "" {
+		return false
+	}
 	for _, token := range strings.Split(collapseXMLWhitespace(attributes[0].value), " ") {
 		if token == "##defined" || token == "##definedSibling" {
 			return false
@@ -5654,11 +5661,14 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 	return true
 }
 
-func unsupportedNondirectLaxSkipWildcardQName(model *syntaxElement, version XSDVersion) error {
+func unsupportedNondirectWildcardConstraints(model *syntaxElement, version XSDVersion) error {
 	for _, node := range model.children {
 		wildcard, ok := node.(*syntaxElement)
 		if !ok || wildcard.name.namespace != xsdNamespaceURI || wildcard.name.local != "any" {
 			continue
+		}
+		if namespace := syntaxAttributesByLocal(wildcard, "namespace"); len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) == "" {
+			return newSchemaAnyParticleUnsupported(namespace[0].loc, "empty wildcard namespace constraints outside named direct choice/sequence are not implemented", version)
 		}
 		qname := syntaxAttributesByLocal(wildcard, "notQName")
 		if len(qname) != 1 {
