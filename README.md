@@ -34,7 +34,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Compatibility/Strict11 query strict `xs:any` `notQName`; consumers reject.
+Compatibility/Strict11 query strict/lax/skip `xs:any` `notQName`; consumers reject.
 
 ## CLI
 

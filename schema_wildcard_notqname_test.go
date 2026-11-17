@@ -27,96 +27,102 @@ func TestWildcardQNameNamespaceDiagnosticUsesLexicalOrder(t *testing.T) {
 }
 
 func TestWildcardQNameConsistencyKeepsEarlierReferenceFailure(t *testing.T) {
-	root := directWildcardSchemaWithTerms("1.1", "choice", false,
-		` namespace="urn:allowed" notQName="t:excluded"`, `<xs:element ref="t:missing"/>`, "")
-	schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-	if err == nil {
-		t.Fatal("unresolved reference unexpectedly parsed")
-	}
-	assertZeroSchema(t, schema)
-	diagnostic := requireDiagnostic(t, err)
-	if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaElementReferenceUnresolvedCode ||
-		diagnostic.Loc() != wildcardParticleTestLoc(t, root, `ref="t:missing"`) ||
-		len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaElementReferenceSpecRef(XSDVersion11) ||
-		!errors.Is(err, errSchemaElementReferenceUnresolved) || errors.Is(err, errSchemaWildcardQNameNamespace) {
-		t.Fatalf("reference-before-wildcard diagnostic = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+	for _, mode := range []string{"strict", "lax", "skip"} {
+		root := directWildcardSchemaWithTerms("1.1", "choice", false,
+			` namespace="urn:allowed" processContents="`+mode+`" notQName="t:excluded"`, `<xs:element ref="t:missing"/>`, "")
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+		if err == nil {
+			t.Fatal("unresolved reference unexpectedly parsed")
+		}
+		assertZeroSchema(t, schema)
+		diagnostic := requireDiagnostic(t, err)
+		if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaElementReferenceUnresolvedCode ||
+			diagnostic.Loc() != wildcardParticleTestLoc(t, root, `ref="t:missing"`) ||
+			len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaElementReferenceSpecRef(XSDVersion11) ||
+			!errors.Is(err, errSchemaElementReferenceUnresolved) || errors.Is(err, errSchemaWildcardQNameNamespace) {
+			t.Fatalf("reference-before-wildcard diagnostic = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+		}
 	}
 }
 
 //nolint:gocognit // Assert each public consumer's exact wildcard boundary for both direct models.
 func TestWildcardQNameExplicitExclusionsRemainConsumerUnsupported(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {
-		t.Run(model, func(t *testing.T) {
-			root := directWildcardSchemaWithTerms("1.1", model, false,
-				` notQName="t:root" minOccurs="0" maxOccurs="2"`,
-				`<xs:element name="first" type="xs:integer"/>`, "")
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-			if err != nil {
-				t.Fatalf("parse explicit exclusion: %v", err)
-			}
-			definition := directWildcardDefinition(t, schema)
-			wildcard := directWildcardFromParticle(t, definition.Particle())
-			wildcardLoc := wildcardParticleTestLoc(t, root, `<xs:any`)
-			modelLoc := wildcardParticleTestLoc(t, root, `<xs:`+model+`>`)
-			if wildcard.Loc() != wildcardLoc || wildcard.Occurrences().String() != "0/2" ||
-				wildcard.NamespaceConstraint().Variety() != WildcardNamespaceConstraintAny ||
-				!reflect.DeepEqual(wildcard.QNameConstraint().Names(), []QName{mustTestQName(t, "urn:root", "root")}) {
-				t.Fatalf("explicit exclusion wildcard facts = %#v", wildcard)
-			}
-			instance := `<root xmlns="urn:root"/>`
-			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(instance)))
-			if validationErr == nil {
-				t.Fatal("validation accepted nonzero wildcard")
-			}
-			validation := requireDiagnostic(t, validationErr)
-			wantValidationLoc := wildcardLoc
-			wantValidationCause := errInstanceChoiceWildcard
-			if model == "sequence" {
-				wantValidationLoc = mustTestLoc(t, "instance.xml", 1, 1)
-				wantValidationCause = errInstanceSequenceWildcard
-			}
-			if validation.Class() != FailureUnsupported || validation.Code() != UnsupportedInstanceValidationCode ||
-				validation.Loc() != wantValidationLoc || validation.SpecRef() != instanceValidationSpecRef(XSDVersion11) ||
-				!negativeWildcardRelatedHas(validation.Related(), wildcardLoc) ||
-				!negativeWildcardRelatedHas(validation.Related(), modelLoc) ||
-				!errors.Is(validationErr, wantValidationCause) {
-				t.Fatalf("validation diagnostic = %s, related %v", validation, validation.Related())
-			}
-			generated, generationErr := GenerateGo(schema, "generated")
-			if generationErr == nil || generated != nil {
-				t.Fatalf("generation = (%q, %v), want nil output and unsupported", generated, generationErr)
-			}
-			generation := requireDiagnostic(t, generationErr)
-			wantGenerationCause := errCodegenDirectChoiceWildcard
-			wantGenerationSpec := codegenDirectChoiceXSD11ElementChoiceSpecRef
-			if model == "sequence" {
-				wantGenerationCause = errCodegenDirectSequenceWildcard
-				wantGenerationSpec = codegenDirectSequenceXSD11ElementSequenceSpecRef
-			}
-			if generation.Class() != FailureUnsupported || generation.Code() != diagnosticCodegenUnsupported ||
-				generation.Loc() != wildcardLoc || generation.SpecRef() != wantGenerationSpec ||
-				!negativeWildcardRelatedHas(generation.Related(), wildcardLoc) ||
-				!negativeWildcardRelatedHas(generation.Related(), modelLoc) ||
-				!errors.Is(generationErr, wantGenerationCause) {
-				t.Fatalf("generation diagnostic = %s, related %v", generation, generation.Related())
-			}
-		})
+		for _, mode := range []string{"strict", "lax", "skip"} {
+			t.Run(model+"/"+mode, func(t *testing.T) {
+				root := directWildcardSchemaWithTerms("1.1", model, false,
+					` processContents="`+mode+`" notQName="t:root" minOccurs="0" maxOccurs="2"`,
+					`<xs:element name="first" type="xs:integer"/>`, "")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+				if err != nil {
+					t.Fatalf("parse explicit exclusion: %v", err)
+				}
+				definition := directWildcardDefinition(t, schema)
+				wildcard := directWildcardFromParticle(t, definition.Particle())
+				wildcardLoc := wildcardParticleTestLoc(t, root, `<xs:any`)
+				modelLoc := wildcardParticleTestLoc(t, root, `<xs:`+model+`>`)
+				if wildcard.Loc() != wildcardLoc || wildcard.Occurrences().String() != "0/2" ||
+					wildcard.NamespaceConstraint().Variety() != WildcardNamespaceConstraintAny ||
+					!reflect.DeepEqual(wildcard.QNameConstraint().Names(), []QName{mustTestQName(t, "urn:root", "root")}) {
+					t.Fatalf("explicit exclusion wildcard facts = %#v", wildcard)
+				}
+				instance := `<root xmlns="urn:root"/>`
+				validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(instance)))
+				if validationErr == nil {
+					t.Fatal("validation accepted nonzero wildcard")
+				}
+				validation := requireDiagnostic(t, validationErr)
+				wantValidationLoc := wildcardLoc
+				wantValidationCause := errInstanceChoiceWildcard
+				if model == "sequence" {
+					wantValidationLoc = mustTestLoc(t, "instance.xml", 1, 1)
+					wantValidationCause = errInstanceSequenceWildcard
+				}
+				if validation.Class() != FailureUnsupported || validation.Code() != UnsupportedInstanceValidationCode ||
+					validation.Loc() != wantValidationLoc || validation.SpecRef() != instanceValidationSpecRef(XSDVersion11) ||
+					!negativeWildcardRelatedHas(validation.Related(), wildcardLoc) ||
+					!negativeWildcardRelatedHas(validation.Related(), modelLoc) ||
+					!errors.Is(validationErr, wantValidationCause) {
+					t.Fatalf("validation diagnostic = %s, related %v", validation, validation.Related())
+				}
+				generated, generationErr := GenerateGo(schema, "generated")
+				if generationErr == nil || generated != nil {
+					t.Fatalf("generation = (%q, %v), want nil output and unsupported", generated, generationErr)
+				}
+				generation := requireDiagnostic(t, generationErr)
+				wantGenerationCause := errCodegenDirectChoiceWildcard
+				wantGenerationSpec := codegenDirectChoiceXSD11ElementChoiceSpecRef
+				if model == "sequence" {
+					wantGenerationCause = errCodegenDirectSequenceWildcard
+					wantGenerationSpec = codegenDirectSequenceXSD11ElementSequenceSpecRef
+				}
+				if generation.Class() != FailureUnsupported || generation.Code() != diagnosticCodegenUnsupported ||
+					generation.Loc() != wildcardLoc || generation.SpecRef() != wantGenerationSpec ||
+					!negativeWildcardRelatedHas(generation.Related(), wildcardLoc) ||
+					!negativeWildcardRelatedHas(generation.Related(), modelLoc) ||
+					!errors.Is(generationErr, wantGenerationCause) {
+					t.Fatalf("generation diagnostic = %s, related %v", generation, generation.Related())
+				}
+			})
+		}
 	}
 }
 
 func TestWildcardQNameValidatedZeroZeroOmitsBeforeConsumers(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {
-		t.Run(model, func(t *testing.T) {
-			root := directWildcardSchemaWithTerms("1.1", model, false,
-				` notQName="t:root" minOccurs="0" maxOccurs="0"`,
-				`<xs:element name="first" type="xs:integer"/>`, "")
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-			if err != nil {
-				t.Fatalf("parse validated 0/0: %v", err)
-			}
-			assertWildcardQNameOmittedTerm(t, directWildcardDefinition(t, schema).Particle())
-			assertWildcardQNameOmittedConsumers(t, schema, model)
-		})
+		for _, mode := range []string{"strict", "lax", "skip"} {
+			t.Run(model+"/"+mode, func(t *testing.T) {
+				root := directWildcardSchemaWithTerms("1.1", model, false,
+					` processContents="`+mode+`" notQName="t:root" minOccurs="0" maxOccurs="0"`,
+					`<xs:element name="first" type="xs:integer"/>`, "")
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+				if err != nil {
+					t.Fatalf("parse validated 0/0: %v", err)
+				}
+				assertWildcardQNameOmittedTerm(t, directWildcardDefinition(t, schema).Particle())
+				assertWildcardQNameOmittedConsumers(t, schema, model)
+			})
+		}
 	}
 }
 
@@ -159,24 +165,27 @@ type wildcardQNameGraphWant struct {
 	lexical    string
 	names      []QName
 	defaultURI string
+	mode       string
 }
 
 func TestWildcardQNameComposedGraphProvenance(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
-	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p"><xs:complexType name="Included"><xs:choice><xs:any namespace="##targetNamespace urn:p" notQName="local p:item local"/></xs:choice></xs:complexType></xs:schema>`
-	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns="urn:other" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence><xs:any namespace="##targetNamespace" notQName="local"/></xs:sequence></xs:complexType></xs:schema>`
+	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p"><xs:complexType name="Included"><xs:choice><xs:any namespace="##targetNamespace urn:p" processContents="lax" notQName="local p:item local"/></xs:choice></xs:complexType></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns="urn:other" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence><xs:any namespace="##targetNamespace" processContents="skip" notQName="local"/></xs:sequence></xs:complexType></xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"root.xsd":  {id: "root.xsd", contents: root},
 		"child.xsd": {id: "child.xsd", contents: child},
 		"other.xsd": {id: "other.xsd", contents: other},
 	}
-	for run := 0; run < 2; run++ {
-		schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, Strict11)
-		if err != nil {
-			t.Fatalf("run %d: parse composed graph: %v", run, err)
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for run := 0; run < 2; run++ {
+			schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
+			if err != nil {
+				t.Fatalf("%s run %d: parse composed graph: %v", policy, run, err)
+			}
+			assertWildcardQNameGraphDocuments(t, schema.Documents(), run)
+			assertWildcardQNameGraphComponents(t, schema, child, other, run)
 		}
-		assertWildcardQNameGraphDocuments(t, schema.Documents(), run)
-		assertWildcardQNameGraphComponents(t, schema, child, other, run)
 	}
 }
 
@@ -199,8 +208,8 @@ func assertWildcardQNameGraphComponents(t *testing.T, schema Schema, child, othe
 		t.Fatalf("run %d: components = %d, want 2", run, len(components))
 	}
 	wantComponents := []wildcardQNameGraphWant{
-		{mustTestQName(t, "urn:root", "Included"), "child.xsd", child, "local p:item local", []QName{mustTestQName(t, "urn:p", "item"), mustTestQName(t, "urn:root", "local")}, ""},
-		{mustTestQName(t, "urn:other", "Imported"), "other.xsd", other, "local", []QName{mustTestQName(t, "urn:other", "local")}, "urn:other"},
+		{mustTestQName(t, "urn:root", "Included"), "child.xsd", child, "local p:item local", []QName{mustTestQName(t, "urn:p", "item"), mustTestQName(t, "urn:root", "local")}, "", "lax"},
+		{mustTestQName(t, "urn:other", "Imported"), "other.xsd", other, "local", []QName{mustTestQName(t, "urn:other", "local")}, "urn:other", "skip"},
 	}
 	walked := make([]ComponentID, 0, len(components))
 	if err := schema.Walk(func(component Component) error {
@@ -228,7 +237,8 @@ func assertWildcardQNameGraphComponent(t *testing.T, component Component, want w
 	constraint := wildcard.QNameConstraint()
 	wantLoc := wildcardQNameDocumentLoc(t, want.source, want.document, `notQName="`+want.lexical+`"`)
 	if !constraint.Present() || constraint.LexicalForm() != want.lexical || constraint.Loc() != wantLoc ||
-		wildcard.Loc().Source() != want.source || !reflect.DeepEqual(constraint.Names(), want.names) {
+		wildcard.Loc().Source() != want.source || !reflect.DeepEqual(constraint.Names(), want.names) ||
+		wildcard.ProcessContents() != want.mode || wildcard.ProcessContentsLoc() != wildcardQNameDocumentLoc(t, want.source, want.document, `processContents="`+want.mode+`"`) {
 		t.Fatalf("run %d: component %d QName facts = %#v, wildcard %s", run, index, constraint, wildcard.Loc())
 	}
 	if got := constraint.Tokens(); len(got) == 0 || got[0] != "local" {
@@ -303,45 +313,53 @@ func TestWildcardQNameExcludedShapes(t *testing.T) {
 		{"negative namespace", ` notNamespace="##local" notQName="xs:string"`, `notQName="xs:string"`, `notNamespace="##local"`},
 	}
 	for _, form := range forms {
-		for _, shape := range []string{"named", "inline", "group_ref"} {
-			t.Run(form.name+"/"+shape, func(t *testing.T) {
-				content := `<xs:choice><xs:any` + form.attributes + `/></xs:choice>`
-				body := `<xs:complexType name="Record">` + content + `</xs:complexType>`
-				if shape == "inline" {
-					body = `<xs:element name="root"><xs:complexType>` + content + `</xs:complexType></xs:element>`
+		for _, model := range []string{"choice", "sequence"} {
+			for _, shape := range []string{"named", "inline", "group_ref"} {
+				if shape == "named" && (form.name == "lax" || form.name == "skip") {
+					continue
 				}
-				if shape == "group_ref" {
-					body = `<xs:group name="G">` + content + `</xs:group><xs:complexType name="Record"><xs:group ref="t:G"/></xs:complexType>`
-				}
-				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">` + body + `</xs:schema>`
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-				if err == nil {
-					t.Fatal("excluded notQName shape unexpectedly parsed")
-				}
-				assertZeroSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				marker := form.marker
-				if shape != "named" && form.broaderMarker != "" {
-					marker = form.broaderMarker
-				}
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
-					diagnostic.Loc() != wildcardParticleTestLoc(t, root, marker) || !errors.Is(err, ErrUnsupported) {
-					t.Fatalf("excluded shape diagnostic = %s, want located unsupported", diagnostic)
-				}
-				wantSpec := "xsd10-structures#schema-document"
-				if shape == "group_ref" {
-					wantSpec = "xsd11-structures#cSchemaDocument"
-				}
-				if shape == "named" {
-					wantSpec = schemaAnyParticleSpecRef(XSDVersion11)
-					if !errors.Is(err, errSchemaAnyParticleUnsupported) {
-						t.Fatalf("named direct wildcard lost cause: %v", err)
+				t.Run(form.name+"/"+model+"/"+shape, func(t *testing.T) {
+					content := `<xs:` + model + `><xs:any` + form.attributes + `/></xs:` + model + `>`
+					body := `<xs:complexType name="Record">` + content + `</xs:complexType>`
+					if shape == "inline" {
+						body = `<xs:element name="root"><xs:complexType>` + content + `</xs:complexType></xs:element>`
 					}
-				}
-				if diagnostic.SpecRef() != wantSpec || len(diagnostic.Related()) != 0 {
-					t.Fatalf("excluded shape spec/related = %q/%v, want %q/no related", diagnostic.SpecRef(), diagnostic.Related(), wantSpec)
-				}
-			})
+					if shape == "group_ref" {
+						body = `<xs:group name="G">` + content + `</xs:group><xs:complexType name="Record"><xs:group ref="t:G"/></xs:complexType>`
+					}
+					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">` + body + `</xs:schema>`
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+					if err == nil {
+						t.Fatal("excluded notQName shape unexpectedly parsed")
+					}
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					marker := form.marker
+					if shape == "group_ref" && form.broaderMarker != "" || shape == "inline" && model == "choice" && form.broaderMarker != "" {
+						marker = form.broaderMarker
+					}
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+						diagnostic.Loc() != wildcardParticleTestLoc(t, root, marker) || !errors.Is(err, ErrUnsupported) {
+						t.Fatalf("excluded shape diagnostic = %s, want located unsupported", diagnostic)
+					}
+					wantSpec := "xsd10-structures#schema-document"
+					if shape == "inline" && model == "sequence" {
+						wantSpec = schemaAnyParticleSpecRef(XSDVersion11)
+					}
+					if shape == "group_ref" {
+						wantSpec = "xsd11-structures#cSchemaDocument"
+					}
+					if shape == "named" {
+						wantSpec = schemaAnyParticleSpecRef(XSDVersion11)
+						if !errors.Is(err, errSchemaAnyParticleUnsupported) {
+							t.Fatalf("named direct wildcard lost cause: %v", err)
+						}
+					}
+					if diagnostic.SpecRef() != wantSpec || len(diagnostic.Related()) != 0 {
+						t.Fatalf("excluded shape spec/related = %q/%v, want %q/no related", diagnostic.SpecRef(), diagnostic.Related(), wantSpec)
+					}
+				})
+			}
 		}
 	}
 }
