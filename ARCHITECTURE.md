@@ -98,7 +98,7 @@ Complexes retain abstract/final/block provenance, groups/extensions/wildcards.
 Empty named/untyped-global bodies admit empty `block`; named empties lack particles/occurrences.
 Named block `Loc` persists; untyped views omit it; nonempty policies/consumers reject.
 `xs:any`: positive sets, 1.1 `notNamespace`, chameleons, `0/0`. Compatibility/Strict11 named-global direct choice/sequence explicit-QName `notQName`: ##any/##other/positive, strict/lax/skip; ordered tokens, sorted unique names, bindings/`Loc`; conflicts before omission. Keywords/combinations reject; nonzero consumers reject.
-Named-global direct choice/sequence strict `xs:anyAttribute` admits explicit-QName `notQName` with omitted/positive namespace. Membership is resolved before 0/0 omission; tokens, bindings, locations persist. QName-constrained derivations reject.
+Compatibility/Strict11 named-global direct choice/sequence strict `xs:anyAttribute` admits explicit-QName `notQName` with omitted/positive namespace. Membership precedes 0/0 omission; tokens, bindings, locations persist. Derivations and consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.

@@ -1,6 +1,6 @@
 # goxsd9
 
-goxsd9 parses XML Schema into immutable components or located errors.
+Parses XML Schema into immutable components or diagnostics.
 
 ## Library
 
@@ -32,8 +32,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Compatibility/Strict11: direct choice/sequence `xs:any` explicit-QName `notQName` (##any/##other/positive; strict/lax/skip); consumers reject.
-Strict `xs:anyAttribute` explicit-QName `notQName`: Compatibility/Strict11; consumers reject.
+Compatibility/Strict11 named-global direct choice/sequence: `xs:any` QName `notQName` (##any/##other/positive; strict/lax/skip; nonzero consumers reject); strict `xs:anyAttribute` QName `notQName` (absent/positive namespace; consumers reject).
 
 ## CLI
 

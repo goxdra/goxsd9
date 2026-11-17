@@ -117,18 +117,49 @@ func TestAnyAttributeQNameEmptyLexicalAndOmittedOwner(t *testing.T) {
 	}
 }
 
+func TestAnyAttributeQNameZeroZeroOwnerRetainsNames(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, model := range []string{"sequence", "choice"} {
+			root := attributeQNameSchema(model, ` notQName="t:kept t:kept"`, "")
+			root = strings.Replace(root, `<xs:`+model+`>`, `<xs:`+model+` minOccurs="0" maxOccurs="0">`, 1)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+			if err != nil {
+				t.Fatalf("0/0 owner %s/%s: %v", policy, model, err)
+			}
+			definition, ok := schema.Components()[0].ComplexType()
+			if !ok || definition.Particle() != nil {
+				t.Fatalf("0/0 owner particle = %T, complex type %t", definition.Particle(), ok)
+			}
+			constraint := attributeQNameFact(t, schema).QNameConstraint()
+			if !constraint.Present() || !reflect.DeepEqual(constraint.Tokens(), []string{"t:kept", "t:kept"}) ||
+				!reflect.DeepEqual(constraint.Names(), []QName{mustTestQName(t, "urn:t", "kept")}) ||
+				constraint.Loc() != wildcardParticleTestLoc(t, root, `notQName=`) {
+				t.Fatalf("0/0 owner lost QName facts: %#v", constraint)
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Check conflict precedence across supported policies, owners, and 0/0 omission.
 func TestAnyAttributeQNameNamespaceConflictAndPolicy(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
-		root := attributeQNameSchema("sequence", ` namespace="urn:p" notQName="t:z p:a"`, "")
-		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-		assertZeroSchema(t, schema)
-		diagnostic := requireDiagnostic(t, err)
-		if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
-			diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName=`) ||
-			!reflect.DeepEqual(diagnostic.Related(), []Loc{wildcardParticleTestLoc(t, root, `namespace=`)}) ||
-			diagnostic.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef ||
-			!strings.Contains(diagnostic.Message(), "{urn:t}z") || !errors.Is(err, errSchemaWildcardQNameNamespace) {
-			t.Fatalf("namespace conflict = %s, related %v", diagnostic, diagnostic.Related())
+		for _, model := range []string{"sequence", "choice"} {
+			for _, omitted := range []bool{false, true} {
+				root := attributeQNameSchema(model, ` namespace="urn:p" notQName="t:z p:a"`, "")
+				if omitted {
+					root = strings.Replace(root, `<xs:`+model+`>`, `<xs:`+model+` minOccurs="0" maxOccurs="0">`, 1)
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
+					diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName=`) ||
+					!reflect.DeepEqual(diagnostic.Related(), []Loc{wildcardParticleTestLoc(t, root, `namespace=`)}) ||
+					diagnostic.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef ||
+					!strings.Contains(diagnostic.Message(), "{urn:t}z") || !errors.Is(err, errSchemaWildcardQNameNamespace) {
+					t.Fatalf("namespace conflict %s/%s omitted=%t: %s, related %v", policy, model, omitted, diagnostic, diagnostic.Related())
+				}
+			}
 		}
 	}
 	root := attributeQNameSchema("sequence", ` notQName="t:a"`, "")
