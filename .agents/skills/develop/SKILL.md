@@ -37,11 +37,10 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    Smith implements/tests/fixes; reports paths/tests. Follow `AGENTS.md`;
    mechanize. Unfinished boundaries need unsupported feature ID, `Loc`, and
    versioned SpecRef; issue actionable discoveries, not TODOs.
-6. Normally renew at boundaries/before pushes with `go tool workflowctl claim
-   renew`; recovered integration needs checked `pr open` first (see
-   `docs/operations.md`). Never poll.
+6. Publish with `go tool workflowctl claim publish`. Renew only when needed;
+   never poll. Recovered integration needs checked `pr open` first.
 7. Run `go tool workflowctl check`; fix failures and update docs.
-8. Commit/push using `AGENTS.md`; open the initial draft PR from that head with
+8. Commit; run `claim publish`; open the initial draft PR with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`, including
    outcome, consultation, verification, conformance, and packet issues.
 9. Set `PR_URL` from checked open;
@@ -83,7 +82,7 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
     `goxsd9/examiner-attestation/v1` JSON with located corrective findings.
     Copy bytes unchanged into the run directory; record via `go tool workflowctl
     evaluation record PR --attestation-file FILE`. Never choose verdict. On fail,
-    Smith fixes/checks/pushes; repeat Curator/challenge/Examiner. Three
+    Smith fixes/checks/publishes with `claim publish`; repeat Curator/challenge/Examiner. Three
     authenticated fails mean needs-human; transport failures remain retryable.
 11. On matching-head pass, write run-directory squash summary:
     problem, outcome, rationale, decisions/invariants; omit metadata/PR Markdown.

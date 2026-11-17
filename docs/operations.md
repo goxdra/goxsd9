@@ -1,6 +1,6 @@
 # Scheduled operations
 
-Paseo schedules from coordination checkout in America/New_York.
+Paseo schedules in America/New_York.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
 | Develop | 00:00, then every 3 hours | GPT-6 Sol/medium | `Run $develop for this repository.` |
@@ -9,7 +9,8 @@ Paseo schedules from coordination checkout in America/New_York.
 Require clean `main`/`origin/main`, recursive pins (`doctor`);
 stale jobs use `base-sync`. Claim Ready, draft PR, squash-merge evaluated
 head. Managed-document/source-trigger heads need exact audit, fresh read-only Curator
-after remediation. Renew at boundaries/before ordinary pushes.
+after remediation. `go tool workflowctl claim publish` publishes the fixed
+branch; renew when needed.
 Recovered `--integrate`: checked `pr open` first under live marker lease; renew
 after fixed-remote publication. Preserve no-PR worktrees; archive
 expired PR-free claims; escalate expired PRs.
@@ -39,7 +40,7 @@ resets/rebases/stashes/discards.
 Retain checked `pr open`'s URL or verify the open fixed-branch PR. Use
 `.agents/skills/develop/SKILL.md` for metadata commands. Freeze exact REST
 base for signals/audit/evidence; avoid `origin/main` and merge-base.
-`no-relevant-target`/`not-measured` are valid; policy fuzz measures health, not conformance.
+`no-relevant-target`/`not-measured` are valid; fuzz measures health, not conformance.
 Before evidence/challenge/finish, match REST base/head, recompute signals,
 compare canonical JSON, preserve non-owned PR bytes, use exact `pending`/
 `evidence-ready` records. Challenge/finish bind exact REST base/head, audit,
