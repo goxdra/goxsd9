@@ -11,9 +11,10 @@ import (
 )
 
 type projectList struct {
-	Items      []projectItem `json:"items"`
-	TotalCount int           `json:"totalCount"`
+	Items []projectItem `json:"items"`
 }
+
+const projectItemLimit = 500
 
 type projectItem struct {
 	Content  projectContent `json:"content"`
@@ -36,7 +37,7 @@ type projectContent struct {
 }
 
 func (list *projectList) UnmarshalJSON(data []byte) error {
-	decoded, err := decodeProjectList(data, true)
+	decoded, err := decodeProjectList(data)
 	if err != nil {
 		return err
 	}
@@ -44,20 +45,30 @@ func (list *projectList) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func decodeProjectList(data []byte, requireTotalCount bool) (projectList, error) {
+func decodeProjectList(data []byte) (projectList, error) {
 	response, err := decodeProjectListResponse(data)
 	if err != nil {
 		return projectList{}, err
 	}
-	totalCount, err := decodeProjectTotalCount(response.TotalCount, requireTotalCount)
+	var rawItems []json.RawMessage
+	if decodeErr := json.Unmarshal(response.Items, &rawItems); decodeErr != nil {
+		return projectList{}, fmt.Errorf("decode Project item list: %w", decodeErr)
+	}
+	totalCount, err := decodeProjectTotalCount(response.TotalCount, len(rawItems))
 	if err != nil {
 		return projectList{}, err
 	}
-	items, err := decodeProjectItemList(response.Items)
+	if totalCount != len(rawItems) {
+		return projectList{}, fmt.Errorf("incomplete Project item response: totalCount %d, returned %d (limit %d)", totalCount, len(rawItems), projectItemLimit)
+	}
+	if totalCount > projectItemLimit {
+		return projectList{}, fmt.Errorf("project item response exceeds limit %d: totalCount %d, returned %d", projectItemLimit, totalCount, len(rawItems))
+	}
+	items, err := decodeProjectItemList(rawItems)
 	if err != nil {
 		return projectList{}, err
 	}
-	return projectList{Items: items, TotalCount: totalCount}, nil
+	return projectList{Items: items}, nil
 }
 
 type projectListResponse struct {
@@ -85,29 +96,22 @@ func decodeProjectListResponse(data []byte) (projectListResponse, error) {
 	return response, nil
 }
 
-func decodeProjectTotalCount(data json.RawMessage, required bool) (int, error) {
+func decodeProjectTotalCount(data json.RawMessage, returned int) (int, error) {
 	missing := len(data) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("null"))
 	if missing {
-		if required {
-			return 0, errors.New("project item response is missing totalCount")
-		}
-		return 0, nil
+		return 0, fmt.Errorf("project item response is missing totalCount (returned %d)", returned)
 	}
 	var totalCount int
 	if err := json.Unmarshal(data, &totalCount); err != nil {
-		return 0, fmt.Errorf("decode Project item totalCount: %w", err)
+		return 0, fmt.Errorf("decode Project item totalCount (returned %d): %w", returned, err)
 	}
 	if totalCount < 0 {
-		return 0, fmt.Errorf("project item response has negative totalCount %d", totalCount)
+		return 0, fmt.Errorf("project item response has negative totalCount %d (returned %d)", totalCount, returned)
 	}
 	return totalCount, nil
 }
 
-func decodeProjectItemList(data json.RawMessage) ([]projectItem, error) {
-	var rawItems []json.RawMessage
-	if err := json.Unmarshal(data, &rawItems); err != nil {
-		return nil, fmt.Errorf("decode Project item list: %w", err)
-	}
+func decodeProjectItemList(rawItems []json.RawMessage) ([]projectItem, error) {
 	items := make([]projectItem, len(rawItems))
 	for index, rawItem := range rawItems {
 		if err := validateProjectItemShape(rawItem, index); err != nil {
@@ -176,20 +180,12 @@ type projectFieldOption struct {
 }
 
 func (a app) projectItems(root string) (projectList, error) {
-	return a.projectItemsWithTotalCount(root, false)
-}
-
-func (a app) strictProjectItems(root string) (projectList, error) {
-	return a.projectItemsWithTotalCount(root, true)
-}
-
-func (a app) projectItemsWithTotalCount(root string, requireTotalCount bool) (projectList, error) {
 	output, err := a.command(root, "gh", "project", "item-list", strconv.Itoa(projectNumber), "--owner", owner,
-		"--format", "json", "--limit", "500")
+		"--format", "json", "--limit", strconv.Itoa(projectItemLimit))
 	if err != nil {
 		return projectList{}, fmt.Errorf("list Project items: %w", err)
 	}
-	list, err := decodeProjectList([]byte(output), requireTotalCount)
+	list, err := decodeProjectList([]byte(output))
 	if err != nil {
 		return projectList{}, terminalOperation("Project item list", fmt.Errorf("decode Project items: %w", err))
 	}

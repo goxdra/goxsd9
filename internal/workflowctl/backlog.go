@@ -54,7 +54,7 @@ func (a app) runBacklog(args []string) error {
 	if err != nil {
 		return err
 	}
-	list, err := a.strictProjectItems(root)
+	list, err := a.projectItems(root)
 	if err != nil {
 		return err
 	}
