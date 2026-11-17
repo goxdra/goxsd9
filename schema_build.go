@@ -1939,7 +1939,7 @@ func schemaRestrictionAnyAttributeInputFromElement(restriction *syntaxElement, f
 	}
 	return &schemaAnyAttributeInput{
 		loc:                 wildcard.loc,
-		namespaceConstraint: schemaWildcardNamespaceConstraintFromLexical(collapseXMLWhitespace(namespace.value), namespace.loc),
+		namespaceConstraint: schemaWildcardNamespaceConstraintFromLexical(collapseXMLWhitespace(namespace.value), namespace.loc, true),
 		qnameConstraint:     qname,
 		processContents:     collapseXMLWhitespace(process.value),
 		processContentsLoc:  process.loc,
@@ -2678,11 +2678,15 @@ func schemaModelGroupReferenceComplexTypeInput(
 	}, nil
 }
 
-func schemaWildcardNamespaceConstraintFromLexical(lexical string, loc Loc) schemaWildcardNamespaceConstraint {
+func schemaWildcardNamespaceConstraintFromLexical(lexical string, loc Loc, explicitNamespace bool) schemaWildcardNamespaceConstraint {
 	constraint := schemaWildcardNamespaceConstraint{
 		variety: WildcardNamespaceConstraintAny,
 		lexical: lexical,
 		loc:     loc,
+	}
+	if explicitNamespace && lexical == "" {
+		constraint.variety = WildcardNamespaceConstraintEnumeration
+		return constraint
 	}
 	if !isPositiveWildcardNamespace(lexical) {
 		return constraint
@@ -2773,7 +2777,7 @@ func schemaWildcardQNameConstraintFromElement(element *syntaxElement, facts sche
 }
 
 func schemaWildcardNamespaceAllowsQName(constraint schemaWildcardNamespaceConstraint, name QName, ownerNamespace string) bool {
-	if constraint.lexical == "##any" || constraint.lexical == "" {
+	if constraint.variety == WildcardNamespaceConstraintAny && constraint.lexical != "##other" {
 		return true
 	}
 	if constraint.lexical == "##other" {
@@ -2822,6 +2826,7 @@ func schemaWildcardQNameNamespaceDiagnostic(qnameLoc, namespaceLoc Loc, name QNa
 	}
 }
 
+//nolint:gocognit // Preserve direct wildcard defaults and explicit attribute locations together.
 func schemaDirectAnyAttributeInputFromElement(element *syntaxElement, facts schemaDocumentFacts) (*schemaAnyAttributeInput, error) {
 	wildcard, err := schemaAnyAttributeElementFromElement(element)
 	if err != nil || wildcard == nil {
@@ -2841,7 +2846,7 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement, facts sche
 		processContents = collapseXMLWhitespace(processContentsAttributes[0].value)
 		processContentsLoc = processContentsAttributes[0].loc
 	}
-	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
+	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc, len(namespaceAttributes) == 1)
 	qname, err := schemaWildcardQNameConstraintFromElement(wildcard, facts)
 	if err != nil {
 		return nil, err
@@ -2857,7 +2862,7 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement, facts sche
 			processContentsLoc:  processContentsLoc,
 		}, nil
 	}
-	if isPositiveWildcardNamespace(namespace) && processContents == "strict" {
+	if (isPositiveWildcardNamespace(namespace) || namespace == "" && len(namespaceAttributes) == 1) && processContents == "strict" {
 		return &schemaAnyAttributeInput{
 			loc:                 wildcard.loc,
 			namespaceConstraint: constraint,
@@ -2903,7 +2908,7 @@ func schemaExplicitAnyAttributeInputFromElement(wildcard *syntaxElement) (*schem
 	}
 	return &schemaAnyAttributeInput{
 		loc:                 wildcard.loc,
-		namespaceConstraint: schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceAttributes[0].loc),
+		namespaceConstraint: schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceAttributes[0].loc, true),
 		processContents:     processContents,
 		processContentsLoc:  processContentsAttributes[0].loc,
 	}, nil
@@ -2953,9 +2958,10 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, facts schema
 	}
 	namespace := "##any"
 	namespaceLoc := Loc{}
-	if attributes := syntaxAttributesByLocal(element, "namespace"); len(attributes) == 1 {
-		namespace = collapseXMLWhitespace(attributes[0].value)
-		namespaceLoc = attributes[0].loc
+	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	if len(namespaceAttributes) == 1 {
+		namespace = collapseXMLWhitespace(namespaceAttributes[0].value)
+		namespaceLoc = namespaceAttributes[0].loc
 	}
 	processContents := "strict"
 	processContentsLoc := Loc{}
@@ -2967,10 +2973,10 @@ func schemaWildcardParticleInputFromElement(element *syntaxElement, facts schema
 	if len(notNamespaceAttributes) > 1 {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
-	if len(notNamespaceAttributes) == 0 && !isSupportedDirectAnyParticleFacts(namespace, processContents) {
+	if len(notNamespaceAttributes) == 0 && !isSupportedDirectAnyParticleFacts(namespace, processContents, len(namespaceAttributes) == 1) {
 		return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported wildcard constraints reached component construction")
 	}
-	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
+	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc, len(namespaceAttributes) == 1)
 	if len(notNamespaceAttributes) == 1 {
 		if processContents != "strict" && processContents != "lax" && processContents != "skip" || !namespaceLoc.IsZero() {
 			return schemaWildcardParticleInput{}, newSchemaBridgeInvariant(element.loc, "unsupported negative wildcard constraints reached component construction")
@@ -10056,7 +10062,7 @@ func resolveSchemaParticleTerm(
 
 func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord) (Particle, error) {
 	if input.namespaceConstraint.variety == WildcardNamespaceConstraintNot && input.processContents != "strict" && input.processContents != "lax" && input.processContents != "skip" ||
-		input.namespaceConstraint.variety != WildcardNamespaceConstraintNot && !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents) {
+		input.namespaceConstraint.variety != WildcardNamespaceConstraintNot && !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents, input.namespaceConstraint.variety == WildcardNamespaceConstraintEnumeration) {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
 	constraint := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace())
