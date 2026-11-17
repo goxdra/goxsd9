@@ -32,7 +32,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Named direct choice/sequence query empty namespace enumerations for `xs:any` (strict/lax/skip) and strict `xs:anyAttribute` across policies. Compatibility/Strict11 query `notQName`; consumers reject.
+Named choice/sequence empty-set: `xs:any` strict/lax/skip, strict `xs:anyAttribute` (Compatibility/Strict10/Strict11); Compatibility/Strict11 `notQName`: `xs:any` ##any/##other/nonempty-positive, strict `xs:anyAttribute` omitted/nonempty-positive; consumers reject nonzero `xs:any`/retained `xs:anyAttribute`.
 
 ## CLI
 

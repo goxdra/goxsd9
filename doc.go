@@ -236,9 +236,11 @@
 // Direct xs:any terms with effective ##any/strict, ##any/lax (including an
 // omitted namespace with processContents="lax"), ##any/skip with explicit
 // processContents="skip", and ##other/strict, ##other/lax, and ##other/skip forms,
-// plus explicit empty namespace lists and positive namespace constraints
-// (##local, ##targetNamespace, and URI lists) with strict,
-// lax, or explicit skip processing, are exposed as immutable WildcardParticle values.
+// plus positive namespace constraints (##local, ##targetNamespace, and URI lists)
+// with strict, lax, or explicit skip processing, are exposed as immutable
+// WildcardParticle values.
+// Named-global direct choice/sequence xs:any also admits explicit empty namespace
+// lists with strict, lax, or skip processing under all policies.
 // Compatibility and Strict11 also expose direct notNamespace lists with omitted or explicit
 // strict, lax, or skip processing; Strict10 reports a located edition mismatch. Positive sets contain
 // included namespaces; negative sets contain excluded namespaces. Both retain sorted,
