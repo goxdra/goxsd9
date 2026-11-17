@@ -1,12 +1,10 @@
 # goxsd9
 
-goxsd9 parses XML Schema into immutable components or located errors;
-no partial schemas.
+goxsd9 parses XML Schema into immutable components or located errors.
 
 ## Library
 
 `NewResolvedSource`/`ParseSchema`/`Resolver` resolve mixed XSD 1.0/1.1 graphs.
-Resolvers receive URNs/locations.
 `ParseSchemaWithPolicy` selects policy.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
 Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Named effective short/int/byte/unsignedLong grouped uses require empty/use-free bases. Grouped inherited-ID exception: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: default 1/1 sequence, use-free base; consumers reject. Named attribute-free simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
@@ -34,7 +32,8 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Compatibility/Strict11: named-global direct choice/sequence `xs:any` explicit-QName `notQName` (##any/##other/positive; strict/lax/skip); nonzero consumers reject.
+Compatibility/Strict11: direct choice/sequence `xs:any` explicit-QName `notQName` (##any/##other/positive; strict/lax/skip); consumers reject.
+Strict `xs:anyAttribute` explicit-QName `notQName`: Compatibility/Strict11; consumers reject.
 
 ## CLI
 

@@ -3008,8 +3008,7 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 func isExplicitRestrictionAnyAttribute(element *syntaxElement) bool {
 	return len(syntaxAttributesByLocal(element, "namespace")) == 1 &&
 		len(syntaxAttributesByLocal(element, "processContents")) == 1 &&
-		len(syntaxAttributesByLocal(element, "notNamespace")) == 0 &&
-		len(syntaxAttributesByLocal(element, "notQName")) == 0
+		len(syntaxAttributesByLocal(element, "notNamespace")) == 0
 }
 
 func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
@@ -3831,7 +3830,8 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 {
 		return false
 	}
-	if len(syntaxAttributesByLocal(element, "notQName")) > 0 {
+	qname := syntaxAttributesByLocal(element, "notQName")
+	if len(qname) > 1 {
 		return false
 	}
 	if len(namespaceAttributes) > 1 {
@@ -3851,6 +3851,9 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	if isSupportedAnyAttribute(element) {
 		return true
 	}
+	if len(qname) == 1 {
+		return isSupportedDirectAnyAttributeQName(qname[0], namespace, processContents)
+	}
 	switch namespace {
 	case "##any":
 		return processContents == "strict" || processContents == "lax" || processContents == "skip"
@@ -3859,6 +3862,18 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	default:
 		return isPositiveWildcardNamespace(namespace) && processContents == "strict"
 	}
+}
+
+func isSupportedDirectAnyAttributeQName(attribute syntaxAttribute, namespace, processContents string) bool {
+	if processContents != "strict" || namespace != "##any" && !isPositiveWildcardNamespace(namespace) {
+		return false
+	}
+	for _, token := range strings.Fields(collapseXMLWhitespace(attribute.value)) {
+		if token == "##defined" || token == "##definedSibling" {
+			return false
+		}
+	}
+	return true
 }
 
 //nolint:gocognit // Keep wildcard lexical/co-occurrence checks together.

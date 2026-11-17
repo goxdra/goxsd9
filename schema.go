@@ -1739,6 +1739,14 @@ func (attribute AnyAttribute) NamespaceConstraint() WildcardNamespaceConstraint 
 	}
 }
 
+// QNameConstraint returns the immutable XSD 1.1 notQName exclusion fact.
+func (attribute AnyAttribute) QNameConstraint() WildcardQNameConstraint {
+	if attribute.facts == nil {
+		return WildcardQNameConstraint{}
+	}
+	return clonePublicWildcardQNameConstraint(attribute.facts.qnameConstraint)
+}
+
 // NamespaceLoc returns the location of the explicit namespace attribute. It is
 // zero when the namespace defaults to ##any.
 func (attribute AnyAttribute) NamespaceLoc() Loc {
@@ -2948,6 +2956,7 @@ type schemaComplexTypeReferenceInput struct {
 type schemaAnyAttributeInput struct {
 	loc                 Loc
 	namespaceConstraint schemaWildcardNamespaceConstraint
+	qnameConstraint     schemaWildcardQNameConstraint
 	processContents     string
 	processContentsLoc  Loc
 }
@@ -3228,6 +3237,7 @@ type schemaComplexTypeReferenceComponent struct {
 type schemaAnyAttributeComponent struct {
 	loc                 Loc
 	namespaceConstraint schemaWildcardNamespaceConstraint
+	qnameConstraint     schemaWildcardQNameConstraint
 	processContents     string
 	processContentsLoc  Loc
 }
@@ -3908,6 +3918,7 @@ func completeSchemaAnyAttribute(result schemaAnyAttributeResult) *schemaAnyAttri
 	return &schemaAnyAttributeComponent{
 		loc:                 result.loc,
 		namespaceConstraint: cloneSchemaWildcardNamespaceConstraint(result.namespaceConstraint),
+		qnameConstraint:     cloneSchemaWildcardQNameConstraint(result.qnameConstraint),
 		processContents:     result.processContents,
 		processContentsLoc:  result.processContentsLoc,
 	}
@@ -4095,6 +4106,7 @@ func cloneSchemaAnyAttributeInput(input *schemaAnyAttributeInput) *schemaAnyAttr
 	return &schemaAnyAttributeInput{
 		loc:                 input.loc,
 		namespaceConstraint: cloneSchemaWildcardNamespaceConstraint(input.namespaceConstraint),
+		qnameConstraint:     cloneSchemaWildcardQNameConstraint(input.qnameConstraint),
 		processContents:     input.processContents,
 		processContentsLoc:  input.processContentsLoc,
 	}
