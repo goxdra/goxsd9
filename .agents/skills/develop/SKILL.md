@@ -37,8 +37,8 @@ names changed paths/tests. Preserve Curator/Examiner JSON.
    Smith implements/tests/fixes; reports paths/tests. Follow `AGENTS.md`;
    mechanize. Unfinished boundaries need unsupported feature ID, `Loc`, and
    versioned SpecRef; issue actionable discoveries, not TODOs.
-6. Publish with `go tool workflowctl claim publish`. Renew only when needed;
-   never poll. Recovered integration needs checked `pr open` first.
+6. Renew with `go tool workflowctl claim renew` when needed; never poll.
+   Recovered integration needs checked `pr open` first.
 7. Run `go tool workflowctl check`; fix failures and update docs.
 8. Commit; run `claim publish`; open the initial draft PR with
    `go tool workflowctl pr open ISSUE --title TITLE --body-file FILE`, including

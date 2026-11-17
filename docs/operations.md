@@ -1,6 +1,6 @@
 # Scheduled operations
 
-Paseo schedules in America/New_York.
+Paseo schedules from coordination checkout in America/New_York.
 | Job | Schedule | Agent | Prompt |
 | --- | --- | --- | --- |
 | Develop | 00:00, then every 3 hours | GPT-6 Sol/medium | `Run $develop for this repository.` |
@@ -9,8 +9,7 @@ Paseo schedules in America/New_York.
 Require clean `main`/`origin/main`, recursive pins (`doctor`);
 stale jobs use `base-sync`. Claim Ready, draft PR, squash-merge evaluated
 head. Managed-document/source-trigger heads need exact audit, fresh read-only Curator
-after remediation. `go tool workflowctl claim publish` publishes the fixed
-branch; renew when needed.
+after remediation. Use `go tool workflowctl claim publish`; renew if needed.
 Recovered `--integrate`: checked `pr open` first under live marker lease; renew
 after fixed-remote publication. Preserve no-PR worktrees; archive
 expired PR-free claims; escalate expired PRs.
