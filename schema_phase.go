@@ -2807,7 +2807,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			modelSeen = true
 			sequenceErr := validateSupportedSequenceParticle(child, version)
 			if sequenceErr == nil && len(syntaxAttributesByLocal(parent, "name")) != 1 {
-				sequenceErr = unsupportedInlineLaxSkipWildcardQName(child, version)
+				sequenceErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
 			}
 			if sequenceErr != nil && !candidate.considerError(sequenceErr) {
 				return sequenceErr
@@ -3249,9 +3249,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				particleErr = validateSupportedSequenceParticle(child, version)
 				if globalElementInline && !namedOwner {
 					particleErr = validateInlineExtensionSequenceParticle(child, version)
-					if particleErr == nil {
-						particleErr = unsupportedInlineLaxSkipWildcardQName(child, version)
-					}
+				}
+				if particleErr == nil {
+					particleErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
 				}
 			}
 			if particleErr != nil {
@@ -3274,6 +3274,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			particleErr := versionNamedModelGroupUnsupported(validateChoiceParticleWithNamespacePolicy(child, version, false), version)
 			if complexContent && element.name.local == "extension" {
 				particleErr = validateChoiceParticleWithOptions(child, version, true, true)
+				if particleErr == nil {
+					particleErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
+				}
 			}
 			if particleErr != nil {
 				particleUnsupported = particleErr
@@ -5636,7 +5639,7 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 	return true
 }
 
-func unsupportedInlineLaxSkipWildcardQName(model *syntaxElement, version XSDVersion) error {
+func unsupportedNondirectLaxSkipWildcardQName(model *syntaxElement, version XSDVersion) error {
 	for _, node := range model.children {
 		wildcard, ok := node.(*syntaxElement)
 		if !ok || wildcard.name.namespace != xsdNamespaceURI || wildcard.name.local != "any" {
@@ -5654,7 +5657,7 @@ func unsupportedInlineLaxSkipWildcardQName(model *syntaxElement, version XSDVers
 		if mode != "lax" && mode != "skip" {
 			continue
 		}
-		return newSchemaAnyParticleUnsupported(qname[0].loc, "inline element wildcard notQName constraints are not implemented", version)
+		return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard notQName constraints outside named direct choice/sequence are not implemented", version)
 	}
 	return nil
 }

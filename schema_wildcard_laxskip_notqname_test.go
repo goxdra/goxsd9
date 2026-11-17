@@ -107,6 +107,74 @@ func wildcardQNameBindingIs(bindings []IdentityNamespaceBinding, prefix, namespa
 	return false
 }
 
+//nolint:gocognit // Each non-direct owner checks the same located boundary before publication.
+func TestWildcardQNameLaxSkipDerivedOwnersRemainUnsupported(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, mode := range []string{"lax", "skip"} {
+			for _, model := range []string{"sequence", "choice"} {
+				for _, inline := range []bool{false, true} {
+					for _, zero := range []bool{false, true} {
+						name := string(policy) + "/" + mode + "/" + model
+						if inline {
+							name += "/inline"
+						}
+						if zero {
+							name += "/zero"
+						}
+						t.Run(name, func(t *testing.T) {
+							bounds := ""
+							if zero {
+								bounds = ` minOccurs="0" maxOccurs="0"`
+							}
+							modelXML := `<xs:` + model + `><xs:any namespace="##any" processContents="` + mode + `" notQName="t:x"` + bounds + `/></xs:` + model + `>`
+							body := `<xs:complexType name="A"><xs:complexContent><xs:extension base="t:Base">` + modelXML + `</xs:extension></xs:complexContent></xs:complexType>`
+							if inline {
+								body = `<xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="t:Base">` + modelXML + `</xs:extension></xs:complexContent></xs:complexType></xs:element>`
+							}
+							root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:t" targetNamespace="urn:t"><xs:complexType name="Base"/>` + body + `</xs:schema>`
+							schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+							if err == nil {
+								t.Fatal("derived wildcard exclusion published a schema")
+							}
+							assertZeroSchema(t, schema)
+							diagnostic := requireDiagnostic(t, err)
+							if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+								diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="t:x"`) ||
+								len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaAnyParticleSpecRef(XSDVersion11) ||
+								!errors.Is(err, errSchemaAnyParticleUnsupported) {
+								t.Fatalf("derived wildcard diagnostic = %s related=%v spec=%q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+							}
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestWildcardQNameStrictNamedExtensionRemainsQueryable(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:t" targetNamespace="urn:t"><xs:complexType name="Base"/><xs:complexType name="A"><xs:complexContent><xs:extension base="t:Base"><xs:sequence><xs:any namespace="##any" processContents="strict" notQName="t:x"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType></xs:schema>`
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+		if err != nil {
+			t.Fatalf("%s: strict extension: %v", policy, err)
+		}
+		components := schema.Find(mustTestQName(t, "urn:t", "A"))
+		if len(components) != 1 {
+			t.Fatalf("%s: A components = %d", policy, len(components))
+		}
+		definition, ok := components[0].ComplexType()
+		if !ok {
+			t.Fatal("A has no complex type view")
+		}
+		wildcard := directWildcardFromParticle(t, definition.Particle())
+		if wildcard.ProcessContents() != "strict" || wildcard.QNameConstraint().Loc() != wildcardParticleTestLoc(t, root, `notQName="t:x"`) ||
+			!reflect.DeepEqual(wildcard.QNameConstraint().Names(), []QName{mustTestQName(t, "urn:t", "x")}) {
+			t.Fatalf("strict extension wildcard = %#v", wildcard)
+		}
+	}
+}
+
 //nolint:gocognit // Exercise alternate exits at the same direct wildcard boundary.
 func TestWildcardQNameLaxSkipDiagnosticExits(t *testing.T) {
 	tests := []struct {

@@ -243,12 +243,15 @@
 // included namespaces; negative sets contain excluded namespaces. Both retain sorted,
 // unique owner-relative values, normalized lexical forms, and exact attribute locations
 // in lexical order with element and reference terms.
-// Explicit QName exclusions are supported on direct strict, lax, or skip wildcards under
-// Compatibility and Strict11. Their normalized token order, in-scope bindings,
-// and sorted expanded names remain separate facts; special tokens,
-// notNamespace combinations, wildcard algebra, and broader
-// placements remain unsupported. Nonzero wildcard-bearing particles remain
-// unsupported to validation and generation consumers.
+// Compatibility and Strict11 support explicit QName exclusions on named-global
+// direct choice/sequence xs:any with ##any, ##other, or positive namespace sets
+// and strict, lax, or skip processing. Their normalized token order, in-scope
+// bindings, and sorted expanded names remain separate facts. Special tokens,
+// notNamespace combinations, and wildcard algebra remain unsupported. Lax/skip
+// notQName on inline, group, or extension placements rejects; existing strict
+// placement behavior persists. Attribute wildcards and derived restrictions
+// reject notQName. Nonzero wildcard particles remain unsupported to validation
+// and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
 // anyAttribute facts for effective ##any and ##other constraints, plus positive
 // ##local, ##targetNamespace, and URI namespace enumerations with strict
