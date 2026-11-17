@@ -43,18 +43,12 @@ Elements retain identity constraints, XPath, namespace scopes, `Loc`s, keyref ta
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`, wrong-kind/field-count `FailureInvalid`.
 
-Empty-base extensions and named/global-inline restrictions retain IDs/`Loc`s/wildcards.
-Built-in xs:anyType ##other/lax restrictions supported. Named-base
-restrictions require completed empty/attribute-only/direct/extension/restriction
-bases with nil particle/zero uses; grouped/simple-content unsupported.
-Named-base derived `namespace`/`processContents` explicit: namespace subset
-of base ##any/##other/positive-set, process always equal/stronger.
-##other preserves origin: XSD10 equality;
-XSD11/Compatibility exclusion containment.
-`notNamespace`/`notQName` unsupported. Missing base wildcard invalid at derived
-wildcard; missing derived wildcard unsupported. Broader/weaker wildcards, final,
-cycles invalid; richer derived particles/uses/group refs or nonempty/used bases
-unsupported. Consumers reject.
+Extensions/restrictions retain IDs/`Loc`s/wildcards. Named-base restrictions need
+completed, particle-free, use-free bases. Derived namespace/process constraints
+must narrow; ##other keeps its origin under edition-specific rules.
+`notNamespace` and QName-constrained restriction comparisons remain unsupported.
+Missing bases, widening, final, and cycles are invalid; missing derived
+wildcards, richer bodies, and consumers are unsupported.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s and nil particle; dependencies precede owner gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
@@ -103,7 +97,8 @@ type-only unconstrained; global attribute consumers reject.
 Complexes retain abstract/final/block provenance, groups/extensions/wildcards.
 Empty named/untyped-global bodies admit empty `block`; named empties lack particles/occurrences.
 Named block `Loc` persists; untyped views omit it; nonempty policies/consumers reject.
-`xs:any`: positive sets, 1.1 `notNamespace`(strict/lax/skip), chameleons, `0/0`. Compatibility/Strict11 named-global direct choice/sequence explicit-QName `notQName`: ##any/##other/positive, strict/lax/skip; tokens ordered/duplicated, names sorted/unique, bindings/`Loc` retained; conflicts before omission. Keywords/`notNamespace`/lax/skip non-direct reject; strict persists; nonzero consumers reject.
+`xs:any`: positive sets, 1.1 `notNamespace`, chameleons, `0/0`. Compatibility/Strict11 named-global direct choice/sequence explicit-QName `notQName`: ##any/##other/positive, strict/lax/skip; ordered tokens, sorted unique names, bindings/`Loc`; conflicts before omission. Keywords/combinations reject; nonzero consumers reject.
+Compatibility/Strict11 named-global direct choice/sequence strict `xs:anyAttribute` admits explicit-QName `notQName` with omitted/positive namespace. Membership precedes 0/0 omission; tokens, bindings, locations persist. Derivations and consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.

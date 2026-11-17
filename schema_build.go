@@ -1787,7 +1787,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 			}
 			return schemaComplexTypeInputWithDeclarationFacts(input, abstract, hasExplicitFinal, final), nil
 		}
-		input, inputErr := schemaComplexTypeRestrictionInput(complexContent, block)
+		input, inputErr := schemaComplexTypeRestrictionInput(complexContent, facts, block)
 		if inputErr != nil {
 			return nil, inputErr
 		}
@@ -1797,7 +1797,7 @@ func schemaComplexTypeInputFromElementWithFacts(element *syntaxElement, facts sc
 	if err != nil {
 		return nil, err
 	}
-	anyAttribute, err := schemaDirectAnyAttributeInputFromElement(element)
+	anyAttribute, err := schemaDirectAnyAttributeInputFromElement(element, facts)
 	if err != nil {
 		return nil, err
 	}
@@ -1888,7 +1888,7 @@ func schemaComplexTypeInputWithoutModel(
 	return nil, diagnostic
 }
 
-func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
+func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, facts schemaDocumentFacts, block schemaBlockPolicy) (*schemaComplexTypeInput, error) {
 	restriction := schemaComplexContentRestrictionChild(complexContent)
 	if restriction == nil {
 		return nil, newSchemaBridgeInvariant(complexContent.loc, "supported complexContent has no restriction child")
@@ -1901,7 +1901,7 @@ func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block sche
 	if err != nil {
 		return nil, err
 	}
-	anyAttribute, err := schemaRestrictionAnyAttributeInputFromElement(restriction)
+	anyAttribute, err := schemaRestrictionAnyAttributeInputFromElement(restriction, facts)
 	if err != nil {
 		return nil, err
 	}
@@ -1923,7 +1923,7 @@ func schemaComplexTypeRestrictionInput(complexContent *syntaxElement, block sche
 	}, nil
 }
 
-func schemaRestrictionAnyAttributeInputFromElement(restriction *syntaxElement) (*schemaAnyAttributeInput, error) {
+func schemaRestrictionAnyAttributeInputFromElement(restriction *syntaxElement, facts schemaDocumentFacts) (*schemaAnyAttributeInput, error) {
 	wildcard, err := schemaAnyAttributeElementFromElement(restriction)
 	if err != nil || wildcard == nil {
 		return nil, err
@@ -1933,9 +1933,14 @@ func schemaRestrictionAnyAttributeInputFromElement(restriction *syntaxElement) (
 	}
 	namespace := syntaxAttributesByLocal(wildcard, "namespace")[0]
 	process := syntaxAttributesByLocal(wildcard, "processContents")[0]
+	qname, err := schemaWildcardQNameConstraintFromElement(wildcard, facts)
+	if err != nil {
+		return nil, err
+	}
 	return &schemaAnyAttributeInput{
 		loc:                 wildcard.loc,
 		namespaceConstraint: schemaWildcardNamespaceConstraintFromLexical(collapseXMLWhitespace(namespace.value), namespace.loc),
+		qnameConstraint:     qname,
 		processContents:     collapseXMLWhitespace(process.value),
 		processContentsLoc:  process.loc,
 	}, nil
@@ -2794,14 +2799,22 @@ func schemaWildcardNamespaceAllowsQName(constraint schemaWildcardNamespaceConstr
 }
 
 func newSchemaWildcardQNameNamespaceDiagnostic(input schemaWildcardParticleInput, name QName, ownerNamespace string) Diagnostic {
+	return schemaWildcardQNameNamespaceDiagnostic(input.qnameConstraint.loc, input.namespaceConstraint.loc, name, ownerNamespace)
+}
+
+func newSchemaAnyAttributeQNameNamespaceDiagnostic(input *schemaAnyAttributeInput, name QName, ownerNamespace string) Diagnostic {
+	return schemaWildcardQNameNamespaceDiagnostic(input.qnameConstraint.loc, input.namespaceConstraint.loc, name, ownerNamespace)
+}
+
+func schemaWildcardQNameNamespaceDiagnostic(qnameLoc, namespaceLoc Loc, name QName, ownerNamespace string) Diagnostic {
 	related := []Loc(nil)
-	if !input.namespaceConstraint.loc.IsZero() {
-		related = []Loc{input.namespaceConstraint.loc}
+	if !namespaceLoc.IsZero() {
+		related = []Loc{namespaceLoc}
 	}
 	return Diagnostic{
 		class:   FailureInvalid,
 		code:    invalidSchemaCompositionCode,
-		loc:     input.qnameConstraint.loc,
+		loc:     qnameLoc,
 		message: fmt.Sprintf("wildcard notQName %q is outside the namespace constraint", name.String()),
 		related: related,
 		specRef: schemaWildcardQNameNamespaceXSD11SpecRef,
@@ -2809,7 +2822,7 @@ func newSchemaWildcardQNameNamespaceDiagnostic(input schemaWildcardParticleInput
 	}
 }
 
-func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAnyAttributeInput, error) {
+func schemaDirectAnyAttributeInputFromElement(element *syntaxElement, facts schemaDocumentFacts) (*schemaAnyAttributeInput, error) {
 	wildcard, err := schemaAnyAttributeElementFromElement(element)
 	if err != nil || wildcard == nil {
 		return nil, err
@@ -2829,12 +2842,17 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAn
 		processContentsLoc = processContentsAttributes[0].loc
 	}
 	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc)
+	qname, err := schemaWildcardQNameConstraintFromElement(wildcard, facts)
+	if err != nil {
+		return nil, err
+	}
 	if (processContents == "strict" && (namespace == "##any" || namespace == "##other")) ||
 		(processContents == "lax" && namespace == "##any") ||
 		(processContents == "skip" && (namespace == "##any" || namespace == "##other")) {
 		return &schemaAnyAttributeInput{
 			loc:                 wildcard.loc,
 			namespaceConstraint: constraint,
+			qnameConstraint:     qname,
 			processContents:     processContents,
 			processContentsLoc:  processContentsLoc,
 		}, nil
@@ -2843,6 +2861,7 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement) (*schemaAn
 		return &schemaAnyAttributeInput{
 			loc:                 wildcard.loc,
 			namespaceConstraint: constraint,
+			qnameConstraint:     qname,
 			processContents:     processContents,
 			processContentsLoc:  processContentsLoc,
 		}, nil
@@ -6555,6 +6574,7 @@ type schemaAnyAttributeResult struct {
 	present             bool
 	loc                 Loc
 	namespaceConstraint schemaWildcardNamespaceConstraint
+	qnameConstraint     schemaWildcardQNameConstraint
 	processContents     string
 	processContentsLoc  Loc
 }
@@ -6830,7 +6850,10 @@ func resolveSchemaComplexTypeDirectBody(
 	if err != nil {
 		return nil, err
 	}
-	anyAttribute := schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
+	anyAttribute, err := schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
+	if err != nil {
+		return nil, err
+	}
 	if particle != nil {
 		return &schemaComplexTypeDirectBodyResult{
 			particle:      particle,
@@ -6864,9 +6887,13 @@ func resolveSchemaComplexTypeAttributeOnlyBody(
 	if err != nil {
 		return nil, err
 	}
+	anyAttribute, err := schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
+	if err != nil {
+		return nil, err
+	}
 	return &schemaComplexTypeAttributeOnlyBodyResult{
 		attributeUses: attributeUses,
-		anyAttribute:  schemaAnyAttributeResultFromInput(body.anyAttribute, owner),
+		anyAttribute:  anyAttribute,
 	}, nil
 }
 
@@ -6972,13 +6999,13 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 	if body.anyAttribute == nil {
 		return nil, newSchemaBridgeInvariant(owner.loc, "restriction complex type body has no wildcard input")
 	}
-	wildcard := schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
+	var wildcard schemaAnyAttributeResult
 	if candidate >= 0 {
 		if resolver.state[candidate] == 1 {
 			return nil, resolver.restrictionCycleDiagnostic(candidate, body.base.loc)
 		}
-		if err := resolver.resolve(candidate); err != nil {
-			return nil, err
+		if resolveErr := resolver.resolve(candidate); resolveErr != nil {
+			return nil, resolveErr
 		}
 		completed := resolver.results[candidate]
 		if !completed.present || completed.body == nil {
@@ -6990,15 +7017,28 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 				[]Loc{completed.final.loc}, resolver.version,
 				fmt.Errorf("%w: restriction is prohibited by base final", errSchemaComplexTypeBaseUnsupported))
 		}
-		baseWildcard, err := resolver.restrictionBaseWildcard(completed.body, resolver.records[candidate].loc, body.base.loc)
+		baseWildcard, baseErr := resolver.restrictionBaseWildcard(completed.body, resolver.records[candidate].loc, body.base.loc)
+		if baseErr != nil {
+			return nil, baseErr
+		}
+		wildcard, err = schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
 		if err != nil {
 			return nil, err
 		}
-		if err := resolver.checkRestrictionWildcard(wildcard, baseWildcard, resolver.records[candidate].loc); err != nil {
-			return nil, err
+		if checkErr := resolver.checkRestrictionWildcard(wildcard, baseWildcard, resolver.records[candidate].loc); checkErr != nil {
+			return nil, checkErr
 		}
 		base.id = resolver.records[candidate].id
 		base.hasID = true
+	}
+	if candidate < 0 {
+		wildcard, err = schemaAnyAttributeResultFromInput(body.anyAttribute, owner)
+		if err != nil {
+			return nil, err
+		}
+		if wildcard.qnameConstraint.present {
+			return nil, resolver.unsupportedRestrictionQName(wildcard, schemaAnyAttributeResult{}, body.base.loc)
+		}
 	}
 	return &schemaComplexTypeRestrictionBodyResult{
 		complexContentLoc: body.complexContentLoc,
@@ -7015,6 +7055,9 @@ func (resolver *schemaComplexTypeResolver) checkRestrictionWildcard(derived, bas
 			[]Loc{baseLoc}, resolver.version,
 			fmt.Errorf("%w: base has no attribute wildcard", errSchemaComplexTypeWildcardRestriction))
 	}
+	if derived.qnameConstraint.present || base.qnameConstraint.present {
+		return resolver.unsupportedRestrictionQName(derived, base, baseLoc)
+	}
 	if !restrictionWildcardNamespaceSubset(derived.namespaceConstraint, base.namespaceConstraint, resolver.version) {
 		return newSchemaComplexTypeBaseDiagnostic(derived.namespaceConstraint.loc,
 			"derived attribute wildcard namespace is not a subset of its base",
@@ -7028,6 +7071,28 @@ func (resolver *schemaComplexTypeResolver) checkRestrictionWildcard(derived, bas
 			fmt.Errorf("%w: attribute wildcard processContents", errSchemaComplexTypeWildcardRestriction))
 	}
 	return nil
+}
+
+func (resolver *schemaComplexTypeResolver) unsupportedRestrictionQName(derived, base schemaAnyAttributeResult, baseLoc Loc) error {
+	loc := derived.qnameConstraint.loc
+	if loc.IsZero() {
+		loc = derived.loc
+	}
+	related := []Loc{baseLoc}
+	if base.present {
+		related = []Loc{base.loc}
+	}
+	if !base.qnameConstraint.loc.IsZero() {
+		related = append([]Loc{base.qnameConstraint.loc}, related...)
+	}
+	return newSchemaComplexTypeUnsupportedWithSpec(
+		loc,
+		"attribute wildcard restriction with notQName is not implemented",
+		related,
+		resolver.version,
+		fmt.Errorf("%w: attribute wildcard QName restriction", errSchemaComplexTypeBaseUnsupported),
+		schemaComplexTypeDerivationSpecRef(resolver.version),
+	)
 }
 
 func restrictionWildcardProcessRank(value string) int {
@@ -8849,17 +8914,25 @@ func (body *schemaComplexTypeExtensionBodyResult) particleLoc() Loc {
 	return body.particle.Loc()
 }
 
-func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput, owner schemaComponentRecord) schemaAnyAttributeResult {
+func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput, owner schemaComponentRecord) (schemaAnyAttributeResult, error) {
 	if input == nil {
-		return schemaAnyAttributeResult{}
+		return schemaAnyAttributeResult{}, nil
+	}
+	namespace := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace())
+	for _, name := range input.qnameConstraint.names {
+		if schemaWildcardNamespaceAllowsQName(namespace, name, owner.name.Namespace()) {
+			continue
+		}
+		return schemaAnyAttributeResult{}, newSchemaAnyAttributeQNameNamespaceDiagnostic(input, name, owner.name.Namespace())
 	}
 	return schemaAnyAttributeResult{
 		present:             true,
 		loc:                 input.loc,
-		namespaceConstraint: resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace()),
+		namespaceConstraint: namespace,
+		qnameConstraint:     sortedSchemaWildcardQNameConstraint(input.qnameConstraint),
 		processContents:     input.processContents,
 		processContentsLoc:  input.processContentsLoc,
-	}
+	}, nil
 }
 
 //nolint:gocognit,funlen // Keep QName, visibility, kind, and built-in precedence together.

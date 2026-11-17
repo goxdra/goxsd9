@@ -249,8 +249,8 @@
 // bindings, and sorted expanded names remain separate facts. Special tokens,
 // notNamespace combinations, and wildcard algebra remain unsupported. Lax/skip
 // notQName on inline, group, or extension placements rejects; existing strict
-// placement behavior persists. Attribute wildcards and derived restrictions
-// reject notQName. Nonzero wildcard particles remain unsupported to validation
+// placement behavior persists. QName-constrained derived restrictions reject.
+// Nonzero wildcard particles remain unsupported to validation
 // and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
 // anyAttribute facts for effective ##any and ##other constraints, plus positive
@@ -261,6 +261,11 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
+// Compatibility and Strict11 named-global direct choice/sequence strict
+// anyAttribute wildcards admit explicit QName notQName with absent or positive
+// namespace constraints. QName tokens retain lexical order and duplicates;
+// expanded exclusions are sorted and unique. Resolved namespace membership
+// precedes publication, including when the owner particle omits at 0/0.
 // After those gates, effective 0/0 sequence, choice, child, and wildcard ranges
 // map to absence. Non-0/0 integer/decimal choice and alternative ranges are
 // queryable; direct-choice repetition validation remains unsupported. Direct

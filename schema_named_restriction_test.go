@@ -596,9 +596,6 @@ func TestNamedWildcardRestrictionRicherDerivedShapesStayUnsupported(t *testing.T
 					assertZeroSchema(t, schema)
 					d := requireDiagnostic(t, err)
 					marker := child.marker
-					if child.name == "wildcard notQName" && profile.policy != Strict10 {
-						marker = `<xs:anyAttribute`
-					}
 					if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != complexContentTestLoc(t, root, marker) || !errors.Is(err, ErrUnsupported) {
 						t.Fatalf("richer derived diagnostic = %v", err)
 					}
