@@ -166,7 +166,7 @@ func (a app) checkProject(root string) (string, error) {
 	if err := verifyProjectFields(fields); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s Roadmap (#%d, %d items)", repository, projectNumber, items.TotalCount), nil
+	return fmt.Sprintf("%s Roadmap (#%d, %d items)", repository, projectNumber, len(items.Items)), nil
 }
 
 func verifyProjectFields(fields projectFieldList) error {

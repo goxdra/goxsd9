@@ -2518,7 +2518,7 @@ func claimStateCommand(t *testing.T, issue string) commandExecutor {
 		command := name + " " + strings.Join(args, " ")
 		switch command {
 		case "gh project item-list 1 --owner goxdra --format json --limit 500":
-			return `{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9","type":"Issue"},"id":"item-13","status":"Ready"}]}`, nil
+			return `{"items":[{"content":{"number":13,"repository":"goxdra/goxsd9","type":"Issue"},"id":"item-13","status":"Ready"}],"totalCount":1}`, nil
 		case "gh api repos/goxdra/goxsd9/issues/13":
 			return issue, nil
 		default:

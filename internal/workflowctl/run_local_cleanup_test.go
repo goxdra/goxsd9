@@ -514,7 +514,7 @@ func TestSyncAndPickIgnoreRunLocalRefs(t *testing.T) {
 		case "gh api repos/goxdra/goxsd9/issues/55":
 			return `{"state":"OPEN","labels":[]}`, nil
 		case "gh project item-list 1 --owner goxdra --format json --limit 500":
-			return `{"items":[{"content":{"number":55,"repository":"goxdra/goxsd9","type":"Issue","url":"https://example.test/55"},"status":"Ready","title":"ready"}]}`, nil
+			return `{"items":[{"content":{"number":55,"repository":"goxdra/goxsd9","type":"Issue","url":"https://example.test/55"},"status":"Ready","title":"ready"}],"totalCount":1}`, nil
 		case "gh api graphql -f query=" + issueRelationsQuery + " -f owner=goxdra -f repository=goxsd9 -F number=55":
 			return `{"data":{"repository":{"issue":{"createdAt":"2026-08-19T00:00:00Z","blockedBy":{"nodes":[]},"blocking":{"nodes":[]}}}}}`, nil
 		default:

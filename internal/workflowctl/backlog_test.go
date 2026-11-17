@@ -181,7 +181,7 @@ func backlogFixtureForCounts(counts backlogHealthCounts) (backlogFixture, backlo
 		BlockedBy: issueConnection{Nodes: []relatedIssue{{Number: 701, State: "OPEN"}}},
 	}
 	fixture := backlogFixture{
-		list:          projectList{Items: items, TotalCount: len(items)},
+		list:          projectList{Items: items},
 		relations:     relations,
 		selected:      selected,
 		blockedNumber: blockedNumber,
@@ -234,7 +234,7 @@ func backlogIncompleteMetadataFixture() (backlogFixture, backlogHealthReport) {
 		BlockedBy: issueConnection{Nodes: []relatedIssue{{Number: 701, State: "OPEN"}}},
 	}
 	fixture := backlogFixture{
-		list:          projectList{Items: items, TotalCount: len(items)},
+		list:          projectList{Items: items},
 		relations:     relations,
 		selected:      selected,
 		blockedNumber: blockedNumber,
@@ -317,7 +317,7 @@ func TestProjectListAcceptsExplicitEmptyTotalCount(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"items":[],"totalCount":0}`), &list); err != nil {
 		t.Fatalf("decode empty Project items: %v", err)
 	}
-	if list.Items == nil || len(list.Items) != 0 || list.TotalCount != 0 {
+	if list.Items == nil || len(list.Items) != 0 {
 		t.Fatalf("empty Project list = %#v, want explicit empty list", list)
 	}
 }
@@ -402,10 +402,7 @@ func runBacklogHealthError(t *testing.T, test backlogErrorFixture, fixture backl
 
 func backlogErrorExecutor(t *testing.T, test backlogErrorFixture, fixture backlogFixture, sentinel error) commandExecutor {
 	t.Helper()
-	encodedList, err := json.Marshal(fixture.list)
-	if err != nil {
-		t.Fatalf("encode fixture: %v", err)
-	}
+	encodedList := backlogProjectListJSON(t, fixture.list)
 	return func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		if name == "git" {
 			return "/repo", nil
@@ -417,7 +414,7 @@ func backlogErrorExecutor(t *testing.T, test backlogErrorFixture, fixture backlo
 			return "", sentinel
 		}
 		if test.dependency {
-			return string(encodedList), nil
+			return encodedList, nil
 		}
 		if test.projectOut != "" {
 			return test.projectOut, nil
@@ -540,16 +537,13 @@ func backlogProjectResponseExecutor(t *testing.T, projectOut string) commandExec
 
 func backlogFixtureExecutor(t *testing.T, fixture backlogFixture, dependencyCalls *[]int) commandExecutor {
 	t.Helper()
-	encodedList, err := json.Marshal(fixture.list)
-	if err != nil {
-		t.Fatalf("encode Project fixture: %v", err)
-	}
+	encodedList := backlogProjectListJSON(t, fixture.list)
 	return func(_ string, _ io.Reader, name string, args ...string) (string, error) {
 		if name == "git" && reflect.DeepEqual(args, []string{"rev-parse", "--show-toplevel"}) {
 			return "/repo", nil
 		}
 		if name == "gh" && strings.Join(args, " ") == "project item-list 1 --owner goxdra --format json --limit 500" {
-			return string(encodedList), nil
+			return encodedList, nil
 		}
 		number, ok := backlogDependencyNumber(args)
 		if name != "gh" || !ok {
@@ -568,6 +562,18 @@ func backlogFixtureExecutor(t *testing.T, fixture backlogFixture, dependencyCall
 		}
 		return string(encoded), nil
 	}
+}
+
+func backlogProjectListJSON(t *testing.T, list projectList) string {
+	t.Helper()
+	encoded, err := json.Marshal(struct {
+		Items      []projectItem `json:"items"`
+		TotalCount int           `json:"totalCount"`
+	}{Items: list.Items, TotalCount: len(list.Items)})
+	if err != nil {
+		t.Fatalf("encode Project fixture: %v", err)
+	}
+	return string(encoded)
 }
 
 func backlogDependencyNumber(args []string) (int, bool) {
