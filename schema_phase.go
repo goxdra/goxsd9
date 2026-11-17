@@ -2806,6 +2806,9 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 			}
 			modelSeen = true
 			sequenceErr := validateSupportedSequenceParticle(child, version)
+			if sequenceErr == nil && len(syntaxAttributesByLocal(parent, "name")) != 1 {
+				sequenceErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
+			}
 			if sequenceErr != nil && !candidate.considerError(sequenceErr) {
 				return sequenceErr
 			}
@@ -3247,6 +3250,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 				if globalElementInline && !namedOwner {
 					particleErr = validateInlineExtensionSequenceParticle(child, version)
 				}
+				if particleErr == nil {
+					particleErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
+				}
 			}
 			if particleErr != nil {
 				particleUnsupported = particleErr
@@ -3268,6 +3274,9 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			particleErr := versionNamedModelGroupUnsupported(validateChoiceParticleWithNamespacePolicy(child, version, false), version)
 			if complexContent && element.name.local == "extension" {
 				particleErr = validateChoiceParticleWithOptions(child, version, true, true)
+				if particleErr == nil {
+					particleErr = unsupportedNondirectLaxSkipWildcardQName(child, version)
+				}
 			}
 			if particleErr != nil {
 				particleUnsupported = particleErr
@@ -5618,13 +5627,6 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 {
 		return false
 	}
-	processContents := "strict"
-	if attributes := syntaxAttributesByLocal(element, "processContents"); len(attributes) == 1 {
-		processContents = collapseXMLWhitespace(attributes[0].value)
-	}
-	if processContents != "strict" {
-		return false
-	}
 	attributes := syntaxAttributesByLocal(element, "notQName")
 	if len(attributes) != 1 {
 		return false
@@ -5635,6 +5637,29 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 		}
 	}
 	return true
+}
+
+func unsupportedNondirectLaxSkipWildcardQName(model *syntaxElement, version XSDVersion) error {
+	for _, node := range model.children {
+		wildcard, ok := node.(*syntaxElement)
+		if !ok || wildcard.name.namespace != xsdNamespaceURI || wildcard.name.local != "any" {
+			continue
+		}
+		qname := syntaxAttributesByLocal(wildcard, "notQName")
+		if len(qname) != 1 {
+			continue
+		}
+		process := syntaxAttributesByLocal(wildcard, "processContents")
+		if len(process) != 1 {
+			continue
+		}
+		mode := collapseXMLWhitespace(process[0].value)
+		if mode != "lax" && mode != "skip" {
+			continue
+		}
+		return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard notQName constraints outside named direct choice/sequence are not implemented", version)
+	}
+	return nil
 }
 
 //nolint:gocognit // Keep global group model grammar and candidate staging together.
