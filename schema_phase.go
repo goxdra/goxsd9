@@ -3872,11 +3872,6 @@ func isSupportedDirectAnyAttributeQName(attribute syntaxAttribute, namespace, pr
 	if namespace == "" && collapseXMLWhitespace(attribute.value) == "" {
 		return false
 	}
-	for _, token := range strings.Fields(collapseXMLWhitespace(attribute.value)) {
-		if token == "##defined" || token == "##definedSibling" {
-			return false
-		}
-	}
 	return true
 }
 
