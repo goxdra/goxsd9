@@ -335,6 +335,7 @@ func validateSchemaRootChildren(root *syntaxElement, version XSDVersion, candida
 			continue
 		}
 		nextPhase, err := validateSchemaRootChild(child, phase, version)
+		err = deferSchemaAttributeGroupReferenceUnsupported(root, version, err)
 		if err != nil {
 			if !candidate.considerError(err) {
 				return err
@@ -345,6 +346,72 @@ func validateSchemaRootChildren(root *syntaxElement, version XSDVersion, candida
 		phase = nextPhase
 	}
 	return candidate.err()
+}
+
+func deferSchemaAttributeGroupReferenceUnsupported(root *syntaxElement, version XSDVersion, err error) error {
+	if !schemaAttributeGroupReferenceUnsupported(err) || !syntaxTreeHasDeferredAnyAttributeQName(root, nil) {
+		return err
+	}
+	return validateExplicitAnyAttributeQNameSyntax(root, version)
+}
+
+func schemaAttributeGroupReferenceUnsupported(err error) bool {
+	var diagnostic Diagnostic
+	return errors.As(err, &diagnostic) && diagnostic.Class() == FailureUnsupported &&
+		diagnostic.Code() == UnsupportedSchemaSyntaxCode && diagnostic.Message() == "attributeGroup references are not implemented"
+}
+
+func syntaxTreeHasDeferredAnyAttributeQName(element, parent *syntaxElement) bool {
+	if !isActiveSchemaSyntaxSubtree(element) {
+		return false
+	}
+	if isDeferredAnyAttributeQNameSyntax(element, parent) {
+		return true
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if ok && syntaxTreeHasDeferredAnyAttributeQName(child, element) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDeferredAnyAttributeQNameSyntax(element, parent *syntaxElement) bool {
+	return element.name.namespace == xsdNamespaceURI && element.name.local == "anyAttribute" &&
+		hasExplicitAnyAttributeQName(element) && !supportsDirectNamedComplexTypeAnyAttribute(parent) && !schemaDerivationAnyAttributeParent(parent)
+}
+
+func validateExplicitAnyAttributeQNameSyntax(element *syntaxElement, version XSDVersion) error {
+	if !isActiveSchemaSyntaxSubtree(element) {
+		return nil
+	}
+	if element.name.namespace == xsdNamespaceURI && element.name.local == "anyAttribute" && hasExplicitAnyAttributeQName(element) {
+		if err := validateAnyAttributeSyntax(element, version); err != nil {
+			return err
+		}
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if err := validateExplicitAnyAttributeQNameSyntax(child, version); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func isActiveSchemaSyntaxSubtree(element *syntaxElement) bool {
+	if element.name.namespace != xsdNamespaceURI {
+		return false
+	}
+	switch element.name.local {
+	case "annotation", "appinfo", "documentation":
+		return false
+	}
+	return true
 }
 
 func schemaRootChildElement(node syntaxNode) (*syntaxElement, error) {
@@ -3786,6 +3853,9 @@ func validateAnyAttribute(element *syntaxElement, version XSDVersion) error {
 	if err := validateAnyAttributeSyntax(element, version); err != nil {
 		return err
 	}
+	if hasExplicitAnyAttributeQName(element) {
+		return nil
+	}
 	return newSchemaAnyAttributeUnsupported(element.loc, version)
 }
 
@@ -3794,9 +3864,30 @@ func validateDirectNamedComplexTypeAnyAttribute(parent, element *syntaxElement, 
 		return err
 	}
 	if !supportsDirectNamedComplexTypeAnyAttribute(parent) || !isSupportedDirectNamedComplexTypeAnyAttribute(element) {
+		if hasExplicitAnyAttributeQName(element) {
+			return nil
+		}
 		return newSchemaAnyAttributeUnsupported(element.loc, version)
 	}
 	return nil
+}
+
+func hasExplicitAnyAttributeQName(element *syntaxElement) bool {
+	attributes := syntaxAttributesByLocal(element, "notQName")
+	if len(attributes) != 1 {
+		return false
+	}
+	for _, token := range strings.Fields(attributes[0].value) {
+		if token != "##defined" {
+			return true
+		}
+	}
+	return false
+}
+
+func schemaDerivationAnyAttributeParent(parent *syntaxElement) bool {
+	return parent != nil && parent.name.namespace == xsdNamespaceURI &&
+		(parent.name.local == "restriction" || parent.name.local == "extension")
 }
 
 func supportsDirectNamedComplexTypeAnyAttribute(parent *syntaxElement) bool {
@@ -3871,11 +3962,6 @@ func isSupportedDirectAnyAttributeQName(attribute syntaxAttribute, namespace, pr
 	}
 	if namespace == "" && collapseXMLWhitespace(attribute.value) == "" {
 		return false
-	}
-	for _, token := range strings.Fields(collapseXMLWhitespace(attribute.value)) {
-		if token == "##defined" || token == "##definedSibling" {
-			return false
-		}
 	}
 	return true
 }
