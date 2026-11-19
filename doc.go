@@ -267,10 +267,11 @@
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
 // Compatibility and Strict11 named-global direct choice/sequence strict
-// anyAttribute wildcards admit symbolic ##defined alone or mixed with explicit
-// QName notQName under absent, empty, or positive namespace constraints. QName
-// tokens retain lexical order and duplicates; expanded explicit exclusions are
-// sorted and unique. Resolved explicit-QName namespace membership
+// anyAttribute wildcards admit explicit QNames alone, symbolic ##defined alone,
+// or both in notQName. Absent or positive namespace constraints admit these
+// forms subject to explicit-QName membership; an empty namespace enumeration
+// admits the keyword alone. Tokens retain lexical order and duplicates;
+// expanded explicit exclusions are sorted and unique. QName membership
 // precedes publication, including when the owner particle omits at 0/0.
 // After those gates, effective 0/0 sequence, choice, child, and wildcard ranges
 // map to absence. Non-0/0 integer/decimal choice and alternative ranges are
