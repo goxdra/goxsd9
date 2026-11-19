@@ -191,7 +191,7 @@ func TestWildcardQNameLaxSkipDiagnosticExits(t *testing.T) {
 		{"strict10 lax", ` processContents="lax" notQName="xs:item"`, `notQName="xs:item"`, "", Strict10, FailureUnsupported, UnsupportedSchemaSyntaxCode, "xsd11-structures#cSchemaDocument", errLanguagePolicyMismatch},
 		{"strict10 skip zero", ` processContents="skip" notQName="xs:item" minOccurs="0" maxOccurs="0"`, `notQName="xs:item"`, "", Strict10, FailureUnsupported, UnsupportedSchemaSyntaxCode, "xsd11-structures#cSchemaDocument", errLanguagePolicyMismatch},
 		{"strict10 malformed skip", ` processContents="skip" notQName="bad:q:name"`, `notQName="bad:q:name"`, "", Strict10, FailureInvalid, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef, nil},
-		{"keyword lax", ` processContents="lax" notQName="##defined"`, `notQName="##defined"`, "", Strict11, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyParticleSpecRef(XSDVersion11), errSchemaAnyParticleUnsupported},
+		{"keyword lax", ` processContents="lax" notQName="##definedSibling"`, `notQName="##definedSibling"`, "", Strict11, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyParticleSpecRef(XSDVersion11), errSchemaAnyParticleUnsupported},
 		{"keyword skip", ` processContents="skip" notQName="##definedSibling"`, `notQName="##definedSibling"`, "", Strict11, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyParticleSpecRef(XSDVersion11), errSchemaAnyParticleUnsupported},
 		{"negative skip", ` notNamespace="##local" processContents="skip" notQName="xs:item"`, `notQName="xs:item"`, "", Strict11, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyParticleSpecRef(XSDVersion11), errSchemaAnyParticleUnsupported},
 	}

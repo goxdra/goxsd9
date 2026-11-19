@@ -29,7 +29,7 @@ func TestWildcardQNameNamespaceDiagnosticUsesLexicalOrder(t *testing.T) {
 func TestWildcardQNameConsistencyKeepsEarlierReferenceFailure(t *testing.T) {
 	for _, mode := range []string{"strict", "lax", "skip"} {
 		root := directWildcardSchemaWithTerms("1.1", "choice", false,
-			` namespace="urn:allowed" processContents="`+mode+`" notQName="t:excluded"`, `<xs:element ref="t:missing"/>`, "")
+			` namespace="urn:allowed" processContents="`+mode+`" notQName="##defined t:excluded"`, `<xs:element ref="t:missing"/>`, "")
 		schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
 		if err == nil {
 			t.Fatal("unresolved reference unexpectedly parsed")
@@ -170,8 +170,8 @@ type wildcardQNameGraphWant struct {
 
 func TestWildcardQNameComposedGraphProvenance(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="child.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
-	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p"><xs:complexType name="Included"><xs:choice><xs:any namespace="##targetNamespace urn:p" processContents="lax" notQName="local p:item local"/></xs:choice></xs:complexType></xs:schema>`
-	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns="urn:other" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence><xs:any namespace="##targetNamespace" processContents="skip" notQName="local"/></xs:sequence></xs:complexType></xs:schema>`
+	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p"><xs:complexType name="Included"><xs:choice><xs:any namespace="##targetNamespace urn:p" processContents="lax" notQName="local ##defined p:item ##defined local"/></xs:choice></xs:complexType></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns="urn:other" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence><xs:any namespace="##targetNamespace" processContents="skip" notQName="local ##defined"/></xs:sequence></xs:complexType></xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"root.xsd":  {id: "root.xsd", contents: root},
 		"child.xsd": {id: "child.xsd", contents: child},
@@ -208,8 +208,8 @@ func assertWildcardQNameGraphComponents(t *testing.T, schema Schema, child, othe
 		t.Fatalf("run %d: components = %d, want 2", run, len(components))
 	}
 	wantComponents := []wildcardQNameGraphWant{
-		{mustTestQName(t, "urn:root", "Included"), "child.xsd", child, "local p:item local", []QName{mustTestQName(t, "urn:p", "item"), mustTestQName(t, "urn:root", "local")}, "", "lax"},
-		{mustTestQName(t, "urn:other", "Imported"), "other.xsd", other, "local", []QName{mustTestQName(t, "urn:other", "local")}, "urn:other", "skip"},
+		{mustTestQName(t, "urn:root", "Included"), "child.xsd", child, "local ##defined p:item ##defined local", []QName{mustTestQName(t, "urn:p", "item"), mustTestQName(t, "urn:root", "local")}, "", "lax"},
+		{mustTestQName(t, "urn:other", "Imported"), "other.xsd", other, "local ##defined", []QName{mustTestQName(t, "urn:other", "local")}, "urn:other", "skip"},
 	}
 	walked := make([]ComponentID, 0, len(components))
 	if err := schema.Walk(func(component Component) error {
@@ -304,10 +304,11 @@ func TestWildcardQNameExcludedShapes(t *testing.T) {
 		broaderMarker string
 	}{
 		{"defined", ` notQName="##defined"`, `notQName="##defined"`, ""},
-		{"defined sibling", ` notQName="##definedSibling"`, `notQName="##definedSibling"`, ""},
 		{"defined with QName", ` notQName="xs:string ##defined"`, `notQName="xs:string ##defined"`, ""},
-		{"defined sibling with QName", ` notQName="xs:string ##definedSibling"`, `notQName="xs:string ##definedSibling"`, ""},
 		{"defined zero", ` notQName="##defined" minOccurs="0" maxOccurs="0"`, `notQName="##defined"`, ""},
+		{"defined sibling", ` notQName="##definedSibling"`, `notQName="##definedSibling"`, ""},
+		{"defined sibling with QName", ` notQName="xs:string ##definedSibling"`, `notQName="xs:string ##definedSibling"`, ""},
+		{"defined sibling zero", ` notQName="##definedSibling" minOccurs="0" maxOccurs="0"`, `notQName="##definedSibling"`, ""},
 		{"lax", ` processContents="lax" notQName="xs:string"`, `notQName="xs:string"`, `processContents="lax"`},
 		{"skip", ` processContents="skip" notQName="xs:string"`, `notQName="xs:string"`, `processContents="skip"`},
 		{"negative namespace", ` notNamespace="##local" notQName="xs:string"`, `notQName="xs:string"`, `notNamespace="##local"`},
@@ -315,7 +316,7 @@ func TestWildcardQNameExcludedShapes(t *testing.T) {
 	for _, form := range forms {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, shape := range []string{"named", "inline", "group_ref"} {
-				if shape == "named" && (form.name == "lax" || form.name == "skip") {
+				if shape == "named" && (form.name == "lax" || form.name == "skip" || strings.HasPrefix(form.name, "defined") && !strings.HasPrefix(form.name, "defined sibling")) {
 					continue
 				}
 				t.Run(form.name+"/"+model+"/"+shape, func(t *testing.T) {
