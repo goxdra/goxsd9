@@ -5654,7 +5654,7 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 		return false
 	}
 	for _, token := range strings.Split(collapseXMLWhitespace(attributes[0].value), " ") {
-		if token == "##defined" || token == "##definedSibling" {
+		if token == "##definedSibling" {
 			return false
 		}
 	}
@@ -5667,24 +5667,35 @@ func unsupportedNondirectWildcardConstraints(model *syntaxElement, version XSDVe
 		if !ok || wildcard.name.namespace != xsdNamespaceURI || wildcard.name.local != "any" {
 			continue
 		}
-		if namespace := syntaxAttributesByLocal(wildcard, "namespace"); len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) == "" {
-			return newSchemaAnyParticleUnsupported(namespace[0].loc, "empty wildcard namespace constraints outside named direct choice/sequence are not implemented", version)
+		if err := unsupportedNondirectWildcardConstraint(wildcard, version); err != nil {
+			return err
 		}
-		qname := syntaxAttributesByLocal(wildcard, "notQName")
-		if len(qname) != 1 {
-			continue
-		}
-		process := syntaxAttributesByLocal(wildcard, "processContents")
-		if len(process) != 1 {
-			continue
-		}
-		mode := collapseXMLWhitespace(process[0].value)
-		if mode != "lax" && mode != "skip" {
-			continue
-		}
-		return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard notQName constraints outside named direct choice/sequence are not implemented", version)
 	}
 	return nil
+}
+
+func unsupportedNondirectWildcardConstraint(wildcard *syntaxElement, version XSDVersion) error {
+	if namespace := syntaxAttributesByLocal(wildcard, "namespace"); len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) == "" {
+		return newSchemaAnyParticleUnsupported(namespace[0].loc, "empty wildcard namespace constraints outside named direct choice/sequence are not implemented", version)
+	}
+	qname := syntaxAttributesByLocal(wildcard, "notQName")
+	if len(qname) != 1 {
+		return nil
+	}
+	for _, token := range strings.Fields(collapseXMLWhitespace(qname[0].value)) {
+		if token == "##defined" {
+			return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard ##defined outside named direct choice/sequence is not implemented", version)
+		}
+	}
+	process := syntaxAttributesByLocal(wildcard, "processContents")
+	if len(process) != 1 {
+		return nil
+	}
+	mode := collapseXMLWhitespace(process[0].value)
+	if mode != "lax" && mode != "skip" {
+		return nil
+	}
+	return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard notQName constraints outside named direct choice/sequence are not implemented", version)
 }
 
 //nolint:gocognit // Keep global group model grammar and candidate staging together.

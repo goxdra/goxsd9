@@ -540,7 +540,7 @@ func TestEmptyWildcardReferenceFailurePrecedesQNameMembership(t *testing.T) {
 func TestEmptyWildcardQNameCombinationsStayUnsupported(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, model := range []string{"choice", "sequence"} {
-			for _, qname := range []string{"", "##defined", "##definedSibling"} {
+			for _, qname := range []string{"", "##definedSibling"} {
 				root := directWildcardSchema("1.1", model, false, ` namespace="" notQName="`+qname+`"`)
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 				assertZeroSchema(t, schema)

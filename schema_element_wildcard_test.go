@@ -1225,8 +1225,8 @@ func TestSchemaBridgeValidatesWildcardBeforeZeroZeroElision(t *testing.T) {
 		},
 		{
 			name:            "keyword_excluded_not_qname",
-			attributes:      ` namespace="##other" processContents="skip" notQName="##defined" minOccurs="0" maxOccurs="0"`,
-			marker:          `notQName="##defined"`,
+			attributes:      ` namespace="##other" processContents="skip" notQName="##definedSibling" minOccurs="0" maxOccurs="0"`,
+			marker:          `notQName="##definedSibling"`,
 			wantClass:       FailureUnsupported,
 			wantUnsupported: true,
 			wantCause:       errSchemaAnyParticleUnsupported,
@@ -1536,17 +1536,6 @@ func TestSchemaBridgeWildcardQNameConstraintDiagnostics(t *testing.T) {
 			class:      FailureInvalid,
 			code:       invalidSchemaConditionalCode,
 			spec:       schemaWildcardQNameDatatypeXSD11SpecRef,
-		},
-		{
-			name:       "defined",
-			policy:     Strict11,
-			version:    "1.1",
-			attributes: ` notQName="##defined"`,
-			marker:     `notQName="##defined"`,
-			class:      FailureUnsupported,
-			code:       UnsupportedSchemaSyntaxCode,
-			cause:      errSchemaAnyParticleUnsupported,
-			spec:       schemaAnyParticleSpecRef(XSDVersion11),
 		},
 		{
 			name:       "defined sibling",
