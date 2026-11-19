@@ -665,6 +665,10 @@ func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy La
 	if err != nil {
 		return Schema{}, err
 	}
+	err = preflightSchemaAnyAttributeQNameNamespaces(discovery.documents, declaredNamespaces, namespaces)
+	if err != nil {
+		return Schema{}, err
+	}
 
 	version, err := xsdVersionForLanguagePolicy(policy)
 	if err != nil {
@@ -701,6 +705,46 @@ func schemaDiscoveryNamespacesWithPolicy(documents []*syntaxDocument, policy Lan
 		namespaces[index] = namespace
 	}
 	return namespaces, sourceIndices, nil
+}
+
+func preflightSchemaAnyAttributeQNameNamespaces(documents []*syntaxDocument, declared, effective []schemaTargetNamespace) error {
+	var pending error
+	for index, document := range documents {
+		facts := schemaDocumentFacts{
+			targetNamespace: effective[index],
+			chameleon:       !declared[index].present && effective[index].present,
+		}
+		if err := preflightSchemaAnyAttributeQNameElement(document.root, nil, facts, &pending); err != nil {
+			return err
+		}
+	}
+	return pending
+}
+
+func preflightSchemaAnyAttributeQNameElement(element, parent *syntaxElement, facts schemaDocumentFacts, pending *error) error {
+	if element.name.namespace == xsdNamespaceURI && element.name.local == "anyAttribute" && hasExplicitAnyAttributeQName(element) &&
+		!supportsDirectNamedComplexTypeAnyAttribute(parent) && !schemaDerivationAnyAttributeParent(parent) {
+		input, err := schemaAnyAttributeInputFromWildcard(element, facts)
+		if err != nil {
+			return err
+		}
+		if _, err := schemaAnyAttributeQNameNamespace(input, facts.targetNamespace.value); err != nil {
+			return err
+		}
+		if *pending == nil && parent != nil {
+			*pending = newSchemaAnyAttributeUnsupported(element.loc, XSDVersion11)
+		}
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if err := preflightSchemaAnyAttributeQNameElement(child, element, facts, pending); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateDiscoveredDocument(document *syntaxDocument, sourceIndices map[SourceID]int, policy LanguagePolicy) error {
@@ -2826,13 +2870,17 @@ func schemaWildcardQNameNamespaceDiagnostic(qnameLoc, namespaceLoc Loc, name QNa
 	}
 }
 
-//nolint:gocognit // Preserve direct wildcard defaults and explicit attribute locations together.
 func schemaDirectAnyAttributeInputFromElement(element *syntaxElement, facts schemaDocumentFacts) (*schemaAnyAttributeInput, error) {
 	wildcard, err := schemaAnyAttributeElementFromElement(element)
 	if err != nil || wildcard == nil {
 		return nil, err
 	}
+	return schemaAnyAttributeInputFromWildcard(wildcard, facts)
+}
+
+func schemaAnyAttributeInputFromWildcard(wildcard *syntaxElement, facts schemaDocumentFacts) (*schemaAnyAttributeInput, error) {
 	namespaceAttributes := syntaxAttributesByLocal(wildcard, "namespace")
+	notNamespaceAttributes := syntaxAttributesByLocal(wildcard, "notNamespace")
 	processContentsAttributes := syntaxAttributesByLocal(wildcard, "processContents")
 	namespace := "##any"
 	namespaceLoc := Loc{}
@@ -2847,22 +2895,18 @@ func schemaDirectAnyAttributeInputFromElement(element *syntaxElement, facts sche
 		processContentsLoc = processContentsAttributes[0].loc
 	}
 	constraint := schemaWildcardNamespaceConstraintFromLexical(namespace, namespaceLoc, len(namespaceAttributes) == 1)
+	if len(notNamespaceAttributes) == 1 {
+		constraint = schemaWildcardNotNamespaceConstraintFromLexical(collapseXMLWhitespace(notNamespaceAttributes[0].value), notNamespaceAttributes[0].loc)
+	}
 	qname, err := schemaWildcardQNameConstraintFromElement(wildcard, facts)
 	if err != nil {
 		return nil, err
 	}
-	if (processContents == "strict" && (namespace == "##any" || namespace == "##other")) ||
+	if qname.present || len(notNamespaceAttributes) == 1 ||
+		(processContents == "strict" && (namespace == "##any" || namespace == "##other")) ||
 		(processContents == "lax" && namespace == "##any") ||
-		(processContents == "skip" && (namespace == "##any" || namespace == "##other")) {
-		return &schemaAnyAttributeInput{
-			loc:                 wildcard.loc,
-			namespaceConstraint: constraint,
-			qnameConstraint:     qname,
-			processContents:     processContents,
-			processContentsLoc:  processContentsLoc,
-		}, nil
-	}
-	if (isPositiveWildcardNamespace(namespace) || namespace == "" && len(namespaceAttributes) == 1) && processContents == "strict" {
+		(processContents == "skip" && (namespace == "##any" || namespace == "##other")) ||
+		(isPositiveWildcardNamespace(namespace) || namespace == "" && len(namespaceAttributes) == 1) && processContents == "strict" {
 		return &schemaAnyAttributeInput{
 			loc:                 wildcard.loc,
 			namespaceConstraint: constraint,
@@ -6860,6 +6904,10 @@ func resolveSchemaComplexTypeDirectBody(
 	if err != nil {
 		return nil, err
 	}
+	if body.anyAttribute != nil && body.anyAttribute.qnameConstraint.present &&
+		(body.anyAttribute.processContents != "strict" || body.anyAttribute.namespaceConstraint.variety == WildcardNamespaceConstraintNot || body.anyAttribute.namespaceConstraint.lexical == "##other") {
+		return nil, newSchemaAnyAttributeUnsupported(body.anyAttribute.loc, version)
+	}
 	if particle != nil {
 		return &schemaComplexTypeDirectBodyResult{
 			particle:      particle,
@@ -8924,12 +8972,9 @@ func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput, owner sch
 	if input == nil {
 		return schemaAnyAttributeResult{}, nil
 	}
-	namespace := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace())
-	for _, name := range input.qnameConstraint.names {
-		if schemaWildcardNamespaceAllowsQName(namespace, name, owner.name.Namespace()) {
-			continue
-		}
-		return schemaAnyAttributeResult{}, newSchemaAnyAttributeQNameNamespaceDiagnostic(input, name, owner.name.Namespace())
+	namespace, err := schemaAnyAttributeQNameNamespace(input, owner.name.Namespace())
+	if err != nil {
+		return schemaAnyAttributeResult{}, err
 	}
 	return schemaAnyAttributeResult{
 		present:             true,
@@ -8939,6 +8984,17 @@ func schemaAnyAttributeResultFromInput(input *schemaAnyAttributeInput, owner sch
 		processContents:     input.processContents,
 		processContentsLoc:  input.processContentsLoc,
 	}, nil
+}
+
+func schemaAnyAttributeQNameNamespace(input *schemaAnyAttributeInput, ownerNamespace string) (schemaWildcardNamespaceConstraint, error) {
+	namespace := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, ownerNamespace)
+	for _, name := range input.qnameConstraint.names {
+		if schemaWildcardNamespaceAllowsQName(namespace, name, ownerNamespace) {
+			continue
+		}
+		return schemaWildcardNamespaceConstraint{}, newSchemaAnyAttributeQNameNamespaceDiagnostic(input, name, ownerNamespace)
+	}
+	return namespace, nil
 }
 
 //nolint:gocognit,funlen // Keep QName, visibility, kind, and built-in precedence together.

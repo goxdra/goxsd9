@@ -461,6 +461,222 @@ func TestAnyAttributeQNameExcludedForms(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Check both editions, direct models, excluded modes, and both diagnostic outcomes.
+func TestAnyAttributeQNameExcludedModeMembershipPrecedesUnsupported(t *testing.T) {
+	forms := []struct {
+		name, attributes, allowed string
+		constraint                string
+	}{
+		{"lax", ` namespace="urn:p" processContents="lax"`, "p:item", `namespace=`},
+		{"skip", ` namespace="urn:p" processContents="skip"`, "p:item", `namespace=`},
+		{"other", ` namespace="##other"`, "p:item", `namespace=`},
+		{"negative", ` notNamespace="##targetNamespace"`, "p:item", `notNamespace=`},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, model := range []string{"sequence", "choice"} {
+			for _, form := range forms {
+				for _, test := range []struct {
+					name, qname string
+					invalid     bool
+				}{
+					{"invalid", "t:item", true},
+					{"valid-excluded", form.allowed, false},
+				} {
+					t.Run(string(policy)+"/"+model+"/"+form.name+"/"+test.name, func(t *testing.T) {
+						root := attributeQNameSchema(model, form.attributes+` notQName="##defined `+test.qname+`"`, "")
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+						assertZeroSchema(t, schema)
+						diagnostic := requireDiagnostic(t, err)
+						if test.invalid {
+							if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
+								diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName=`) ||
+								!reflect.DeepEqual(diagnostic.Related(), []Loc{wildcardParticleTestLoc(t, root, form.constraint)}) ||
+								diagnostic.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || !errors.Is(err, errSchemaWildcardQNameNamespace) {
+								t.Fatalf("membership diagnostic = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+							}
+							return
+						}
+						if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+							diagnostic.Loc() != wildcardParticleTestLoc(t, root, `<xs:anyAttribute`) || len(diagnostic.Related()) != 0 ||
+							diagnostic.SpecRef() != schemaAnyAttributeXSD11SpecRef || !errors.Is(err, errSchemaAnyAttributeUnsupported) {
+							t.Fatalf("excluded form diagnostic = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Exercise each excluded owner with invalid and valid QName membership.
+func TestAnyAttributeQNameExcludedOwnerMembershipPrecedesUnsupported(t *testing.T) {
+	forms := []struct{ name, attributes, constraint string }{
+		{"positive", ` namespace="urn:p"`, `namespace=`},
+		{"lax", ` namespace="urn:p" processContents="lax"`, `namespace=`},
+		{"skip", ` namespace="urn:p" processContents="skip"`, `namespace=`},
+		{"other", ` namespace="##other"`, `namespace=`},
+		{"negative", ` notNamespace="##targetNamespace"`, `notNamespace=`},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, shape := range []string{"empty", "inline", "attributeGroup", "attributeGroupRef"} {
+			for _, model := range []string{"sequence", "choice"} {
+				for _, form := range forms {
+					for _, test := range []struct {
+						name, qname string
+						invalid     bool
+					}{
+						{"invalid", "t:item", true},
+						{"valid-excluded", "p:item", false},
+					} {
+						t.Run(string(policy)+"/"+shape+"/"+model+"/"+form.name+"/"+test.name, func(t *testing.T) {
+							attributes := form.attributes + ` notQName="##defined ` + test.qname + `"`
+							wildcard := `<xs:anyAttribute` + attributes + `/>`
+							root := attributeQNamePlacementSchema(shape, model, wildcard)
+							switch shape {
+							case "empty":
+								root = attributeQNameSchema(model, attributes, "")
+								root = strings.Replace(root, `<xs:`+model+`></xs:`+model+`>`, "", 1)
+							case "attributeGroup":
+								root = attributeQNameSchema(model, attributes, "")
+								root = strings.Replace(root, `<xs:complexType name="Record"><xs:`+model+`></xs:`+model+`>`, `<xs:attributeGroup name="Record">`, 1)
+								root = strings.Replace(root, `</xs:complexType>`, `</xs:attributeGroup>`, 1)
+							}
+							schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+							assertZeroSchema(t, schema)
+							diagnostic := requireDiagnostic(t, err)
+							if test.invalid {
+								if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
+									diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName=`) ||
+									!reflect.DeepEqual(diagnostic.Related(), []Loc{wildcardParticleTestLoc(t, root, form.constraint)}) ||
+									diagnostic.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || !errors.Is(err, errSchemaWildcardQNameNamespace) {
+									t.Fatalf("membership diagnostic = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+								}
+								return
+							}
+							if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+								diagnostic.Loc() != wildcardParticleTestLoc(t, root, `<xs:anyAttribute`) || len(diagnostic.Related()) != 0 ||
+								diagnostic.SpecRef() != schemaAnyAttributeXSD11SpecRef || !errors.Is(err, errSchemaAnyAttributeUnsupported) {
+								t.Fatalf("excluded owner diagnostic = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+							}
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Keep the graph, chameleon namespace, owner, and edition controls paired.
+func TestAnyAttributeQNameExcludedMembershipGraphAndEdition(t *testing.T) {
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:t"><xs:include schemaLocation="included.xsd"/><xs:import namespace="urn:o" schemaLocation="other.xsd"/></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:o"><xs:import namespace="urn:t" schemaLocation="root.xsd"/></xs:schema>`
+	for _, shape := range []string{"direct", "inline"} {
+		for _, test := range []struct {
+			name, constraint string
+			invalid          bool
+		}{
+			{"invalid", `##targetNamespace`, true},
+			{"valid-excluded", `##local`, false},
+		} {
+			included := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Included"><xs:choice/><xs:anyAttribute notNamespace="` + test.constraint + `" notQName="##defined local"/></xs:complexType></xs:schema>`
+			if shape == "inline" {
+				included = `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="root"><xs:complexType><xs:choice/><xs:anyAttribute notNamespace="` + test.constraint + `" notQName="##defined local"/></xs:complexType></xs:element></xs:schema>`
+			}
+			fixtures := map[string]discoveryFixture{
+				"root.xsd":     {id: "root.xsd", contents: root},
+				"included.xsd": {id: "included.xsd", contents: included},
+				"other.xsd":    {id: "other.xsd", contents: other},
+			}
+			for _, policy := range []LanguagePolicy{Compatibility, Strict11, Strict10} {
+				t.Run(string(policy)+"/"+shape+"/"+test.name, func(t *testing.T) {
+					schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if policy == Strict10 {
+						if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+							diagnostic.Loc() != wildcardQNameDocumentLoc(t, "included.xsd", included, `notNamespace=`) ||
+							diagnostic.SpecRef() != "xsd11-structures#cSchemaDocument" || len(diagnostic.Related()) != 0 || !errors.Is(err, errLanguagePolicyMismatch) {
+							t.Fatalf("edition diagnostic = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+						}
+						return
+					}
+					if test.invalid {
+						if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
+							diagnostic.Loc() != wildcardQNameDocumentLoc(t, "included.xsd", included, `notQName=`) ||
+							!reflect.DeepEqual(diagnostic.Related(), []Loc{wildcardQNameDocumentLoc(t, "included.xsd", included, `notNamespace=`)}) ||
+							diagnostic.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || !errors.Is(err, errSchemaWildcardQNameNamespace) {
+							t.Fatalf("chameleon conflict = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+						}
+						return
+					}
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+						diagnostic.Loc() != wildcardQNameDocumentLoc(t, "included.xsd", included, `<xs:anyAttribute`) ||
+						len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != schemaAnyAttributeXSD11SpecRef || !errors.Is(err, errSchemaAnyAttributeUnsupported) {
+						t.Fatalf("graph excluded = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestAnyAttributeQNameExcludedModeKeepsEarlierReferenceFailure(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, model := range []string{"choice", "sequence"} {
+			for _, mode := range []string{"lax", "skip"} {
+				root := attributeQNameSchema(model, ` namespace="urn:p" processContents="`+mode+`" notQName="##defined t:item"`, `<xs:element ref="t:missing"/>`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != diagnosticSchemaElementReferenceUnresolvedCode ||
+					diagnostic.Loc() != wildcardParticleTestLoc(t, root, `ref="t:missing"`) || len(diagnostic.Related()) != 0 ||
+					diagnostic.SpecRef() != schemaElementReferenceSpecRef(XSDVersion11) ||
+					!errors.Is(err, errSchemaElementReferenceUnresolved) || errors.Is(err, errSchemaWildcardQNameNamespace) {
+					t.Fatalf("reference-before-excluded-wildcard = %s, related %v, spec %q", diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+				}
+			}
+		}
+	}
+}
+
+func TestAnyAttributeQNameExcludedModeSyntaxStillWins(t *testing.T) {
+	for _, test := range []struct {
+		name, attributes, marker, code, spec string
+	}{
+		{"malformed", ` namespace="urn:p" processContents="lax" notQName="##defined bad:q:name"`, `notQName=`, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef},
+		{"unbound", ` namespace="urn:p" processContents="skip" notQName="##defined missing:item"`, `notQName=`, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef},
+		{"sibling", ` namespace="##other" notQName="##definedSibling t:item"`, `notQName=`, invalidSchemaCompositionCode, ""},
+		{"cooccurrence", ` namespace="urn:p" notNamespace="##targetNamespace" notQName="##defined t:item"`, `namespace=`, invalidSchemaCompositionCode, ""},
+	} {
+		for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+			root := attributeQNameSchema("sequence", test.attributes, "")
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+			assertZeroSchema(t, schema)
+			diagnostic := requireDiagnostic(t, err)
+			if diagnostic.Class() != FailureInvalid || diagnostic.Code() != test.code ||
+				diagnostic.Loc() != wildcardParticleTestLoc(t, root, test.marker) || len(diagnostic.Related()) != 0 ||
+				diagnostic.SpecRef() != test.spec {
+				t.Fatalf("%s/%s syntax precedence = %s, related %v, spec %q", policy, test.name, diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+			}
+		}
+	}
+}
+
+func TestAnyAttributeQNameReferenceIsNotAdmittedByDirectWildcard(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		root := attributeQNameSchema("sequence", ` notQName="##defined t:item"`, "")
+		root = strings.Replace(root, `<xs:anyAttribute`, `<xs:attributeGroup ref="t:G"/><xs:anyAttribute`, 1)
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+		assertZeroSchema(t, schema)
+		diagnostic := requireDiagnostic(t, err)
+		if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+			diagnostic.Loc() != wildcardParticleTestLoc(t, root, `<xs:attributeGroup ref=`) ||
+			len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != "xsd10-structures#schema-document" {
+			t.Fatalf("%s attributeGroup reference = %s, related %v, spec %q", policy, diagnostic, diagnostic.Related(), diagnostic.SpecRef())
+		}
+	}
+}
+
 func TestAnyAttributeQNameExcludedOwners(t *testing.T) {
 	for _, shape := range []string{"empty", "inline", "attributeGroup"} {
 		for _, model := range []string{"sequence", "choice"} {
