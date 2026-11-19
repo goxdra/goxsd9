@@ -97,7 +97,7 @@ type-only unconstrained; global attribute consumers reject.
 Complexes retain abstract/final/block provenance, groups/extensions/wildcards.
 Empty named/untyped-global bodies admit empty `block`; named empties lack particles/occurrences.
 Named block `Loc` persists; untyped views omit it; nonempty policies/consumers reject.
-Named direct `xs:any`: empty/positive sets, 1.1 `notNamespace`, chameleons, `0/0`. Compatibility/Strict11 direct choice/sequence `notQName` admits symbolic `##defined` with explicit QNames in existing namespace/process modes. Tokens, sorted explicit names, bindings/`Loc` persist; QName membership precedes omission. `##definedSibling`, `notNamespace` combinations, derivation algebra, nonzero consumers reject.
+Named-global direct choice/sequence `xs:any`: empty/positive sets, 1.1 `notNamespace`, `0/0`. Compatibility/Strict11 `notQName` admits `##defined` alone (including empty sets) under strict/lax/skip; mixed QNames require namespace membership. Tokens, sorted explicit names, bindings/`Loc` persist; membership precedes omission. `##definedSibling`, `notNamespace` combinations, derivation algebra, nonzero consumers reject.
 Strict `xs:anyAttribute`: empty sets; Compatibility/Strict11 explicit-QName `notQName` with omitted/positive namespace. Membership precedes omission; tokens/bindings/`Loc` persist. Derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
