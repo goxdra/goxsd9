@@ -362,8 +362,10 @@ func schemaAttributeGroupReferenceUnsupported(err error) bool {
 }
 
 func syntaxTreeHasDeferredAnyAttributeQName(element, parent *syntaxElement) bool {
-	if element.name.namespace == xsdNamespaceURI && element.name.local == "anyAttribute" &&
-		hasExplicitAnyAttributeQName(element) && !supportsDirectNamedComplexTypeAnyAttribute(parent) && !schemaDerivationAnyAttributeParent(parent) {
+	if !isActiveSchemaSyntaxSubtree(element) {
+		return false
+	}
+	if isDeferredAnyAttributeQNameSyntax(element, parent) {
 		return true
 	}
 	for _, node := range element.children {
@@ -375,7 +377,15 @@ func syntaxTreeHasDeferredAnyAttributeQName(element, parent *syntaxElement) bool
 	return false
 }
 
+func isDeferredAnyAttributeQNameSyntax(element, parent *syntaxElement) bool {
+	return element.name.namespace == xsdNamespaceURI && element.name.local == "anyAttribute" &&
+		hasExplicitAnyAttributeQName(element) && !supportsDirectNamedComplexTypeAnyAttribute(parent) && !schemaDerivationAnyAttributeParent(parent)
+}
+
 func validateExplicitAnyAttributeQNameSyntax(element *syntaxElement, version XSDVersion) error {
+	if !isActiveSchemaSyntaxSubtree(element) {
+		return nil
+	}
 	if element.name.namespace == xsdNamespaceURI && element.name.local == "anyAttribute" && hasExplicitAnyAttributeQName(element) {
 		if err := validateAnyAttributeSyntax(element, version); err != nil {
 			return err
@@ -391,6 +401,17 @@ func validateExplicitAnyAttributeQNameSyntax(element *syntaxElement, version XSD
 		}
 	}
 	return nil
+}
+
+func isActiveSchemaSyntaxSubtree(element *syntaxElement) bool {
+	if element.name.namespace != xsdNamespaceURI {
+		return false
+	}
+	switch element.name.local {
+	case "annotation", "appinfo", "documentation":
+		return false
+	}
+	return true
 }
 
 func schemaRootChildElement(node syntaxNode) (*syntaxElement, error) {

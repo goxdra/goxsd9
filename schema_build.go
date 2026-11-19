@@ -722,8 +722,10 @@ func preflightSchemaAnyAttributeQNameNamespaces(documents []*syntaxDocument, dec
 }
 
 func preflightSchemaAnyAttributeQNameElement(element, parent *syntaxElement, facts schemaDocumentFacts, pending *error) error {
-	if element.name.namespace == xsdNamespaceURI && element.name.local == "anyAttribute" && hasExplicitAnyAttributeQName(element) &&
-		!supportsDirectNamedComplexTypeAnyAttribute(parent) && !schemaDerivationAnyAttributeParent(parent) {
+	if !isActiveSchemaSyntaxSubtree(element) {
+		return nil
+	}
+	if isDeferredAnyAttributeQNameSyntax(element, parent) {
 		input, err := schemaAnyAttributeInputFromWildcard(element, facts)
 		if err != nil {
 			return err
