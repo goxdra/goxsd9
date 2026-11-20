@@ -1975,6 +1975,9 @@ func schemaRestrictionAnyAttributeInputFromElement(restriction *syntaxElement, f
 		return nil, err
 	}
 	if !isExplicitRestrictionAnyAttribute(wildcard) {
+		if isNegativeRestrictionAnyAttribute(wildcard) {
+			return schemaAnyAttributeInputFromWildcard(wildcard, facts)
+		}
 		return nil, newSchemaBridgeInvariant(wildcard.loc, "supported restriction wildcard lacks explicit namespace or process")
 	}
 	namespace := syntaxAttributesByLocal(wildcard, "namespace")[0]
@@ -7095,6 +7098,9 @@ func (resolver *schemaComplexTypeResolver) resolveRestrictionBody(
 		if wildcard.qnameConstraint.present {
 			return nil, resolver.unsupportedRestrictionQName(wildcard, schemaAnyAttributeResult{}, body.base.loc)
 		}
+		if wildcard.namespaceConstraint.variety == WildcardNamespaceConstraintNot {
+			return nil, resolver.unsupportedRestrictionNegativeNamespace(wildcard, schemaAnyAttributeResult{}, body.base.loc)
+		}
 	}
 	return &schemaComplexTypeRestrictionBodyResult{
 		complexContentLoc: body.complexContentLoc,
@@ -7113,6 +7119,9 @@ func (resolver *schemaComplexTypeResolver) checkRestrictionWildcard(derived, bas
 	}
 	if derived.qnameConstraint.present || base.qnameConstraint.present {
 		return resolver.unsupportedRestrictionQName(derived, base, baseLoc)
+	}
+	if derived.namespaceConstraint.variety == WildcardNamespaceConstraintNot || base.namespaceConstraint.variety == WildcardNamespaceConstraintNot {
+		return resolver.unsupportedRestrictionNegativeNamespace(derived, base, baseLoc)
 	}
 	if !restrictionWildcardNamespaceSubset(derived.namespaceConstraint, base.namespaceConstraint, resolver.version) {
 		return newSchemaComplexTypeBaseDiagnostic(derived.namespaceConstraint.loc,
@@ -7147,6 +7156,25 @@ func (resolver *schemaComplexTypeResolver) unsupportedRestrictionQName(derived, 
 		related,
 		resolver.version,
 		fmt.Errorf("%w: attribute wildcard QName restriction", errSchemaComplexTypeBaseUnsupported),
+		schemaComplexTypeDerivationSpecRef(resolver.version),
+	)
+}
+
+func (resolver *schemaComplexTypeResolver) unsupportedRestrictionNegativeNamespace(derived, base schemaAnyAttributeResult, baseLoc Loc) error {
+	loc := derived.namespaceConstraint.loc
+	if loc.IsZero() {
+		loc = derived.loc
+	}
+	related := []Loc{baseLoc}
+	if base.present {
+		related = []Loc{base.namespaceConstraint.loc}
+	}
+	return newSchemaComplexTypeUnsupportedWithSpec(
+		loc,
+		"attribute wildcard restriction with notNamespace is not implemented",
+		related,
+		resolver.version,
+		fmt.Errorf("%w: attribute wildcard negative namespace restriction", errSchemaComplexTypeBaseUnsupported),
 		schemaComplexTypeDerivationSpecRef(resolver.version),
 	)
 }

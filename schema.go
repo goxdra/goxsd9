@@ -1718,7 +1718,7 @@ func (attribute AnyAttribute) Loc() Loc {
 	return attribute.facts.loc
 }
 
-// Namespace returns the normalized namespace constraint.
+// Namespace returns the normalized namespace or notNamespace lexical form.
 func (attribute AnyAttribute) Namespace() string {
 	if attribute.facts == nil {
 		return ""
@@ -1747,8 +1747,8 @@ func (attribute AnyAttribute) QNameConstraint() WildcardQNameConstraint {
 	return clonePublicWildcardQNameConstraint(attribute.facts.qnameConstraint)
 }
 
-// NamespaceLoc returns the location of the explicit namespace attribute. It is
-// zero when the namespace defaults to ##any.
+// NamespaceLoc returns the location of the explicit namespace or notNamespace
+// attribute. It is zero when the namespace defaults to ##any.
 func (attribute AnyAttribute) NamespaceLoc() Loc {
 	if attribute.facts == nil {
 		return Loc{}

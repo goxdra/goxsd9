@@ -3061,7 +3061,8 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 			continue
 		case "anyAttribute":
 			if anyAttributeSeen || !isSupportedAnyAttribute(child) &&
-				(base.Namespace() == xsdNamespaceURI && base.Local() == "anyType" || !isExplicitRestrictionAnyAttribute(child)) {
+				(base.Namespace() == xsdNamespaceURI && base.Local() == "anyType" ||
+					!isExplicitRestrictionAnyAttribute(child) && !isNegativeRestrictionAnyAttribute(child)) {
 				return false
 			}
 			anyAttributeSeen = true
@@ -3077,6 +3078,11 @@ func isExplicitRestrictionAnyAttribute(element *syntaxElement) bool {
 	return len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) != "" &&
 		len(syntaxAttributesByLocal(element, "processContents")) == 1 &&
 		len(syntaxAttributesByLocal(element, "notNamespace")) == 0
+}
+
+func isNegativeRestrictionAnyAttribute(element *syntaxElement) bool {
+	return len(syntaxAttributesByLocal(element, "notNamespace")) == 1 &&
+		len(syntaxAttributesByLocal(element, "namespace")) == 0
 }
 
 func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
@@ -3916,12 +3922,11 @@ func isSupportedAnyAttribute(element *syntaxElement) bool {
 	return collapseXMLWhitespace(namespaceAttributes[0].value) == "##other" && collapseXMLWhitespace(processContentsAttributes[0].value) == "lax"
 }
 
+//nolint:gocognit // Keep direct wildcard admission in one policy predicate.
 func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool {
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
 	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
-	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 {
-		return false
-	}
 	qname := syntaxAttributesByLocal(element, "notQName")
 	if len(qname) > 1 {
 		return false
@@ -3931,6 +3936,10 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	}
 	if len(processContentsAttributes) > 1 {
 		return false
+	}
+	if len(notNamespaceAttributes) > 0 {
+		return len(notNamespaceAttributes) == 1 && len(namespaceAttributes) == 0 && len(qname) == 0 &&
+			(len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict")
 	}
 	namespace := "##any"
 	if len(namespaceAttributes) == 1 {

@@ -266,6 +266,11 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
+// Compatibility and Strict11 also retain strict notNamespace lists on named
+// global direct choice/sequence attribute wildcards. NamespaceConstraint
+// reports sorted, distinct effective exclusions; Namespace preserves the
+// normalized lexical order. Lax/skip, notQName combinations, other owners,
+// and negative namespace derivation comparisons remain unsupported.
 // Compatibility and Strict11 named-global direct choice/sequence strict
 // anyAttribute wildcards admit explicit QNames alone, symbolic ##defined alone,
 // or both in notQName. Absent or positive namespace constraints admit these
