@@ -1718,7 +1718,7 @@ func (attribute AnyAttribute) Loc() Loc {
 	return attribute.facts.loc
 }
 
-// Namespace returns the normalized namespace constraint.
+// Namespace returns the normalized namespace or notNamespace lexical form.
 func (attribute AnyAttribute) Namespace() string {
 	if attribute.facts == nil {
 		return ""
@@ -1747,8 +1747,8 @@ func (attribute AnyAttribute) QNameConstraint() WildcardQNameConstraint {
 	return clonePublicWildcardQNameConstraint(attribute.facts.qnameConstraint)
 }
 
-// NamespaceLoc returns the location of the explicit namespace attribute. It is
-// zero when the namespace defaults to ##any.
+// NamespaceLoc returns the location of the explicit namespace or notNamespace
+// attribute. It is zero when the namespace defaults to ##any.
 func (attribute AnyAttribute) NamespaceLoc() Loc {
 	if attribute.facts == nil {
 		return Loc{}
@@ -2927,21 +2927,23 @@ type schemaComplexTypeRestrictionBodyInput struct {
 func (*schemaComplexTypeRestrictionBodyInput) schemaComplexTypeBodyInput() {}
 
 type schemaComplexTypeExtensionBodyInput struct {
-	complexContentLoc Loc
-	extensionLoc      Loc
-	base              schemaComplexTypeReferenceInput
-	particle          schemaComplexTypeParticleInput
-	attributeUses     []schemaAttributeUseInput
+	complexContentLoc           Loc
+	extensionLoc                Loc
+	deferredNegativeWildcardLoc Loc
+	base                        schemaComplexTypeReferenceInput
+	particle                    schemaComplexTypeParticleInput
+	attributeUses               []schemaAttributeUseInput
 }
 
 func (*schemaComplexTypeExtensionBodyInput) schemaComplexTypeBodyInput() {}
 
 type schemaComplexTypeGroupedExtensionBodyInput struct {
-	complexContentLoc Loc
-	extensionLoc      Loc
-	base              schemaComplexTypeReferenceInput
-	group             *schemaModelGroupReferenceParticleInput
-	attributeUses     []schemaAttributeUseInput
+	complexContentLoc           Loc
+	extensionLoc                Loc
+	deferredNegativeWildcardLoc Loc
+	base                        schemaComplexTypeReferenceInput
+	group                       *schemaModelGroupReferenceParticleInput
+	attributeUses               []schemaAttributeUseInput
 }
 
 func (*schemaComplexTypeGroupedExtensionBodyInput) schemaComplexTypeBodyInput() {}
@@ -4005,22 +4007,24 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			return (*schemaComplexTypeExtensionBodyInput)(nil)
 		}
 		return &schemaComplexTypeExtensionBodyInput{
-			complexContentLoc: body.complexContentLoc,
-			extensionLoc:      body.extensionLoc,
-			base:              body.base,
-			particle:          cloneSchemaComplexTypeParticleInput(body.particle),
-			attributeUses:     cloneSchemaAttributeUseInputs(body.attributeUses),
+			complexContentLoc:           body.complexContentLoc,
+			extensionLoc:                body.extensionLoc,
+			deferredNegativeWildcardLoc: body.deferredNegativeWildcardLoc,
+			base:                        body.base,
+			particle:                    cloneSchemaComplexTypeParticleInput(body.particle),
+			attributeUses:               cloneSchemaAttributeUseInputs(body.attributeUses),
 		}
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		if body == nil {
 			return (*schemaComplexTypeGroupedExtensionBodyInput)(nil)
 		}
 		return &schemaComplexTypeGroupedExtensionBodyInput{
-			complexContentLoc: body.complexContentLoc,
-			extensionLoc:      body.extensionLoc,
-			base:              body.base,
-			group:             cloneSchemaModelGroupReferenceParticleInput(body.group),
-			attributeUses:     cloneSchemaAttributeUseInputs(body.attributeUses),
+			complexContentLoc:           body.complexContentLoc,
+			extensionLoc:                body.extensionLoc,
+			deferredNegativeWildcardLoc: body.deferredNegativeWildcardLoc,
+			base:                        body.base,
+			group:                       cloneSchemaModelGroupReferenceParticleInput(body.group),
+			attributeUses:               cloneSchemaAttributeUseInputs(body.attributeUses),
 		}
 	default:
 		return nil

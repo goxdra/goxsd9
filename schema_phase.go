@@ -3061,7 +3061,8 @@ func boundedComplexContentRestrictionCandidate(element *syntaxElement, complexCo
 			continue
 		case "anyAttribute":
 			if anyAttributeSeen || !isSupportedAnyAttribute(child) &&
-				(base.Namespace() == xsdNamespaceURI && base.Local() == "anyType" || !isExplicitRestrictionAnyAttribute(child)) {
+				(base.Namespace() == xsdNamespaceURI && base.Local() == "anyType" ||
+					!isExplicitRestrictionAnyAttribute(child) && !isNegativeRestrictionAnyAttribute(child)) {
 				return false
 			}
 			anyAttributeSeen = true
@@ -3079,6 +3080,11 @@ func isExplicitRestrictionAnyAttribute(element *syntaxElement) bool {
 		len(syntaxAttributesByLocal(element, "notNamespace")) == 0
 }
 
+func isNegativeRestrictionAnyAttribute(element *syntaxElement) bool {
+	return len(syntaxAttributesByLocal(element, "notNamespace")) == 1 &&
+		len(syntaxAttributesByLocal(element, "namespace")) == 0
+}
+
 func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 	if element == nil || element.name.namespace != xsdNamespaceURI || element.name.local != "extension" {
 		return false
@@ -3091,6 +3097,7 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 	sequenceModel := false
 	attributeCount := 0
 	openContentSeen := false
+	deferredWildcardValid := true
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
 		if !ok {
@@ -3110,11 +3117,17 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 			sequenceModel = child.name.local == "sequence"
 		case "attribute":
 			attributeCount++
+		case "anyAttribute":
+			deferredWildcardValid = deferredWildcardValid && isDeferredNegativeExtensionAnyAttribute(child)
 		default:
 			return false
 		}
 	}
-	return modelCount <= 1 && (attributeCount == 0 || modelCount == 1 && (groupModel || sequenceModel) && !openContentSeen)
+	return deferredWildcardValid && modelCount <= 1 && (attributeCount == 0 || modelCount == 1 && (groupModel || sequenceModel) && !openContentSeen)
+}
+
+func isDeferredNegativeExtensionAnyAttribute(element *syntaxElement) bool {
+	return isNegativeRestrictionAnyAttribute(element) && isSupportedDirectNamedComplexTypeAnyAttribute(element)
 }
 
 func schemaBooleanAttributeTrue(element *syntaxElement) bool {
@@ -3386,10 +3399,11 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			anyAttributeSeen = true
 			boundedRestriction := complexContent && element.name.local == "restriction" && boundedComplexContentRestrictionCandidate(element, true)
 			var anyAttributeErr error
-			if boundedRestriction {
+			deferredNegativeExtension := complexContent && element.name.local == "extension" && isDeferredNegativeExtensionAnyAttribute(child)
+			if boundedRestriction || deferredNegativeExtension {
 				anyAttributeErr = validateAnyAttributeSyntax(child, version)
 			}
-			if !boundedRestriction {
+			if !boundedRestriction && !deferredNegativeExtension {
 				anyAttributeErr = validateAnyAttribute(child, version)
 			}
 			if err := anyAttributeErr; err != nil && !candidate.considerError(err) {
@@ -3916,12 +3930,11 @@ func isSupportedAnyAttribute(element *syntaxElement) bool {
 	return collapseXMLWhitespace(namespaceAttributes[0].value) == "##other" && collapseXMLWhitespace(processContentsAttributes[0].value) == "lax"
 }
 
+//nolint:gocognit // Keep direct wildcard admission in one policy predicate.
 func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool {
 	namespaceAttributes := syntaxAttributesByLocal(element, "namespace")
+	notNamespaceAttributes := syntaxAttributesByLocal(element, "notNamespace")
 	processContentsAttributes := syntaxAttributesByLocal(element, "processContents")
-	if len(syntaxAttributesByLocal(element, "notNamespace")) > 0 {
-		return false
-	}
 	qname := syntaxAttributesByLocal(element, "notQName")
 	if len(qname) > 1 {
 		return false
@@ -3931,6 +3944,10 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	}
 	if len(processContentsAttributes) > 1 {
 		return false
+	}
+	if len(notNamespaceAttributes) > 0 {
+		return len(notNamespaceAttributes) == 1 && len(namespaceAttributes) == 0 && len(qname) == 0 &&
+			(len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict")
 	}
 	namespace := "##any"
 	if len(namespaceAttributes) == 1 {

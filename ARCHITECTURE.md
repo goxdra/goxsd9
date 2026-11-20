@@ -46,7 +46,7 @@ IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 Extensions/restrictions retain IDs/`Loc`s/wildcards. Named-base restrictions need
 completed, particle-free, use-free bases. Derived namespace/process constraints
 must narrow; ##other keeps its origin under edition-specific rules.
-`notNamespace` and QName-constrained restriction comparisons remain unsupported.
+Negative namespace and QName-constrained restriction comparisons remain unsupported.
 Missing bases, widening, final, and cycles are invalid; missing derived
 wildcards, richer bodies, and consumers are unsupported.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
@@ -94,19 +94,19 @@ refs query-only. Inline defaults/fixed fail at value `Loc`;
 invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
-Complexes retain abstract/final/block provenance, groups/extensions/wildcards.
-Empty named/untyped-global bodies admit empty `block`; named empties lack particles/occurrences.
-Named block `Loc` persists; untyped views omit it; nonempty policies/consumers reject.
-Named-global direct choice/sequence `xs:any`: empty/positive sets, 1.1 `notNamespace`, `0/0`. Compatibility/Strict11 admit `##defined` under strict/lax/skip; QNames need membership before omission. Tokens/names/bindings/`Loc` persist. `##definedSibling`, `notNamespace` combinations, derivation, nonzero consumers reject.
-Strict `xs:anyAttribute`: Compatibility/Strict11 direct named choice/sequence `notQName` admits explicit QNames, `##defined`, or both under omitted/positive namespace; empty namespace permits keyword only. QName membership precedes omission. Tokens/names/bindings/`Loc` persist; derivations/consumers reject.
+Named/untyped-global empties admit empty `block`; named empties lack particles/occurrences.
+Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
+Named direct choice/sequence `xs:any`: all-policy empty/positive sets, `0/0`; Compatibility/Strict11 negative sets/`##defined` all modes. QName membership precedes omission; tokens/names/bindings/`Loc` persist. `##definedSibling`, negative/QName combinations, derivation, nonzero consumers reject.
+Named global direct choice/sequence strict `xs:anyAttribute notQName`: Compatibility/Strict11 admit QNames/`##defined` under absent/positive namespace; empty set permits keyword only. Membership precedes omission. Tokens/names/bindings/`Loc` persist; derivations/consumers reject.
+Compatibility/Strict11 strict named global direct choice/sequence `xs:anyAttribute notNamespace` retains sorted exclusions/source facts; Strict10 mismatches; other placements/modes/combinations/derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
-Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed or inline-simple globals expose true.
+Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed/inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.
 Inline IDs omit from walks; selected precisionDecimal sequences validate.
 Validated local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Named grouped extensions query optional local `final` through structurally
 matched named `xs:simpleDerivationSet`; its union/list values and consumers reject.
-Strict10 rejects precisionDecimal. Element refs retain ranges.
+Strict10 rejects precisionDecimal; element refs retain ranges.
 Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
 
 ## Datatypes
