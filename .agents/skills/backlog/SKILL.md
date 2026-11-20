@@ -43,3 +43,6 @@ code during this workflow.
 
 Use `go tool workflowctl issue create` and body files for all created prose.
 Keep status limited to Backlog, Ready, Picked, and Done.
+For a clean terminal no-source/no-PR claimed issue, use `workflowctl handoff
+ISSUE --body-file FILE --needs-human --terminal-no-pr` with the recovery body
+described in `docs/operations.md`.
