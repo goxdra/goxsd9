@@ -95,10 +95,10 @@ invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
 Named/untyped-global empties admit empty `block`; named empties lack particles/occurrences.
-Named block `Loc` persists; untyped omit; nonempty policies/consumers reject.
+Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
 Named direct choice/sequence `xs:any`: all-policy empty/positive sets, `0/0`; Compatibility/Strict11 negative sets/`##defined` all modes. QName membership precedes omission; tokens/names/bindings/`Loc` persist. `##definedSibling`, negative/QName combinations, derivation, nonzero consumers reject.
-Direct named strict `xs:anyAttribute notQName`: Compatibility/Strict11 admit QNames/`##defined` under absent/positive namespace; empty set permits keyword only. Membership precedes omission. Tokens/names/bindings/`Loc` persist; derivations/consumers reject.
-Compatibility/Strict11 strict direct named `notNamespace` retains sorted exclusions/source facts; Strict10 mismatches; other placements, modes, combinations, derivations, consumers reject.
+Named global direct choice/sequence strict `xs:anyAttribute notQName`: Compatibility/Strict11 admit QNames/`##defined` under absent/positive namespace; empty set permits keyword only. Membership precedes omission. Tokens/names/bindings/`Loc` persist; derivations/consumers reject.
+Compatibility/Strict11 strict named global direct choice/sequence `xs:anyAttribute notNamespace` retains sorted exclusions/source facts; Strict10 mismatches; other placements/modes/combinations/derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed/inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.

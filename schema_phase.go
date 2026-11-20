@@ -3097,6 +3097,7 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 	sequenceModel := false
 	attributeCount := 0
 	openContentSeen := false
+	deferredWildcardValid := true
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
 		if !ok {
@@ -3116,11 +3117,17 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 			sequenceModel = child.name.local == "sequence"
 		case "attribute":
 			attributeCount++
+		case "anyAttribute":
+			deferredWildcardValid = deferredWildcardValid && isDeferredNegativeExtensionAnyAttribute(child)
 		default:
 			return false
 		}
 	}
-	return modelCount <= 1 && (attributeCount == 0 || modelCount == 1 && (groupModel || sequenceModel) && !openContentSeen)
+	return deferredWildcardValid && modelCount <= 1 && (attributeCount == 0 || modelCount == 1 && (groupModel || sequenceModel) && !openContentSeen)
+}
+
+func isDeferredNegativeExtensionAnyAttribute(element *syntaxElement) bool {
+	return isNegativeRestrictionAnyAttribute(element) && isSupportedDirectNamedComplexTypeAnyAttribute(element)
 }
 
 func schemaBooleanAttributeTrue(element *syntaxElement) bool {
@@ -3392,10 +3399,11 @@ func validateComplexDerivation(element *syntaxElement, version XSDVersion, compl
 			anyAttributeSeen = true
 			boundedRestriction := complexContent && element.name.local == "restriction" && boundedComplexContentRestrictionCandidate(element, true)
 			var anyAttributeErr error
-			if boundedRestriction {
+			deferredNegativeExtension := complexContent && element.name.local == "extension" && isDeferredNegativeExtensionAnyAttribute(child)
+			if boundedRestriction || deferredNegativeExtension {
 				anyAttributeErr = validateAnyAttributeSyntax(child, version)
 			}
-			if !boundedRestriction {
+			if !boundedRestriction && !deferredNegativeExtension {
 				anyAttributeErr = validateAnyAttribute(child, version)
 			}
 			if err := anyAttributeErr; err != nil && !candidate.considerError(err) {

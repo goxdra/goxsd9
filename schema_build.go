@@ -2009,6 +2009,17 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 	if err != nil {
 		return nil, err
 	}
+	wildcard, err := schemaAnyAttributeElementFromElement(extension)
+	if err != nil {
+		return nil, err
+	}
+	var deferredNegativeWildcardLoc Loc
+	if wildcard != nil {
+		if !isDeferredNegativeExtensionAnyAttribute(wildcard) {
+			return nil, newSchemaBridgeInvariant(wildcard.loc, "supported extension has an unexpected attribute wildcard")
+		}
+		deferredNegativeWildcardLoc = wildcard.loc
+	}
 	model := schemaComplexTypeModel(extension)
 	var particle schemaComplexTypeParticleInput
 	if model != nil {
@@ -2079,7 +2090,7 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 		}
 	}
 	if model != nil && model.name.local == "group" {
-		return schemaGroupedComplexTypeExtensionInput(complexContent, extension, model, particle, facts, version, block, base, baseAttributes[0].loc, anonymousOwner)
+		return schemaGroupedComplexTypeExtensionInput(complexContent, extension, model, particle, facts, version, block, base, baseAttributes[0].loc, deferredNegativeWildcardLoc, anonymousOwner)
 	}
 	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version, false)
 	if err != nil {
@@ -2090,8 +2101,9 @@ func schemaComplexTypeExtensionInput(complexContent *syntaxElement, facts schema
 	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeExtensionBodyInput{
-			complexContentLoc: complexContent.loc,
-			extensionLoc:      extension.loc,
+			complexContentLoc:           complexContent.loc,
+			extensionLoc:                extension.loc,
+			deferredNegativeWildcardLoc: deferredNegativeWildcardLoc,
 			base: schemaComplexTypeReferenceInput{
 				kind: schemaComplexTypeQNameReferenceInput,
 				name: base,
@@ -2173,6 +2185,7 @@ func schemaGroupedComplexTypeExtensionInput(
 	block schemaBlockPolicy,
 	base QName,
 	baseLoc Loc,
+	deferredNegativeWildcardLoc Loc,
 	anonymousOwner bool,
 ) (*schemaComplexTypeInput, error) {
 	attributeUses, err := schemaAttributeUseInputsFromChildren(extension, facts, version, anonymousOwner)
@@ -2182,10 +2195,11 @@ func schemaGroupedComplexTypeExtensionInput(
 	if len(attributeUses) == 0 {
 		return &schemaComplexTypeInput{
 			body: &schemaComplexTypeExtensionBodyInput{
-				complexContentLoc: complexContent.loc,
-				extensionLoc:      extension.loc,
-				base:              schemaComplexTypeReferenceInput{kind: schemaComplexTypeQNameReferenceInput, name: base, loc: baseLoc},
-				particle:          particle,
+				complexContentLoc:           complexContent.loc,
+				extensionLoc:                extension.loc,
+				deferredNegativeWildcardLoc: deferredNegativeWildcardLoc,
+				base:                        schemaComplexTypeReferenceInput{kind: schemaComplexTypeQNameReferenceInput, name: base, loc: baseLoc},
+				particle:                    particle,
 			},
 			prohibitedSubstitutions: block,
 		}, nil
@@ -2196,11 +2210,12 @@ func schemaGroupedComplexTypeExtensionInput(
 	}
 	return &schemaComplexTypeInput{
 		body: &schemaComplexTypeGroupedExtensionBodyInput{
-			complexContentLoc: complexContent.loc,
-			extensionLoc:      extension.loc,
-			base:              schemaComplexTypeReferenceInput{kind: schemaComplexTypeQNameReferenceInput, name: base, loc: baseLoc},
-			group:             group,
-			attributeUses:     attributeUses,
+			complexContentLoc:           complexContent.loc,
+			extensionLoc:                extension.loc,
+			deferredNegativeWildcardLoc: deferredNegativeWildcardLoc,
+			base:                        schemaComplexTypeReferenceInput{kind: schemaComplexTypeQNameReferenceInput, name: base, loc: baseLoc},
+			group:                       group,
+			attributeUses:               attributeUses,
 		},
 		prohibitedSubstitutions: block,
 	}, nil
@@ -6745,6 +6760,9 @@ func (resolver *schemaComplexTypeResolver) resolve(index int) error {
 	body, err := resolver.resolveBody(input.body, index)
 	if err != nil {
 		return err
+	}
+	if loc, modelPresent := schemaDeferredNegativeExtensionWildcard(input.body); !loc.IsZero() {
+		return newSchemaDeferredNegativeExtensionWildcardUnsupported(loc, resolver.version, modelPresent)
 	}
 	for _, use := range schemaComplexTypeAttributeUseInputs(input.body) {
 		if use.deferredFalseInheritableLoc.IsZero() {
@@ -13044,6 +13062,30 @@ func newSchemaAnyAttributeUnsupported(loc Loc, version XSDVersion) Diagnostic {
 		diagnostic.specRef = schemaAnyAttributeSpecRef(version)
 	}
 	return diagnostic
+}
+
+func newSchemaDeferredNegativeExtensionWildcardUnsupported(loc Loc, version XSDVersion, modelPresent bool) Diagnostic {
+	diagnostic := newSchemaAnyAttributeUnsupported(loc, version)
+	if modelPresent {
+		diagnostic.specRef = schemaComplexTypeExtensionSpecRef(version)
+		return diagnostic
+	}
+	diagnostic.specRef = schemaComplexContentExtensionSpecRef(version)
+	return diagnostic
+}
+
+func schemaDeferredNegativeExtensionWildcard(body schemaComplexTypeBodyInput) (Loc, bool) {
+	switch extension := body.(type) {
+	case *schemaComplexTypeExtensionBodyInput:
+		if extension != nil {
+			return extension.deferredNegativeWildcardLoc, extension.particle != nil
+		}
+	case *schemaComplexTypeGroupedExtensionBodyInput:
+		if extension != nil {
+			return extension.deferredNegativeWildcardLoc, true
+		}
+	}
+	return Loc{}, false
 }
 
 func newSchemaAnyParticleUnsupported(loc Loc, message string, version XSDVersion) Diagnostic {

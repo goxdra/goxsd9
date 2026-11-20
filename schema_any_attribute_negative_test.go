@@ -419,6 +419,120 @@ func TestAnyAttributeNegativeExtensionRejectsInheritedConstraint(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Compare every extension-input route at the completed-base boundary.
+func TestAnyAttributeNegativeDerivedExtensionDependencyPrecedence(t *testing.T) {
+	models := []struct {
+		name, model, uses string
+	}{
+		{name: "empty"},
+		{name: "choice", model: `<xs:choice/>`},
+		{name: "sequence", model: `<xs:sequence/>`},
+		{name: "group", model: `<xs:group ref="t:G"/>`},
+		{name: "group-uses", model: `<xs:group ref="t:G"/>`, uses: `<xs:attribute name="flag" type="xs:boolean"/>`},
+	}
+	scenarios := []struct {
+		name, baseRef, base, marker string
+		related                     []string
+		class                       FailureClass
+		code                        string
+		cause                       error
+	}{
+		{name: "missing", baseRef: "t:Missing", marker: `base="t:Missing"`, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseUnresolved},
+		{name: "wrong-kind", baseRef: "t:Base", base: `<xs:simpleType name="Base"><xs:restriction base="xs:string"/></xs:simpleType>`, marker: `base="t:Base"`, related: []string{`<xs:simpleType name="Base"`}, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseWrongKind},
+		{name: "final", baseRef: "t:Base", base: `<xs:complexType name="Base" final="extension"/>`, marker: `base="t:Base"`, related: []string{`final="extension"`}, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseUnsupported},
+		{name: "cycle", baseRef: "t:Derived", marker: `base="t:Derived"`, class: FailureInvalid, code: invalidSchemaCompositionCode, cause: errSchemaComplexTypeBaseCycle},
+		{name: "valid", baseRef: "t:Base", base: `<xs:complexType name="Base"/>`, marker: `<xs:anyAttribute`, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errSchemaAnyAttributeUnsupported},
+		{name: "used-base", baseRef: "t:Base", base: `<xs:complexType name="Base"><xs:attribute name="inherited" type="xs:boolean"/></xs:complexType>`, marker: `base="t:Base"`, related: []string{`<xs:complexType name="Base"`}, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errSchemaComplexTypeBaseUnsupported},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, model := range models {
+			for _, scenario := range scenarios {
+				t.Run(string(policy)+"/"+model.name+"/"+scenario.name, func(t *testing.T) {
+					wildcard := `<xs:anyAttribute notNamespace="##local"/>`
+					owner := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="` + scenario.baseRef + `">` + model.model + model.uses + wildcard + `</xs:extension></xs:complexContent></xs:complexType>`
+					group := `<xs:group name="G"><xs:sequence><xs:element name="g" type="xs:integer"/></xs:sequence></xs:group>`
+					root := namedRestrictionSchema("1.1", "urn:t", owner+scenario.base+group)
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+					assertZeroSchema(t, schema)
+					d := requireDiagnostic(t, err)
+					spec := schemaComplexTypeExtensionSpecRef(XSDVersion11)
+					if model.model == "" && scenario.name == "valid" {
+						spec = schemaComplexContentExtensionSpecRef(XSDVersion11)
+					}
+					var related []Loc
+					for _, marker := range scenario.related {
+						related = append(related, anyAttributeTestLoc(root, marker))
+					}
+					if d.Class() != scenario.class || d.Code() != scenario.code || d.Loc() != anyAttributeTestLoc(root, scenario.marker) ||
+						!reflect.DeepEqual(d.Related(), related) || d.SpecRef() != spec || !errors.Is(err, scenario.cause) {
+						t.Fatalf("dependency = %s, related %v, cause %v; want %s %s %s %v %q %v", d, d.Related(), err, scenario.class, scenario.code, scenario.marker, related, spec, scenario.cause)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestAnyAttributeNegativeInlineExtensionDependencyPrecedence(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, scenario := range []struct {
+			name, baseRef, base, marker, related string
+			class                                FailureClass
+			code                                 string
+			cause                                error
+		}{
+			{"missing", "t:Missing", "", `base="t:Missing"`, "", FailureInvalid, invalidSchemaCompositionCode, errSchemaComplexTypeBaseUnresolved},
+			{"final", "t:Base", `<xs:complexType name="Base" final="extension"/>`, `base="t:Base"`, `final="extension"`, FailureInvalid, invalidSchemaCompositionCode, errSchemaComplexTypeBaseUnsupported},
+			{"valid", "t:Base", `<xs:complexType name="Base"/>`, `<xs:anyAttribute`, "", FailureUnsupported, UnsupportedSchemaSyntaxCode, errSchemaAnyAttributeUnsupported},
+		} {
+			t.Run(string(policy)+"/"+scenario.name, func(t *testing.T) {
+				owner := `<xs:element name="root"><xs:complexType><xs:complexContent><xs:extension base="` + scenario.baseRef + `"><xs:sequence/><xs:anyAttribute notNamespace="##local"/></xs:extension></xs:complexContent></xs:complexType></xs:element>`
+				root := namedRestrictionSchema("1.1", "urn:t", owner+scenario.base)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				assertZeroSchema(t, schema)
+				d := requireDiagnostic(t, err)
+				var related []Loc
+				if scenario.related != "" {
+					related = []Loc{anyAttributeTestLoc(root, scenario.related)}
+				}
+				if d.Class() != scenario.class || d.Code() != scenario.code || d.Loc() != anyAttributeTestLoc(root, scenario.marker) || !reflect.DeepEqual(d.Related(), related) || d.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) || !errors.Is(err, scenario.cause) {
+					t.Fatalf("%s dependency = %s, related %v, cause %v", scenario.name, d, d.Related(), err)
+				}
+			})
+		}
+	}
+}
+
+//nolint:gocognit // Verify hidden and visible graph exits for both edition policies.
+func TestAnyAttributeNegativeExtensionGraphVisibilityPrecedesUnsupported(t *testing.T) {
+	bridge := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:bridge"><xs:import namespace="urn:base" schemaLocation="base.xsd"/></xs:schema>`
+	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:base"><xs:complexType name="Base"/></xs:schema>`
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, visible := range []bool{false, true} {
+			imports := `<xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/>`
+			if visible {
+				imports = `<xs:import namespace="urn:base" schemaLocation="base.xsd"/>`
+			}
+			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:b="urn:base" targetNamespace="urn:root">` + imports + `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="b:Base"><xs:sequence/><xs:anyAttribute notNamespace="##local"/></xs:extension></xs:complexContent></xs:complexType></xs:schema>`
+			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+				"bridge.xsd": {id: "bridge.xsd", contents: bridge},
+				"base.xsd":   {id: "base.xsd", contents: base},
+			}, policy)
+			assertZeroSchema(t, schema)
+			d := requireDiagnostic(t, err)
+			if visible {
+				if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) || len(d.Related()) != 0 || d.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) || !errors.Is(err, errSchemaAnyAttributeUnsupported) {
+					t.Fatalf("visible %s = %s, related %v, cause %v", policy, d, d.Related(), err)
+				}
+				continue
+			}
+			if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != anyAttributeTestLoc(root, `base="b:Base"`) || !reflect.DeepEqual(d.Related(), []Loc{anyAttributeTestLocForSource("base.xsd", base, `<xs:complexType name="Base"`)}) || d.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) || !errors.Is(err, errSchemaComplexTypeBaseUnresolved) {
+				t.Fatalf("hidden %s = %s, related %v, cause %v", policy, d, d.Related(), err)
+			}
+		}
+	}
+}
+
 func TestAnyAttributeNegativeQNameMembershipPrecedesUnsupported(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {
 		root := negativeAttributeSchema(model, ` notNamespace="##local" notQName="local"`)

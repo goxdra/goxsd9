@@ -2927,21 +2927,23 @@ type schemaComplexTypeRestrictionBodyInput struct {
 func (*schemaComplexTypeRestrictionBodyInput) schemaComplexTypeBodyInput() {}
 
 type schemaComplexTypeExtensionBodyInput struct {
-	complexContentLoc Loc
-	extensionLoc      Loc
-	base              schemaComplexTypeReferenceInput
-	particle          schemaComplexTypeParticleInput
-	attributeUses     []schemaAttributeUseInput
+	complexContentLoc           Loc
+	extensionLoc                Loc
+	deferredNegativeWildcardLoc Loc
+	base                        schemaComplexTypeReferenceInput
+	particle                    schemaComplexTypeParticleInput
+	attributeUses               []schemaAttributeUseInput
 }
 
 func (*schemaComplexTypeExtensionBodyInput) schemaComplexTypeBodyInput() {}
 
 type schemaComplexTypeGroupedExtensionBodyInput struct {
-	complexContentLoc Loc
-	extensionLoc      Loc
-	base              schemaComplexTypeReferenceInput
-	group             *schemaModelGroupReferenceParticleInput
-	attributeUses     []schemaAttributeUseInput
+	complexContentLoc           Loc
+	extensionLoc                Loc
+	deferredNegativeWildcardLoc Loc
+	base                        schemaComplexTypeReferenceInput
+	group                       *schemaModelGroupReferenceParticleInput
+	attributeUses               []schemaAttributeUseInput
 }
 
 func (*schemaComplexTypeGroupedExtensionBodyInput) schemaComplexTypeBodyInput() {}
@@ -4005,22 +4007,24 @@ func cloneSchemaComplexTypeBodyInput(input schemaComplexTypeBodyInput) schemaCom
 			return (*schemaComplexTypeExtensionBodyInput)(nil)
 		}
 		return &schemaComplexTypeExtensionBodyInput{
-			complexContentLoc: body.complexContentLoc,
-			extensionLoc:      body.extensionLoc,
-			base:              body.base,
-			particle:          cloneSchemaComplexTypeParticleInput(body.particle),
-			attributeUses:     cloneSchemaAttributeUseInputs(body.attributeUses),
+			complexContentLoc:           body.complexContentLoc,
+			extensionLoc:                body.extensionLoc,
+			deferredNegativeWildcardLoc: body.deferredNegativeWildcardLoc,
+			base:                        body.base,
+			particle:                    cloneSchemaComplexTypeParticleInput(body.particle),
+			attributeUses:               cloneSchemaAttributeUseInputs(body.attributeUses),
 		}
 	case *schemaComplexTypeGroupedExtensionBodyInput:
 		if body == nil {
 			return (*schemaComplexTypeGroupedExtensionBodyInput)(nil)
 		}
 		return &schemaComplexTypeGroupedExtensionBodyInput{
-			complexContentLoc: body.complexContentLoc,
-			extensionLoc:      body.extensionLoc,
-			base:              body.base,
-			group:             cloneSchemaModelGroupReferenceParticleInput(body.group),
-			attributeUses:     cloneSchemaAttributeUseInputs(body.attributeUses),
+			complexContentLoc:           body.complexContentLoc,
+			extensionLoc:                body.extensionLoc,
+			deferredNegativeWildcardLoc: body.deferredNegativeWildcardLoc,
+			base:                        body.base,
+			group:                       cloneSchemaModelGroupReferenceParticleInput(body.group),
+			attributeUses:               cloneSchemaAttributeUseInputs(body.attributeUses),
 		}
 	default:
 		return nil
