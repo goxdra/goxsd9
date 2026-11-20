@@ -32,7 +32,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Named choice/sequence: `xs:any` all modes; `xs:anyAttribute` strict. Compatibility/Strict11 admit negative `notNamespace` lists and symbolic `##defined`; QNames require membership. Consumers reject.
+Choice/sequence: `xs:any` all modes; `xs:anyAttribute` strict. Compatibility/Strict11 add negative `notNamespace` or `##defined` (absent/positive namespace only) to both; combinations/consumers reject.
 
 ## CLI
 
