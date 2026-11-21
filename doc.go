@@ -242,9 +242,12 @@
 // Named-global direct choice/sequence xs:any also admits explicit empty namespace
 // lists with strict, lax, or skip processing under all policies.
 // Compatibility and Strict11 also expose direct notNamespace lists with omitted or explicit
-// strict, lax, or skip processing; Strict10 reports a located edition mismatch. Positive sets contain
-// included namespaces; negative sets contain excluded namespaces. Both retain sorted,
-// unique owner-relative values, normalized lexical forms, and exact attribute locations
+// strict, lax, or skip processing; Strict10 reports a located edition mismatch.
+// Only exact ##targetNamespace and ##local terms are symbolic in notNamespace;
+// other ##-prefixed terms, including ##any and ##other, are URI exclusions.
+// Positive sets contain included namespaces; negative sets contain excluded
+// namespaces. Both retain sorted, unique owner-relative values, normalized
+// lexical forms, and exact attribute locations
 // in lexical order with element and reference terms.
 // Compatibility and Strict11 support ##defined alone on named-global direct
 // choice/sequence xs:any with ##any, ##other, positive, or valid empty namespace

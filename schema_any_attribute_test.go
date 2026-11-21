@@ -1560,7 +1560,6 @@ func TestSchemaBridgeRejectsMalformedAnyAttributeBeforeUnsupportedClassification
 		{name: "other_skip_invalid_child", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="skip"`, child: `<xs:element/>`, wantCode: invalidSchemaCompositionCode, wantMarker: `<xs:element/>`},
 		{name: "other_skip_namespace_composition", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="skip" notNamespace="##local"`, wantCode: invalidSchemaCompositionCode, wantMarker: `namespace="##other"`},
 		{name: "process_contents_enum", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="relaxed"`, wantCode: invalidSchemaCompositionCode, wantMarker: `processContents="relaxed"`},
-		{name: "not_namespace_token", policy: Strict11, version: "1.1", attributes: `notNamespace="##bad" processContents="lax"`, wantCode: invalidSchemaCompositionCode, wantMarker: `notNamespace="##bad"`},
 		{name: "not_qname_lexical", policy: Strict11, version: "1.1", attributes: `notQName="bad:q:name" processContents="lax"`, wantCode: invalidSchemaConditionalCode, wantMarker: `notQName="bad:q:name"`},
 		{name: "forbidden_attribute", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="lax" bogus="x"`, wantCode: invalidSchemaCompositionCode, wantMarker: `bogus="x"`},
 		{name: "invalid_child", policy: Strict11, version: "1.1", attributes: `namespace="##other" processContents="lax"`, child: `<xs:element/>`, wantCode: invalidSchemaCompositionCode, wantMarker: `<xs:element/>`},

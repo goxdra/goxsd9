@@ -18,6 +18,11 @@ func TestSchemaBridgeModelsNegativeWildcardNamespace(t *testing.T) {
 		{name: "target", value: "##targetNamespace", lexical: "##targetNamespace", want: []string{"urn:root"}},
 		{name: "list", value: "&#xA;urn:z&#x9;##targetNamespace  urn:a&#xD;##local urn:z", lexical: "urn:z ##targetNamespace urn:a ##local urn:z", want: []string{"", "urn:a", "urn:root", "urn:z"}},
 		{name: "relative_uris", value: "relative/ns urn:z relative/ns", lexical: "relative/ns urn:z relative/ns", want: []string{"relative/ns", "urn:z"}},
+		{name: "hash_uri", value: "##bad", lexical: "##bad", want: []string{"##bad"}},
+		{name: "hash_any_uri", value: "##any", lexical: "##any", want: []string{"##any"}},
+		{name: "hash_other_uri", value: "##other", lexical: "##other", want: []string{"##other"}},
+		{name: "hash_keywords_as_uris", value: "##any ##other", lexical: "##any ##other", want: []string{"##any", "##other"}},
+		{name: "mixed_hash_and_symbols", value: "&#xA;##other&#x9;##targetNamespace ##bad ##local ##any ##other ##targetNamespace", lexical: "##other ##targetNamespace ##bad ##local ##any ##other ##targetNamespace", want: []string{"", "##any", "##bad", "##other", "urn:root"}},
 	}
 	occurrences := []directWildcardOccurrenceCase{
 		{name: "default", wantRange: "1/1", wantTerm: true},
@@ -109,8 +114,8 @@ func TestSchemaBridgeNegativeWildcardAbsentTarget(t *testing.T) {
 //nolint:gocognit // Keep graph order, adoption, provenance, and repeated runs together.
 func TestSchemaBridgeNegativeWildcardGraphProvenance(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="chameleon.xsd"/><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
-	chameleon := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Included"><xs:choice><xs:any notNamespace="##targetNamespace" processContents="skip"/></xs:choice></xs:complexType></xs:schema>`
-	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence><xs:any notNamespace="##targetNamespace ##local urn:z" processContents="skip"/></xs:sequence></xs:complexType></xs:schema>`
+	chameleon := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Included"><xs:choice><xs:any notNamespace="##bad ##targetNamespace ##other ##bad" processContents="skip"/></xs:choice></xs:complexType></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence><xs:any notNamespace="##targetNamespace ##local ##any urn:z" processContents="skip"/></xs:sequence></xs:complexType></xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"root.xsd":      {id: "root.xsd", contents: root},
 		"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
@@ -136,8 +141,8 @@ func TestSchemaBridgeNegativeWildcardGraphProvenance(t *testing.T) {
 			wantNames := []QName{mustTestQName(t, "urn:root", "Included"), mustTestQName(t, "urn:other", "Imported")}
 			wantSources := []SourceID{"chameleon.xsd", "other.xsd"}
 			wantContents := []string{chameleon, other}
-			wantConstraints := []string{`notNamespace="##targetNamespace"`, `notNamespace="##targetNamespace ##local urn:z"`}
-			wantNamespaces := [][]string{{"urn:root"}, {"", "urn:other", "urn:z"}}
+			wantConstraints := []string{`notNamespace="##bad ##targetNamespace ##other ##bad"`, `notNamespace="##targetNamespace ##local ##any urn:z"`}
+			wantNamespaces := [][]string{{"##bad", "##other", "urn:root"}, {"", "##any", "urn:other", "urn:z"}}
 			for index, component := range components {
 				if component.Name() != wantNames[index] {
 					t.Fatalf("%s run %d component %d name = %s, want %s", policy, run, index, component.Name(), wantNames[index])
@@ -177,12 +182,10 @@ func TestSchemaBridgeNegativeWildcardDiagnostics(t *testing.T) {
 	}{
 		{name: "strict10", attributes: ` notNamespace="##local"`, marker: `notNamespace="##local"`, policy: Strict10, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errLanguagePolicyMismatch},
 		{name: "strict10_zero", attributes: ` notNamespace="##local" minOccurs="0" maxOccurs="0"`, marker: `notNamespace="##local"`, policy: Strict10, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errLanguagePolicyMismatch},
-		{name: "strict10_invalid_first", attributes: ` notNamespace="##any" minOccurs="0" maxOccurs="0"`, marker: `notNamespace="##any"`, policy: Strict10, class: FailureInvalid, code: invalidSchemaCompositionCode},
+		{name: "strict10_hash_uri", attributes: ` notNamespace="##any" minOccurs="0" maxOccurs="0"`, marker: `notNamespace="##any"`, policy: Strict10, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errLanguagePolicyMismatch},
 		{name: "empty", attributes: ` notNamespace="&#x9;"`, marker: `notNamespace="&#x9;"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "empty_zero", attributes: ` notNamespace="&#x9;" minOccurs="0" maxOccurs="0"`, marker: `notNamespace="&#x9;"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "lax_empty", attributes: ` notNamespace="&#x9;" processContents="lax"`, marker: `notNamespace="&#x9;"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
-		{name: "bad_marker", attributes: ` notNamespace="##any"`, marker: `notNamespace="##any"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
-		{name: "lax_bad_marker_zero", attributes: ` notNamespace="##any" processContents="lax" minOccurs="0" maxOccurs="0"`, marker: `notNamespace="##any"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "duplicate", attributes: ` notNamespace="##local" notNamespace="##local"`, marker: `notNamespace="##local"/>`, policy: Strict11, class: FailureInvalid, code: InvalidXMLSyntaxCode},
 		{name: "both", attributes: ` notNamespace="##local" namespace="##any"`, marker: `namespace="##any"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "lax_both", attributes: ` notNamespace="##local" namespace="##any" processContents="lax"`, marker: `namespace="##any"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
@@ -190,9 +193,8 @@ func TestSchemaBridgeNegativeWildcardDiagnostics(t *testing.T) {
 		{name: "strict10_lax", attributes: ` notNamespace="##local" processContents="lax"`, marker: `notNamespace="##local"`, policy: Strict10, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errLanguagePolicyMismatch},
 		{name: "strict10_skip", attributes: ` notNamespace="##local" processContents="skip"`, marker: `notNamespace="##local"`, policy: Strict10, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errLanguagePolicyMismatch},
 		{name: "strict10_skip_zero", attributes: ` notNamespace="##local" processContents="skip" minOccurs="0" maxOccurs="0"`, marker: `notNamespace="##local"`, policy: Strict10, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errLanguagePolicyMismatch},
-		{name: "skip_bad_marker", attributes: ` notNamespace="##any" processContents="skip"`, marker: `notNamespace="##any"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "skip_empty_zero", attributes: ` notNamespace="&#x9;" processContents="skip" minOccurs="0" maxOccurs="0"`, marker: `notNamespace="&#x9;"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
-		{name: "strict10_skip_invalid_first", attributes: ` notNamespace="##any" processContents="skip"`, marker: `notNamespace="##any"`, policy: Strict10, class: FailureInvalid, code: invalidSchemaCompositionCode},
+		{name: "strict10_skip_invalid_first", attributes: ` notNamespace="&#x9;" processContents="skip"`, marker: `notNamespace="&#x9;"`, policy: Strict10, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "skip_both", attributes: ` notNamespace="##local" namespace="##any" processContents="skip"`, marker: `namespace="##any"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "skip_invalid_occurrence", attributes: ` notNamespace="##local" processContents="skip" minOccurs="2" maxOccurs="1"`, marker: `<xs:any`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "invalid_process", attributes: ` notNamespace="##local" processContents="maybe"`, marker: `processContents="maybe"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
@@ -254,7 +256,7 @@ func TestSchemaBridgeNegativeWildcardConsumers(t *testing.T) {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, process := range []string{"lax", "skip"} {
 				t.Run(string(policy)+"/"+model+"/"+process, func(t *testing.T) {
-					root := directWildcardSchemaWithTerms("1.1", model, false, ` notNamespace="##local" processContents="`+process+`"`, `<xs:element name="first" type="xs:integer"/>`, "")
+					root := directWildcardSchemaWithTerms("1.1", model, false, ` notNamespace="##bad" processContents="`+process+`"`, `<xs:element name="first" type="xs:integer"/>`, "")
 					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 					if err != nil {
 						t.Fatalf("discover schema: %v", err)
@@ -267,16 +269,24 @@ func TestSchemaBridgeNegativeWildcardConsumers(t *testing.T) {
 					validation := requireDiagnostic(t, validationErr)
 					wantValidationLoc := wildcardLoc
 					wantValidationCause := errInstanceChoiceWildcard
+					wantValidationRelated := []Loc{
+						wildcardParticleTestLoc(t, root, `<xs:element name="root"`),
+						wildcardParticleTestLoc(t, root, `<xs:complexType name="Record"`),
+						wildcardParticleTestLoc(t, root, `<xs:`+model),
+						wildcardParticleTestLoc(t, root, `<xs:element name="first"`),
+						wildcardLoc,
+					}
 					if model == "sequence" {
 						wantValidationLoc = Loc{source: "instance.xml", line: 1, column: 1}
 						wantValidationCause = errInstanceSequenceWildcard
+						wantValidationRelated = append(wantValidationRelated, wildcardParticleTestLoc(t, root, `<xs:element name="last"`))
 					}
-					if validation.Code() != UnsupportedInstanceValidationCode || validation.Loc() != wantValidationLoc ||
+					if validation.Class() != FailureUnsupported || validation.Code() != UnsupportedInstanceValidationCode || validation.Loc() != wantValidationLoc ||
 						validation.SpecRef() != instanceValidationSpecRef(XSDVersion11) || !errors.Is(validationErr, wantValidationCause) {
 						t.Fatalf("validation diagnostic = %s, want located wildcard unsupported", validation)
 					}
-					if !negativeWildcardRelatedHas(validation.Related(), wildcardLoc) {
-						t.Fatalf("validation related locations = %v, want wildcard %s", validation.Related(), wildcardLoc)
+					if !reflect.DeepEqual(validation.Related(), wantValidationRelated) {
+						t.Fatalf("validation related locations = %v, want %v", validation.Related(), wantValidationRelated)
 					}
 					generated, generationErr := GenerateGo(schema, "generated")
 					if generationErr == nil || generated != nil || !errors.Is(generationErr, ErrUnsupported) {
@@ -289,12 +299,13 @@ func TestSchemaBridgeNegativeWildcardConsumers(t *testing.T) {
 						wantGenerationCause = errCodegenDirectSequenceWildcard
 						wantGenerationSpec = codegenDirectSequenceXSD11ElementSequenceSpecRef
 					}
-					if generation.Code() != diagnosticCodegenUnsupported || generation.Loc() != wildcardLoc ||
+					if generation.Class() != FailureUnsupported || generation.Code() != diagnosticCodegenUnsupported || generation.Loc() != wildcardLoc ||
 						generation.SpecRef() != wantGenerationSpec || !errors.Is(generationErr, wantGenerationCause) {
 						t.Fatalf("generation diagnostic = %s, want located wildcard unsupported", generation)
 					}
-					if !negativeWildcardRelatedHas(generation.Related(), wildcardLoc) {
-						t.Fatalf("generation related locations = %v, want wildcard %s", generation.Related(), wildcardLoc)
+					wantGenerationRelated := []Loc{wildcardParticleTestLoc(t, root, `<xs:`+model), wildcardLoc}
+					if !reflect.DeepEqual(generation.Related(), wantGenerationRelated) {
+						t.Fatalf("generation related locations = %v, want %v", generation.Related(), wantGenerationRelated)
 					}
 				})
 			}
@@ -312,67 +323,69 @@ func negativeWildcardRelatedHas(related []Loc, want Loc) bool {
 }
 
 //nolint:gocognit // Keep excluded wildcard placements and owner shapes at one admission boundary.
-func TestSchemaBridgeNegativeSkipWildcardExclusions(t *testing.T) {
-	wildcard := `<xs:any notNamespace="##local" processContents="skip"%s/>`
+func TestSchemaBridgeNegativeWildcardExclusions(t *testing.T) {
 	tests := []struct {
 		name, shape, attribute, wantMarker string
 	}{
 		{name: "notQName", shape: "named", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
 		{name: "notQName", shape: "inline", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
 		{name: "notQName", shape: "group_ref", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
-		{name: "nested", shape: "named", wantMarker: `notNamespace="##local"`},
-		{name: "nested", shape: "inline", wantMarker: `notNamespace="##local"`},
-		{name: "nested", shape: "group_ref", wantMarker: `notNamespace="##local"`},
-		{name: "open_content", shape: "named", wantMarker: `notNamespace="##local"`},
-		{name: "open_content", shape: "inline", wantMarker: `notNamespace="##local"`},
+		{name: "nested", shape: "named", wantMarker: `notNamespace="##bad"`},
+		{name: "nested", shape: "inline", wantMarker: `notNamespace="##bad"`},
+		{name: "nested", shape: "group_ref", wantMarker: `notNamespace="##bad"`},
+		{name: "open_content", shape: "named", wantMarker: `notNamespace="##bad"`},
+		{name: "open_content", shape: "inline", wantMarker: `notNamespace="##bad"`},
 	}
-	for _, test := range tests {
-		t.Run(test.name+"/"+test.shape, func(t *testing.T) {
-			wildcardTerm := strings.Replace(wildcard, "%s", test.attribute, 1)
-			if test.name == "notQName" {
-				wildcardTerm = `<xs:any` + test.attribute + ` notNamespace="##local" processContents="skip"/>`
-			}
-			content := `<xs:choice>` + wildcardTerm + `</xs:choice>`
-			if test.name == "nested" {
-				content = `<xs:choice><xs:sequence>` + wildcardTerm + `</xs:sequence></xs:choice>`
-			}
-			if test.name == "open_content" {
-				content = `<xs:openContent mode="interleave">` + wildcardTerm + `</xs:openContent><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence>`
-			}
-			body := `<xs:complexType name="Record">` + content + `</xs:complexType>`
-			if test.shape == "inline" {
-				body = `<xs:element name="root"><xs:complexType>` + content + `</xs:complexType></xs:element>`
-			}
-			if test.shape == "group_ref" {
-				body = `<xs:group name="G">` + content + `</xs:group><xs:complexType name="Record"><xs:group ref="t:G"/></xs:complexType>`
-			}
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">` + body + `</xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-			if err == nil {
-				t.Fatal("excluded wildcard shape unexpectedly parsed")
-			}
-			assertZeroSchema(t, schema)
-			diagnostic := requireDiagnostic(t, err)
-			if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
-				diagnostic.Loc() != wildcardParticleTestLoc(t, root, test.wantMarker) {
-				t.Fatalf("diagnostic = %s, want located unsupported at %s", diagnostic, wildcardParticleTestLoc(t, root, test.wantMarker))
-			}
-			if !errors.Is(err, ErrUnsupported) {
-				t.Fatalf("diagnostic lost unsupported cause: %v", err)
-			}
-			wantSpec := "xsd10-structures#schema-document"
-			if test.shape == "group_ref" {
-				wantSpec = "xsd11-structures#cSchemaDocument"
-			}
-			if test.name == "notQName" && test.shape == "named" {
-				wantSpec = schemaAnyParticleSpecRef(XSDVersion11)
-				if !errors.Is(err, errSchemaAnyParticleUnsupported) {
-					t.Fatalf("direct notQName lost wildcard cause: %v", err)
+	for _, process := range []string{"strict", "lax", "skip"} {
+		for _, test := range tests {
+			t.Run(process+"/"+test.name+"/"+test.shape, func(t *testing.T) {
+				wildcard := `<xs:any notNamespace="##bad" processContents="` + process + `"%s/>`
+				wildcardTerm := strings.Replace(wildcard, "%s", test.attribute, 1)
+				if test.name == "notQName" {
+					wildcardTerm = `<xs:any` + test.attribute + ` notNamespace="##bad" processContents="` + process + `"/>`
 				}
-			}
-			if diagnostic.SpecRef() != wantSpec || len(diagnostic.Related()) != 0 {
-				t.Fatalf("diagnostic spec/related = %q/%v, want %q/no related", diagnostic.SpecRef(), diagnostic.Related(), wantSpec)
-			}
-		})
+				content := `<xs:choice>` + wildcardTerm + `</xs:choice>`
+				if test.name == "nested" {
+					content = `<xs:choice><xs:sequence>` + wildcardTerm + `</xs:sequence></xs:choice>`
+				}
+				if test.name == "open_content" {
+					content = `<xs:openContent mode="interleave">` + wildcardTerm + `</xs:openContent><xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence>`
+				}
+				body := `<xs:complexType name="Record">` + content + `</xs:complexType>`
+				if test.shape == "inline" {
+					body = `<xs:element name="root"><xs:complexType>` + content + `</xs:complexType></xs:element>`
+				}
+				if test.shape == "group_ref" {
+					body = `<xs:group name="G">` + content + `</xs:group><xs:complexType name="Record"><xs:group ref="t:G"/></xs:complexType>`
+				}
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">` + body + `</xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+				if err == nil {
+					t.Fatal("excluded wildcard shape unexpectedly parsed")
+				}
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode ||
+					diagnostic.Loc() != wildcardParticleTestLoc(t, root, test.wantMarker) {
+					t.Fatalf("diagnostic = %s, want located unsupported at %s", diagnostic, wildcardParticleTestLoc(t, root, test.wantMarker))
+				}
+				if !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("diagnostic lost unsupported cause: %v", err)
+				}
+				wantSpec := "xsd10-structures#schema-document"
+				if test.shape == "group_ref" {
+					wantSpec = "xsd11-structures#cSchemaDocument"
+				}
+				if test.name == "notQName" && test.shape == "named" {
+					wantSpec = schemaAnyParticleSpecRef(XSDVersion11)
+					if !errors.Is(err, errSchemaAnyParticleUnsupported) {
+						t.Fatalf("direct notQName lost wildcard cause: %v", err)
+					}
+				}
+				if diagnostic.SpecRef() != wantSpec || len(diagnostic.Related()) != 0 {
+					t.Fatalf("diagnostic spec/related = %q/%v, want %q/no related", diagnostic.SpecRef(), diagnostic.Related(), wantSpec)
+				}
+			})
+		}
 	}
 }

@@ -4107,9 +4107,6 @@ func validateWildcardNotNamespace(attribute syntaxAttribute) error {
 		if token == "##local" || token == "##targetNamespace" { //nolint:gosec // XSD wildcard keywords are not credentials.
 			continue
 		}
-		if strings.HasPrefix(token, "##") {
-			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("attribute %q has an invalid wildcard namespace", attribute.name.local))
-		}
 		if err := validateSchemaAnyURI(syntaxAttribute{value: token, loc: attribute.loc, name: attribute.name}); err != nil {
 			return err
 		}
