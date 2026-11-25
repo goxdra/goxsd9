@@ -7,7 +7,7 @@ Parses XSD into immutable components or diagnostics.
 `NewResolvedSource`/`ParseSchema`/`Resolver` resolve mixed XSD 1.0/1.1 graphs.
 `ParseSchemaWithPolicy` selects policy.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Effective short/int/byte/unsignedLong grouped uses require empty/use-free bases. Inherited-ID exception: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Zero-use direct-group extensions: default 1/1 sequence, use-free base; consumers reject. Attribute-free simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
+Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Named effective short/int/byte/unsignedLong grouped uses require empty/use-free bases. Named grouped inherited-ID exception: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: use-free base with default 1/1 sequence and one 0/1 global ref; consumers reject. Attribute-free named simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -36,17 +36,14 @@ Named global direct choice/sequence `xs:any`/`xs:anyAttribute` query constraints
 
 ## CLI
 
-`goxsd9` commands: `parse`, `validate`, `generate`:
-
 ```sh
 go run ./cmd/goxsd9 parse schema.xsd
 go run ./cmd/goxsd9 validate schema.xsd instance.xml
 go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
-`parse` summarizes; `validate` checks; `generate` writes
-stdout/`--output`. `--schema-root DIR` bounds resolution; stdin requires
-it. `--diagnostics json` emits errors.
+`generate`: stdout/`--output`; `--schema-root DIR` bounds resolution
+(stdin requires it); `--diagnostics json`: errors.
 
 ## Development
 
