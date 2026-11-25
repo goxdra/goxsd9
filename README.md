@@ -24,7 +24,7 @@ Anonymous empty-base ref-sequences query built-in `xs:token`/`xs:anyURI`; consum
 Named/global-inline wildcard-only restrictions query empty/use-free named bases: ##any/##other/positive-set wildcard subsets; validation/generation reject.
 Named-group sequences/nested choices: atomic integer/string/token; consumers reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
-direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
+named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
 default integer/decimal sequence refs; other targets/occurrences reject.
 Named choice/sequence and empty-base direct-sequence/grouped extensions query
@@ -32,16 +32,15 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Named global direct choice/sequence `xs:any`/`xs:anyAttribute` query constraints; Compatibility/Strict11 admit global-element inline negative-skip `xs:anyAttribute` with one written empty default 1/1 sequence, zero uses, no `notQName`. Consumers reject.
+Named global direct choice/sequence `xs:any` (strict/lax/skip) and `xs:anyAttribute` query policy-gated namespace/name/processing constraints; Compatibility/Strict11 admit global-element inline negative-skip `xs:anyAttribute` with one written empty default 1/1 sequence, zero uses, no `notQName`. Negative/`notQName` combinations and consumers reject.
 
 ## CLI
 
 ```sh
 go run ./cmd/goxsd9 parse schema.xsd
-go run ./cmd/goxsd9 validate schema.xsd instance.xml
-go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
+Also: `validate`, `generate`.
 `generate`: stdout/`--output`; `--schema-root DIR` bounds resolution
 (stdin requires it); `--diagnostics json`: errors.
 
