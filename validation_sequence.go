@@ -278,9 +278,13 @@ func instanceSequenceProgramFor(
 	}
 	if anyAttribute, ok := definition.AnyAttribute(); ok {
 		related = appendInstanceRelated(related, anyAttribute.Loc())
+		message := fmt.Sprintf("named complex type %q attribute wildcards are outside direct sequence validation", definition.Name())
+		if _, inline := declaration.InlineComplexType(); inline {
+			message = "inline complex type attribute wildcards are outside direct sequence validation"
+		}
 		return instanceSequenceProgram{}, newInstanceValidationUnsupported(
 			loc,
-			fmt.Sprintf("named complex type %q attribute wildcards are outside direct sequence validation", definition.Name()),
+			message,
 			related,
 			version,
 			errInstanceAttributes,

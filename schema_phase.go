@@ -2908,7 +2908,7 @@ func validateComplexTypeGlobalChildren(parent *syntaxElement, children []*syntax
 				return newSchemaCompositionDiagnostic(child.loc, "complexType anyAttribute must be unique and last among attributes")
 			}
 			anyAttributeSeen = true
-			if err := validateDirectNamedComplexTypeAnyAttribute(parent, child, version); err != nil && !candidate.considerError(err) {
+			if err := validateDirectComplexTypeAnyAttribute(parent, child, version, globalElementInline); err != nil && !candidate.considerError(err) {
 				return err
 			}
 		case "assert":
@@ -3873,9 +3873,12 @@ func validateAnyAttribute(element *syntaxElement, version XSDVersion) error {
 	return newSchemaAnyAttributeUnsupported(element.loc, version)
 }
 
-func validateDirectNamedComplexTypeAnyAttribute(parent, element *syntaxElement, version XSDVersion) error {
+func validateDirectComplexTypeAnyAttribute(parent, element *syntaxElement, version XSDVersion, globalElementInline bool) error {
 	if err := validateAnyAttributeSyntax(element, version); err != nil {
 		return err
+	}
+	if supportsInlineEmptySequenceNegativeSkipAnyAttribute(parent, element, version, globalElementInline) {
+		return nil
 	}
 	if !supportsDirectNamedComplexTypeAnyAttribute(parent) || !isSupportedDirectNamedComplexTypeAnyAttribute(element) {
 		if hasExplicitAnyAttributeQName(element) {
@@ -3884,6 +3887,53 @@ func validateDirectNamedComplexTypeAnyAttribute(parent, element *syntaxElement, 
 		return newSchemaAnyAttributeUnsupported(element.loc, version)
 	}
 	return nil
+}
+
+//nolint:gocognit // Keep the bounded inline owner and wildcard admission together.
+func supportsInlineEmptySequenceNegativeSkipAnyAttribute(parent, element *syntaxElement, version XSDVersion, globalElementInline bool) bool {
+	if !globalElementInline || version == XSDVersion10 || parent == nil || parent.name.local != "complexType" ||
+		len(syntaxAttributesByLocal(parent, "name")) != 0 {
+		return false
+	}
+	if mixed := syntaxAttributesByLocal(parent, "mixed"); len(mixed) != 0 {
+		value, err := schemaBooleanValue(mixed[0])
+		if err != nil || value {
+			return false
+		}
+	}
+	if len(syntaxAttributesByLocal(element, "notNamespace")) != 1 ||
+		len(syntaxAttributesByLocal(element, "namespace")) != 0 ||
+		len(syntaxAttributesByLocal(element, "notQName")) != 0 {
+		return false
+	}
+	process := syntaxAttributesByLocal(element, "processContents")
+	if len(process) != 1 || collapseXMLWhitespace(process[0].value) != "skip" {
+		return false
+	}
+	model := schemaComplexTypeModel(parent)
+	if model == nil || model.name.namespace != xsdNamespaceURI || model.name.local != "sequence" {
+		return false
+	}
+	occurrences, err := schemaParticleOccurrenceRange(model, version)
+	if err != nil || !occurrences.isDefault() {
+		return false
+	}
+	for _, node := range model.children {
+		child, ok := node.(*syntaxElement)
+		if ok && (child.name.namespace != xsdNamespaceURI || child.name.local != "annotation") {
+			return false
+		}
+	}
+	for _, node := range parent.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if child.name.namespace != xsdNamespaceURI || child.name.local != "annotation" && child != model && child != element {
+			return false
+		}
+	}
+	return true
 }
 
 func hasExplicitAnyAttributeQName(element *syntaxElement) bool {
