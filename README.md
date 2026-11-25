@@ -1,13 +1,13 @@
 # goxsd9
 
-Parses XML Schema into immutable components or diagnostics.
+Parses XSD into immutable components or diagnostics.
 
 ## Library
 
 `NewResolvedSource`/`ParseSchema`/`Resolver` resolve mixed XSD 1.0/1.1 graphs.
 `ParseSchemaWithPolicy` selects policy.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Named effective short/int/byte/unsignedLong grouped uses require empty/use-free bases. Grouped inherited-ID exception: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: default 1/1 sequence, use-free base; consumers reject. Named attribute-free simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
+Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Effective short/int/byte/unsignedLong grouped uses require empty/use-free bases. Inherited-ID exception: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Zero-use direct-group extensions: default 1/1 sequence, use-free base; consumers reject. Attribute-free simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -24,7 +24,7 @@ Anonymous empty-base ref-sequences query built-in `xs:token`/`xs:anyURI`; consum
 Named/global-inline wildcard-only restrictions query empty/use-free named bases: ##any/##other/positive-set wildcard subsets; validation/generation reject.
 Named-group sequences/nested choices: atomic integer/string/token; consumers reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
-named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
+direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
 `GenerateGo` supports default Boolean/integer/decimal choice refs, ordered
 default integer/decimal sequence refs; other targets/occurrences reject.
 Named choice/sequence and empty-base direct-sequence/grouped extensions query
@@ -32,7 +32,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Named direct `xs:any`/`xs:anyAttribute` query wildcard constraints; Compatibility/Strict11 also admit global-inline empty-sequence negative-skip `xs:anyAttribute`. Consumers reject; see [contract](doc.go).
+Named global direct choice/sequence `xs:any`/`xs:anyAttribute` query constraints; Compatibility/Strict11 admit global-element inline negative-skip `xs:anyAttribute` with one written empty default 1/1 sequence, zero uses, no `notQName`. Consumers reject.
 
 ## CLI
 
@@ -44,7 +44,7 @@ go run ./cmd/goxsd9 validate schema.xsd instance.xml
 go run ./cmd/goxsd9 generate --package generated schema.xsd
 ```
 
-`parse` summarizes; `validate` succeeds; `generate` writes
+`parse` summarizes; `validate` checks; `generate` writes
 stdout/`--output`. `--schema-root DIR` bounds resolution; stdin requires
 it. `--diagnostics json` emits errors.
 

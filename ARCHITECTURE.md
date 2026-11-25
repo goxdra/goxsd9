@@ -14,11 +14,11 @@ flowchart LR
   G --> I["Go code generator"]
 ```
 
-Identities intern before resolution; slices order walks/output; no backpatching.
+Identities intern first; slices order walks/output; no backpatching.
 
 ## Resolution
 
-`ParseSchema` uses Compatibility;
+`ParseSchema` defaults Compatibility;
 `ParseSchemaWithPolicy` selects policy. Resolvers acquire sources; streams close,
 identities decode once.
 
@@ -47,8 +47,8 @@ Extensions/restrictions retain IDs/`Loc`s/wildcards. Named-base restrictions nee
 completed, particle-free, use-free bases. Derived namespace/process constraints
 must narrow; ##other keeps its origin under edition-specific rules.
 Negative namespace and QName-constrained restriction comparisons remain unsupported.
-Missing bases, widening, final, and cycles are invalid; missing derived
-wildcards, richer bodies, and consumers are unsupported.
+Missing bases, widening, final, cycles are invalid; missing derived
+wildcards, richer bodies, consumers are unsupported.
 Anonymous grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
 SimpleContent retains base/type/use `Loc`s and nil particle; dependencies precede owner gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
@@ -94,11 +94,11 @@ refs query-only. Inline defaults/fixed fail at value `Loc`;
 invalid values retain causes/related `Loc`s. Conflicts locate fixed/default;
 type-only unconstrained; global attribute consumers reject.
 
-Named/untyped-global empties admit empty `block`; named empties lack particles/occurrences.
+Named/untyped-global empties admit empty `block`; named lack particles/occurrences.
 Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
-Named direct `xs:any` admits empty/positive sets; Compatibility/Strict11 add negative sets/`##defined`. QName membership precedes omission; `##definedSibling`, negative/QName combinations, derivation, and nonzero consumers reject.
-Compatibility/Strict11 named direct strict `xs:anyAttribute notQName` admits QNames/`##defined` under absent/positive namespace; membership precedes omission. QName facts persist; derivations/consumers reject.
-Compatibility/Strict11 retain named direct strict negative `xs:anyAttribute` plus global-element inline negative skip on one empty sequence, zero uses. Locations persist. Strict10, broader forms, and consumers reject.
+Named global direct choice/sequence `xs:any`: empty/positive sets all policies; Compatibility/Strict11 negative sets/`##defined`. QName membership precedes omission; `##definedSibling`, negative/QName combinations, derivation, nonzero consumers reject.
+Named global direct choice/sequence strict `xs:anyAttribute`: Compatibility/Strict11 admit `notQName` QNames/`##defined` under absent/positive namespace, and negative `notNamespace`. Membership precedes omission; QName facts/exclusions persist; derivations/consumers reject.
+Global-element anonymous inline negative skip: Compatibility/Strict11, one written empty default 1/1 sequence, zero uses, explicit skip, no `notQName`; locations persist. Strict10, broader forms, derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed/inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.
@@ -120,7 +120,7 @@ precisionDecimal facets, Boolean whitespace; broader facets/temporal values reje
 
 Validation handles selected scalar roots, lists/unions, ordered
 typed/ref sequences. Compatibility/Strict11 admit precisionDecimal; Strict10
-rejects it before publication. Lists split XML whitespace; unions preserve
+rejects before publication. Lists split XML whitespace; unions preserve
 member order. Bounded variety sequences accept selected typed/anonymous locals
 and refs. Outer occurrences default; child ranges are exact. Default direct-choice
 refs to unconstrained Boolean/integer/decimal globals validate; constrained
