@@ -115,7 +115,7 @@ func (report backlogHealthReport) healthError() error {
 func (a app) readyCounts(root string, list projectList) (backlogHealthCounts, error) {
 	var counts backlogHealthCounts
 	for _, item := range list.Items {
-		if item.Status != "Ready" || item.Content.Type != "Issue" || item.Content.Repository != repositoryKey {
+		if !readyIssueEligible(item) || item.Content.Repository != repositoryKey {
 			continue
 		}
 		relations, err := a.issueRelations(root, item.Content.Number)
