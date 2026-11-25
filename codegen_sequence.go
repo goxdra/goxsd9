@@ -301,6 +301,20 @@ func rejectCodegenInlineComposition(component Component, version XSDVersion) err
 	if !ok {
 		return nil
 	}
+	if wildcard, present := inline.AnyAttribute(); present && inline.restrictionBody() == nil && inline.extensionBody() == nil {
+		if sequence, ok := inline.Particle().(SequenceParticle); ok {
+			related := appendCodegenRelated(nil, component.Loc())
+			related = appendCodegenRelated(related, inline.Loc())
+			related = appendCodegenRelated(related, sequence.Loc())
+			return newCodegenElementUnsupported(
+				wildcard.Loc(),
+				fmt.Sprintf("global element %q has an inline attribute wildcard outside Go generation", component.Name()),
+				related,
+				fmt.Errorf("%w: inline complex type attribute wildcard", errCodegenUnsupported),
+				version,
+			)
+		}
+	}
 	if body := inline.restrictionBody(); body != nil {
 		related := appendCodegenRelated(nil, inline.Loc())
 		related = appendCodegenRelated(related, body.restrictionLoc)

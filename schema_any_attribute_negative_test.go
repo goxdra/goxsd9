@@ -233,7 +233,7 @@ func TestAnyAttributeNegativeExcludedOwners(t *testing.T) {
 				case "named-empty":
 					body = `<xs:complexType name="Record">` + wildcard + `</xs:complexType>`
 				case "inline":
-					body = `<xs:element name="root"><xs:complexType><xs:` + model + `/>` + wildcard + `</xs:complexType></xs:element>`
+					body = `<xs:element name="root"><xs:complexType><xs:` + model + `><xs:element name="value" type="xs:integer"/></xs:` + model + `>` + wildcard + `</xs:complexType></xs:element>`
 				case "attribute-group-ref":
 					body = `<xs:attributeGroup name="G">` + wildcard + `</xs:attributeGroup><xs:complexType name="Record"><xs:` + model + `/><xs:attributeGroup ref="t:G"/></xs:complexType>`
 				case "extension":

@@ -269,8 +269,18 @@
 // Compatibility and Strict11 also retain strict notNamespace lists on named
 // global direct choice/sequence attribute wildcards. NamespaceConstraint
 // reports sorted, distinct effective exclusions; Namespace preserves the
-// normalized lexical order. Lax/skip, notQName combinations, other owners,
-// and negative namespace derivation comparisons remain unsupported.
+// normalized lexical order. Lax/skip negative lists on named owners, notQName
+// combinations, other named shapes, and negative namespace derivation
+// comparisons remain unsupported.
+// Compatibility and Strict11 also expose negative notNamespace with explicit
+// processContents=skip on a global element's anonymous complex type when it
+// contains exactly one written, default-bound empty sequence and no attribute
+// uses or notQName. The sequence remains queryable with its source Loc and
+// empty terms; wildcard lexical order, sorted effective exclusions, adopted
+// target namespace, and wildcard locations use the same immutable views.
+// A missing or nonempty sequence, nondefault bounds, uses, other modes or
+// constraints, and Strict10 remain unsupported. Validation and generation
+// reject this inline wildcard with located diagnostics and no output.
 // Compatibility and Strict11 named-global direct choice/sequence strict
 // anyAttribute wildcards admit explicit QNames alone, symbolic ##defined alone,
 // or both in notQName. Absent or positive namespace constraints admit these
