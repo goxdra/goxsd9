@@ -88,7 +88,7 @@ func (a app) pickCandidates(root string) ([]pickCandidate, error) {
 	}
 	var candidates []pickCandidate
 	for _, item := range list.Items {
-		if item.Status != "Ready" || item.Content.Type != "Issue" {
+		if !readyIssueEligible(item) {
 			continue
 		}
 		relations, err := a.issueRelations(root, item.Content.Number)

@@ -36,6 +36,18 @@ type projectContent struct {
 	URL        string `json:"url"`
 }
 
+func readyIssueEligible(item projectItem) bool {
+	if item.Status != "Ready" || item.Content.Type != "Issue" {
+		return false
+	}
+	for _, label := range item.Labels {
+		if label == "needs-human" {
+			return false
+		}
+	}
+	return true
+}
+
 func (list *projectList) UnmarshalJSON(data []byte) error {
 	decoded, err := decodeProjectList(data)
 	if err != nil {
