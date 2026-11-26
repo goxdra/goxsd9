@@ -109,8 +109,8 @@ func TestSchemaBridgeNegativeWildcardAbsentTarget(t *testing.T) {
 //nolint:gocognit // Keep graph order, adoption, provenance, and repeated runs together.
 func TestSchemaBridgeNegativeWildcardGraphProvenance(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="chameleon.xsd"/><xs:include schemaLocation="chameleon.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
-	chameleon := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Included"><xs:choice><xs:any notNamespace="##targetNamespace" processContents="skip"/></xs:choice></xs:complexType></xs:schema>`
-	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence><xs:any notNamespace="##targetNamespace ##local urn:z" processContents="skip"/></xs:sequence></xs:complexType></xs:schema>`
+	chameleon := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Included"><xs:choice><xs:any notNamespace="##targetNamespace" notQName="" processContents="skip"/></xs:choice></xs:complexType></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence><xs:any notNamespace="##targetNamespace ##local urn:z" notQName="&#x9;" processContents="skip"/></xs:sequence></xs:complexType></xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"root.xsd":      {id: "root.xsd", contents: root},
 		"chameleon.xsd": {id: "chameleon.xsd", contents: chameleon},
@@ -137,6 +137,7 @@ func TestSchemaBridgeNegativeWildcardGraphProvenance(t *testing.T) {
 			wantSources := []SourceID{"chameleon.xsd", "other.xsd"}
 			wantContents := []string{chameleon, other}
 			wantConstraints := []string{`notNamespace="##targetNamespace"`, `notNamespace="##targetNamespace ##local urn:z"`}
+			wantQNames := []string{`notQName=""`, `notQName="&#x9;"`}
 			wantNamespaces := [][]string{{"urn:root"}, {"", "urn:other", "urn:z"}}
 			for index, component := range components {
 				if component.Name() != wantNames[index] {
@@ -151,7 +152,9 @@ func TestSchemaBridgeNegativeWildcardGraphProvenance(t *testing.T) {
 				if constraint.Variety() != WildcardNamespaceConstraintNot || !reflect.DeepEqual(constraint.Namespaces(), wantNamespaces[index]) ||
 					wildcard.ProcessContents() != "skip" || wildcard.ProcessContentsLoc() != complexContentTestSourceLoc(t, wantSources[index], wantContents[index], `processContents="skip"`) ||
 					wildcard.Loc() != complexContentTestSourceLoc(t, wantSources[index], wantContents[index], `<xs:any`) ||
-					constraint.Loc() != complexContentTestSourceLoc(t, wantSources[index], wantContents[index], wantConstraints[index]) {
+					constraint.Loc() != complexContentTestSourceLoc(t, wantSources[index], wantContents[index], wantConstraints[index]) ||
+					!wildcard.QNameConstraint().Present() || wildcard.QNameConstraint().Loc() != complexContentTestSourceLoc(t, wantSources[index], wantContents[index], wantQNames[index]) ||
+					len(wildcard.QNameConstraint().Names()) != 0 || len(wildcard.QNameConstraint().Tokens()) != 0 {
 					t.Fatalf("%s run %d component %d facts = %q/%v at %s/%s", policy, run, index, constraint.Variety(), constraint.Namespaces(), wildcard.Loc(), constraint.Loc())
 				}
 			}
@@ -320,6 +323,8 @@ func TestSchemaBridgeNegativeSkipWildcardExclusions(t *testing.T) {
 		{name: "notQName", shape: "named", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
 		{name: "notQName", shape: "inline", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
 		{name: "notQName", shape: "group_ref", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
+		{name: "emptyQName", shape: "inline", attribute: ` notQName=""`, wantMarker: `notQName=""`},
+		{name: "emptyQName", shape: "group_ref", attribute: ` notQName=""`, wantMarker: `notQName=""`},
 		{name: "nested", shape: "named", wantMarker: `notNamespace="##local"`},
 		{name: "nested", shape: "inline", wantMarker: `notNamespace="##local"`},
 		{name: "nested", shape: "group_ref", wantMarker: `notNamespace="##local"`},
@@ -329,7 +334,7 @@ func TestSchemaBridgeNegativeSkipWildcardExclusions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name+"/"+test.shape, func(t *testing.T) {
 			wildcardTerm := strings.Replace(wildcard, "%s", test.attribute, 1)
-			if test.name == "notQName" {
+			if test.name == "notQName" || test.name == "emptyQName" {
 				wildcardTerm = `<xs:any` + test.attribute + ` notNamespace="##local" processContents="skip"/>`
 			}
 			content := `<xs:choice>` + wildcardTerm + `</xs:choice>`

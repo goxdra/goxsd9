@@ -6928,7 +6928,9 @@ func resolveSchemaComplexTypeDirectBody(
 		return nil, err
 	}
 	if body.anyAttribute != nil && body.anyAttribute.qnameConstraint.present &&
-		(body.anyAttribute.processContents != "strict" || body.anyAttribute.namespaceConstraint.variety == WildcardNamespaceConstraintNot || body.anyAttribute.namespaceConstraint.lexical == "##other") {
+		(body.anyAttribute.processContents != "strict" ||
+			body.anyAttribute.namespaceConstraint.variety == WildcardNamespaceConstraintNot && body.anyAttribute.qnameConstraint.lexical != "" ||
+			body.anyAttribute.namespaceConstraint.lexical == "##other") {
 		return nil, newSchemaAnyAttributeUnsupported(body.anyAttribute.loc, version)
 	}
 	if particle != nil {

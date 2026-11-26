@@ -3127,7 +3127,7 @@ func boundedComplexContentExtensionCandidate(element *syntaxElement) bool {
 }
 
 func isDeferredNegativeExtensionAnyAttribute(element *syntaxElement) bool {
-	return isNegativeRestrictionAnyAttribute(element) && isSupportedDirectNamedComplexTypeAnyAttribute(element)
+	return len(syntaxAttributesByLocal(element, "notQName")) == 0 && isNegativeRestrictionAnyAttribute(element) && isSupportedDirectNamedComplexTypeAnyAttribute(element)
 }
 
 func schemaBooleanAttributeTrue(element *syntaxElement) bool {
@@ -3996,7 +3996,8 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 		return false
 	}
 	if len(notNamespaceAttributes) > 0 {
-		return len(notNamespaceAttributes) == 1 && len(namespaceAttributes) == 0 && len(qname) == 0 &&
+		return len(notNamespaceAttributes) == 1 && len(namespaceAttributes) == 0 &&
+			(len(qname) == 0 || len(qname) == 1 && collapseXMLWhitespace(qname[0].value) == "") &&
 			(len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict")
 	}
 	namespace := "##any"
@@ -5796,12 +5797,12 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 	if !isSupportedDirectAnyParticle(element) {
 		return false
 	}
-	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 {
-		return false
-	}
 	attributes := syntaxAttributesByLocal(element, "notQName")
 	if len(attributes) != 1 {
 		return false
+	}
+	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 {
+		return collapseXMLWhitespace(attributes[0].value) == ""
 	}
 	if namespace := syntaxAttributesByLocal(element, "namespace"); len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) == "" && collapseXMLWhitespace(attributes[0].value) == "" {
 		return false
@@ -5834,6 +5835,9 @@ func unsupportedNondirectWildcardConstraint(wildcard *syntaxElement, version XSD
 	qname := syntaxAttributesByLocal(wildcard, "notQName")
 	if len(qname) != 1 {
 		return nil
+	}
+	if len(syntaxAttributesByLocal(wildcard, "notNamespace")) != 0 && collapseXMLWhitespace(qname[0].value) == "" {
+		return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard notQName with notNamespace outside named direct choice/sequence is not implemented", version)
 	}
 	for _, token := range strings.Fields(collapseXMLWhitespace(qname[0].value)) {
 		if token == "##defined" {
