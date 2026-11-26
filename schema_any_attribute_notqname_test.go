@@ -20,6 +20,28 @@ func attributeQNamePlacementSchema(shape, model, wildcard string) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:t" xmlns:p="urn:p" targetNamespace="urn:t">` + body + `</xs:schema>`
 }
 
+func TestWildcardSiblingAttributeForbiddenShapes(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11, Strict10} {
+		for _, model := range []string{"choice", "sequence"} {
+			for _, shape := range []string{"named", "inline", "attributeGroupRef"} {
+				wildcard := `<xs:anyAttribute notQName="##definedSibling"/>`
+				root := attributeQNameSchema(model, ` notQName="##definedSibling"`, "")
+				if shape != "named" {
+					root = attributeQNamePlacementSchema(shape, model, wildcard)
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				assertZeroSchema(t, schema)
+				diagnostic := requireDiagnostic(t, err)
+				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
+					diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="##definedSibling"`) ||
+					len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != "" || errors.Unwrap(err) != nil {
+					t.Fatalf("%s/%s/%s attribute sibling diagnostic = %s related=%v cause=%v", policy, model, shape, diagnostic, diagnostic.Related(), err)
+				}
+			}
+		}
+	}
+}
+
 func attributeQNameFact(t *testing.T, schema Schema) AnyAttribute {
 	t.Helper()
 	components := schema.Components()

@@ -2221,9 +2221,9 @@ func (constraint WildcardNamespaceConstraint) LexicalForm() string { return cons
 func (constraint WildcardNamespaceConstraint) Loc() Loc { return constraint.loc }
 
 // WildcardQNameConstraint is an immutable XSD 1.1 notQName exclusion fact.
-// Tokens retain normalized lexical order, including symbolic ##defined, while
-// Names contains only sorted, duplicate-free expanded QName exclusions. An
-// absent constraint has Present()==false;
+// Tokens retain normalized lexical order, including symbolic ##defined and
+// ##definedSibling. Names contains only sorted, duplicate-free expanded QName
+// exclusions. An absent constraint has Present()==false;
 // an explicitly empty qnameList has Present()==true and no tokens or names.
 type WildcardQNameConstraint struct {
 	present  bool
@@ -2238,7 +2238,7 @@ type WildcardQNameConstraint struct {
 func (constraint WildcardQNameConstraint) Present() bool { return constraint.present }
 
 // Tokens returns normalized lexical tokens in source order, including
-// duplicates and symbolic ##defined.
+// duplicates and symbolic ##defined and ##definedSibling.
 func (constraint WildcardQNameConstraint) Tokens() []string {
 	return append([]string(nil), constraint.tokens...)
 }

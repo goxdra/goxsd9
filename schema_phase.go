@@ -5941,11 +5941,6 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 	if namespace := syntaxAttributesByLocal(element, "namespace"); len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) == "" && collapseXMLWhitespace(attributes[0].value) == "" {
 		return false
 	}
-	for _, token := range strings.Split(collapseXMLWhitespace(attributes[0].value), " ") {
-		if token == "##definedSibling" {
-			return false
-		}
-	}
 	return true
 }
 
@@ -5983,8 +5978,8 @@ func unsupportedNondirectWildcardConstraint(wildcard *syntaxElement, version XSD
 		return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard notQName with notNamespace outside named direct choice/sequence is not implemented", version)
 	}
 	for _, token := range strings.Fields(collapseXMLWhitespace(qname[0].value)) {
-		if token == "##defined" {
-			return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard ##defined outside named direct choice/sequence is not implemented", version)
+		if token == "##defined" || token == "##definedSibling" {
+			return newSchemaAnyParticleUnsupported(qname[0].loc, fmt.Sprintf("wildcard %s outside named direct choice/sequence is not implemented", token), version)
 		}
 	}
 	process := syntaxAttributesByLocal(wildcard, "processContents")
