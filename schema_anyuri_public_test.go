@@ -34,6 +34,14 @@ func TestSchemaAnyURINotationLexicalAdmission(t *testing.T) {
 		{"query without path and fragment", "?#frag", false},
 		{"opaque starts with bracket", "foo:[part]", false},
 		{"later IPv6 zone syntax", "http://[fe80::1%25eth0]/", false},
+		{"stray closing authority bracket", "http://abc]/", false},
+		{"misplaced opening authority bracket", "http://abc[::1]/", false},
+		{"IPv6 host suffix", "http://[::1]extra/", false},
+		{"IPv6 host nondecimal port", "http://[::1]:abc/", false},
+		{"IPv6 host repeated userinfo", "http://user@[::1]@foo/", false},
+		{"IPv6 double compression", "http://[1::2::3]/", false},
+		{"IPv6 IPv4 octet overflow", "http://[::192.256.5.5]/", false},
+		{"IPv6 IPv4 octet too long", "http://[::192.0009.5.5]/", false},
 		{"raw space", "a b", true},
 		{"XML DEL", "a\u007fb", true},
 		{"Unicode", "caf\u00e9", true},
@@ -46,13 +54,20 @@ func TestSchemaAnyURINotationLexicalAdmission(t *testing.T) {
 		{"scheme with absolute path", "foo:/", true},
 		{"opaque bracket after first character", "foo:a[part]", true},
 		{"IPv6 host", "http://[::1]/", true},
+		{"IPv6 embedded IPv4", "http://[::192.9.5.5]/", true},
+		{"IPv6 embedded IPv4 leading zero", "http://[::192.009.5.5]/", true},
+		{"IPv6 userinfo and port", "http://user@[::1]:80/", true},
 		{"empty", "", true},
 	} {
 		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 			t.Run(test.name+"/"+string(policy), func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="n" public="p" system="` + test.value + `"/></xs:schema>`
-				schema, err := parseAnyURIPublic(t, root, &discoveryResolver{}, policy)
+				resolver := &discoveryResolver{}
+				schema, err := parseAnyURIPublic(t, root, resolver, policy)
 				loc := mustSchemaTokenLoc(t, "root.xsd", root, 1, `system=`)
+				if len(resolver.calls) != 0 {
+					t.Fatalf("notation unexpectedly resolved a source: %#v", resolver.calls)
+				}
 				if policy != Strict10 || test.strict10 {
 					if err != nil {
 						t.Fatalf("ParseSchemaWithPolicy: %v", err)
@@ -78,11 +93,28 @@ func TestSchemaAnyURINotationLexicalAdmission(t *testing.T) {
 					t.Fatalf("Strict10 notation diagnostic = %v", err)
 				}
 				var lexical Diagnostic
-				if !errors.As(diagnostic.Unwrap(), &lexical) || lexical.Code() != invalidSchemaCompositionCode || lexical.Loc() != loc || lexical.SpecRef() != "xsd10-datatypes#anyURI-lexical-representation" {
+				if !errors.As(diagnostic.Unwrap(), &lexical) || lexical.Class() != FailureInvalid || lexical.Code() != invalidSchemaCompositionCode || lexical.Loc() != loc || lexical.SpecRef() != "xsd10-datatypes#anyURI-lexical-representation" || len(lexical.Related()) != 0 || lexical.Unwrap() != nil {
 					t.Fatalf("Strict10 lexical cause = %v", diagnostic.Unwrap())
 				}
 			})
 		}
+	}
+}
+
+func TestSchemaAnyURILegacyIPv6LocationReachesResolverUnchanged(t *testing.T) {
+	const location = "http://[::192.009.5.5]/"
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:include schemaLocation="` + location + `"/><xs:element name="root"/></xs:schema>`
+	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="child"/></xs:schema>`
+	resolver := &discoveryResolver{fixtures: map[string]discoveryFixture{location: {id: "child.xsd", contents: child}}}
+	schema, err := parseAnyURIPublic(t, root, resolver, Strict10)
+	if err != nil {
+		t.Fatalf("Strict10 legacy IPv6 schemaLocation: %v", err)
+	}
+	if len(schema.Documents()) != 2 || len(schema.Components()) != 2 || schema.Components()[1].Name().Local() != "child" {
+		t.Fatalf("discovered schema = %#v, %#v", schema.Documents(), schema.Components())
+	}
+	if want := []discoveryCall{{location: location}}; !reflect.DeepEqual(resolver.calls, want) {
+		t.Fatalf("resolver calls = %#v, want %#v", resolver.calls, want)
 	}
 }
 
@@ -311,7 +343,12 @@ func TestSchemaAnyURIAlternateSyntaxExits(t *testing.T) {
 		{"XML Base supported lexeme unsupported", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="base path"/>`, `xml:base=`, UnsupportedSchemaSyntaxCode, "xmlbase#matching", FailureUnsupported},
 		{"XML Base preserves trailing space before escaping", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="foo: "/>`, `xml:base=`, UnsupportedSchemaSyntaxCode, "xmlbase#matching", FailureUnsupported},
 		{"XML Base registered name unsupported", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="http://%41.example/"/>`, `xml:base=`, UnsupportedSchemaSyntaxCode, "xmlbase#matching", FailureUnsupported},
+		{"XML Base IPv6 embedded IPv4 unsupported", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="http://[::192.9.5.5]/"/>`, `xml:base=`, UnsupportedSchemaSyntaxCode, "xmlbase#matching", FailureUnsupported},
+		{"XML Base IPv6 leading zero unsupported", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="http://[::192.009.5.5]/"/>`, `xml:base=`, UnsupportedSchemaSyntaxCode, "xmlbase#matching", FailureUnsupported},
 		{"XML Base malformed percent invalid", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="%ZZ"/>`, `xml:base=`, invalidSchemaCompositionCode, "xml-base-2001#syntax", FailureInvalid},
+		{"XML Base stray authority bracket invalid", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="http://abc]/"/>`, `xml:base=`, invalidSchemaCompositionCode, "xml-base-2001#syntax", FailureInvalid},
+		{"XML Base IPv6 host suffix invalid", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="http://[::1]extra/"/>`, `xml:base=`, invalidSchemaCompositionCode, "xml-base-2001#syntax", FailureInvalid},
+		{"XML Base invalid IPv6 invalid", `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="http://[1::2::3]/"/>`, `xml:base=`, invalidSchemaCompositionCode, "xml-base-2001#syntax", FailureInvalid},
 	} {
 		for _, policy := range []LanguagePolicy{Compatibility, Strict11, Strict10} {
 			t.Run(test.name+"/"+string(policy), func(t *testing.T) {
@@ -323,8 +360,12 @@ func TestSchemaAnyURIAlternateSyntaxExits(t *testing.T) {
 
 func assertAnyURIAlternateCase(t *testing.T, test anyURIAlternateCase, policy LanguagePolicy) {
 	t.Helper()
-	schema, err := parseAnyURIPublic(t, test.root, &discoveryResolver{}, policy)
+	resolver := &discoveryResolver{}
+	schema, err := parseAnyURIPublic(t, test.root, resolver, policy)
 	assertZeroSchema(t, schema)
+	if len(resolver.calls) != 0 {
+		t.Fatalf("invalid or unsupported XML Base unexpectedly resolved: %#v", resolver.calls)
+	}
 	diagnostic := requireDiagnostic(t, err)
 	marker := test.marker
 	code, specRef, class := test.code, test.specRef, test.class
@@ -340,6 +381,9 @@ func assertAnyURIAlternateCase(t *testing.T, test anyURIAlternateCase, policy La
 	}
 	if class == FailureInvalid && errors.Is(err, ErrUnsupported) {
 		t.Fatalf("invalid classified as unsupported: %v", err)
+	}
+	if class == FailureInvalid && diagnostic.Unwrap() != nil {
+		t.Fatalf("invalid lexical diagnostic has unexpected cause: %v", diagnostic.Unwrap())
 	}
 }
 

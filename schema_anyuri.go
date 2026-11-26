@@ -1,7 +1,9 @@
 package goxsd9
 
 import (
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -25,17 +27,18 @@ func legacyURIReference(value string) bool { //nolint:gocognit // URI phases rem
 	if strings.HasPrefix(escaped, "?") {
 		return false
 	}
-	parsed, err := url.Parse(escaped)
-	if err != nil && legacyRegisteredNameAuthority(escaped) {
-		parsed, err = url.Parse(replaceLegacyAuthority(escaped))
+	parseValue := escaped
+	if start, end, present := legacyAuthorityBounds(escaped); present {
+		if !legacyAuthority(escaped[start:end]) {
+			return false
+		}
+		parseValue = escaped[:start] + "example.invalid" + escaped[end:]
 	}
+	parsed, err := url.Parse(parseValue)
 	if err != nil {
 		return false
 	}
 	if parsed.Scheme != "" && legacyEmptySchemePayload(escaped, parsed.Scheme) {
-		return false
-	}
-	if legacyIPv6Zone(escaped, parsed.Scheme) {
 		return false
 	}
 	if parsed.Opaque != "" {
@@ -69,50 +72,30 @@ func legacyEmptySchemePayload(value, scheme string) bool {
 	return part == ""
 }
 
-// RFC 2732 IPv6 references do not admit the later zone identifier syntax.
-func legacyIPv6Zone(value, scheme string) bool {
-	start := 0
-	if scheme != "" {
-		start = len(scheme) + 1
+// RFC 2396 puts authority after a leading // or an absolute URI scheme.
+func legacyAuthorityBounds(value string) (int, int, bool) {
+	start := 2
+	if !strings.HasPrefix(value, "//") {
+		separator := strings.Index(value, "://")
+		if separator < 0 || !legacyScheme(value[:separator]) {
+			return 0, 0, false
+		}
+		start = separator + 3
 	}
-	if !strings.HasPrefix(value[start:], "//") {
-		return false
+	end := start
+	for end < len(value) && !strings.ContainsRune("/?#", rune(value[end])) {
+		end++
 	}
-	start += 2
-	end := start + strings.IndexAny(value[start:], "/?#")
-	if end < start {
-		end = len(value)
-	}
-	open := strings.IndexByte(value[start:end], '[')
-	closingBracket := strings.IndexByte(value[start:end], ']')
-	return open >= 0 && closingBracket > open && strings.Contains(value[start+open:start+closingBracket], "%")
+	return start, end, true
 }
 
-// RFC 2396 permits an authority to be a registered name even when Go's URL
-// parser interprets the same text as an invalid host or port.
-func legacyRegisteredNameAuthority(value string) bool {
-	start := 0
-	if scheme := strings.IndexByte(value, ':'); scheme >= 0 && !strings.HasPrefix(value, "//") {
-		start = scheme + 1
-	}
-	if !strings.HasPrefix(value[start:], "//") {
+func legacyScheme(value string) bool {
+	if value == "" || !isLegacyAlpha(value[0]) {
 		return false
 	}
-	start += 2
-	end := start + strings.IndexAny(value[start:], "/?#")
-	if end < start {
-		end = len(value)
-	}
-	if end == start {
-		return false
-	}
-	for index := start; index < end; index++ {
+	for index := 1; index < len(value); index++ {
 		character := value[index]
-		if character == '%' {
-			index += 2 // legacyURIReference already checked the triplet.
-			continue
-		}
-		if isLegacyUnreserved(character) || strings.ContainsRune("$,;:@&=+", rune(character)) {
+		if isLegacyAlpha(character) || character >= '0' && character <= '9' || strings.ContainsRune("+.-", rune(character)) {
 			continue
 		}
 		return false
@@ -120,17 +103,111 @@ func legacyRegisteredNameAuthority(value string) bool {
 	return true
 }
 
-func replaceLegacyAuthority(value string) string {
-	start := 0
-	if scheme := strings.IndexByte(value, ':'); scheme >= 0 && !strings.HasPrefix(value, "//") {
-		start = scheme + 1
+func isLegacyAlpha(character byte) bool {
+	return character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
+}
+
+// RFC 2732 reserves literal brackets for an IPv6 host in server syntax.
+func legacyAuthority(authority string) bool {
+	if authority == "" {
+		return true // RFC 2396 server is optional.
 	}
-	start += 2
-	end := start + strings.IndexAny(value[start:], "/?#")
-	if end < start {
-		end = len(value)
+	open := strings.IndexByte(authority, '[')
+	if open < 0 {
+		return legacyAuthorityCharacters(authority, "$,;:@&=+")
 	}
-	return value[:start] + "example.invalid" + value[end:]
+	userinfo := authority[:open]
+	if userinfo != "" {
+		if userinfo[len(userinfo)-1] != '@' || !legacyAuthorityCharacters(userinfo[:len(userinfo)-1], ";:&=+$,") {
+			return false
+		}
+	}
+	hostport := authority[open:]
+	closingBracket := strings.IndexByte(hostport, ']')
+	if closingBracket < 0 || !legacyIPv6Address(hostport[1:closingBracket]) {
+		return false
+	}
+	port := hostport[closingBracket+1:]
+	if port == "" {
+		return true
+	}
+	if port[0] != ':' {
+		return false
+	}
+	for index := 1; index < len(port); index++ {
+		if port[index] < '0' || port[index] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func legacyAuthorityCharacters(value, reserved string) bool {
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character == '%' {
+			index += 2 // legacyURIReference already checked percent triplets.
+			continue
+		}
+		if isLegacyUnreserved(character) || strings.ContainsRune(reserved, rune(character)) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// RFC 2373 permits one to three decimal digits in each embedded IPv4 octet.
+func legacyIPv6Address(value string) bool {
+	if strings.Contains(value, "%") { // RFC 2732 predates IPv6 zone identifiers.
+		return false
+	}
+	parseValue := value
+	if strings.Contains(value, ".") {
+		var valid bool
+		parseValue, valid = normalizeLegacyIPv4Tail(value)
+		if !valid {
+			return false
+		}
+	}
+	address, err := netip.ParseAddr(parseValue)
+	return err == nil && address.Is6() && address.Zone() == ""
+}
+
+func normalizeLegacyIPv4Tail(value string) (string, bool) {
+	separator := strings.LastIndexByte(value, ':')
+	if separator < 0 {
+		return "", false
+	}
+	parts := strings.Split(value[separator+1:], ".")
+	if len(parts) != 4 {
+		return "", false
+	}
+	for index, part := range parts {
+		normalized, valid := normalizeLegacyIPv4Octet(part)
+		if !valid {
+			return "", false
+		}
+		parts[index] = normalized
+	}
+	return value[:separator+1] + strings.Join(parts, "."), true
+}
+
+func normalizeLegacyIPv4Octet(part string) (string, bool) {
+	if len(part) < 1 || len(part) > 3 {
+		return "", false
+	}
+	number := 0
+	for position := 0; position < len(part); position++ {
+		if part[position] < '0' || part[position] > '9' {
+			return "", false
+		}
+		number = number*10 + int(part[position]-'0')
+	}
+	if number > 255 {
+		return "", false
+	}
+	return strconv.Itoa(number), true
 }
 
 func xlinkEscapeURI(value string) string {
