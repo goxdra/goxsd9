@@ -4128,11 +4128,11 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 		if len(notNamespaceAttributes) != 1 || len(namespaceAttributes) != 0 {
 			return false
 		}
-		strict := len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict"
 		if len(qname) == 0 || collapseXMLWhitespace(qname[0].value) == "" {
-			return strict
+			return true
 		}
-		return len(qname) == 1 && !wildcardQNameHasSymbolicToken(qname[0].value)
+		return (len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict") &&
+			!wildcardQNameHasSymbolicToken(qname[0].value)
 	}
 	namespace := "##any"
 	if len(namespaceAttributes) == 1 {

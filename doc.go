@@ -274,14 +274,14 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
-// Compatibility and Strict11 also retain strict notNamespace lists on named
+// Compatibility and Strict11 also retain strict/lax/skip notNamespace lists on named
 // global direct choice/sequence attribute wildcards. NamespaceConstraint
 // reports sorted, distinct effective exclusions; Namespace preserves the
 // normalized lexical order. Empty notQName lists retain presence and location
 // without excluding names. Strict/default explicit QNames also retain lexical
 // tokens, namespace bindings, and sorted unique exclusions after membership.
-// Lax/skip negative lists on named owners, symbolic negative combinations,
-// other named shapes, and negative namespace derivation
+// Lax/skip negative lists require absent or empty notQName; nonempty QName
+// combinations, symbolic negative combinations, other named shapes, and negative namespace derivation
 // comparisons remain unsupported.
 // Compatibility and Strict11 also expose negative notNamespace with explicit
 // processContents=skip on a global element's anonymous complex type when it

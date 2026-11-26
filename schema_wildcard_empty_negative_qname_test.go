@@ -100,7 +100,7 @@ func TestEmptyNegativeQNameAttributeWildcardFacts(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, version := range []string{"1.0", "1.1"} {
 			for _, model := range []string{"choice", "sequence"} {
-				for _, process := range []string{"default", "strict"} {
+				for _, process := range []string{"default", "strict", "lax", "skip"} {
 					for _, qname := range []string{"omitted", "", "&#x9;&#xA;&#xD; "} {
 						attributes := emptyNegativeQNameAttributes(qname, process)
 						root := strings.Replace(negativeAttributeSchema(model, attributes), `targetNamespace="urn:t"`, `targetNamespace="urn:root" version="`+version+`"`, 1)
@@ -112,7 +112,15 @@ func TestEmptyNegativeQNameAttributeWildcardFacts(t *testing.T) {
 						definition := requireAnyAttributeComplexType(t, schema.Components()[0], model)
 						wildcard := definitionAnyAttribute(t, definition)
 						assertEmptyNegativeQNameFacts(t, root, qname, wildcard.NamespaceConstraint(), wildcard.QNameConstraint())
-						if wildcard.ProcessContents() != "strict" || wildcard.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) ||
+						wantProcess := process
+						if process == "default" {
+							wantProcess = "strict"
+						}
+						processLoc := Loc{}
+						if process != "default" {
+							processLoc = anyAttributeTestLoc(root, `processContents="`+process+`"`)
+						}
+						if wildcard.ProcessContents() != wantProcess || wildcard.ProcessContentsLoc() != processLoc || wildcard.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) ||
 							!reflect.DeepEqual(definitionAnyAttribute(t, definition), wildcard) {
 							t.Fatalf("attribute wildcard facts changed: %#v", wildcard)
 						}
