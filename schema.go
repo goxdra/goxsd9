@@ -728,7 +728,8 @@ func (declaration NotationDeclaration) Loc() Loc {
 	return declaration.component.Loc()
 }
 
-// Public returns the collapsed public identifier value.
+// Public returns the collapsed public identifier value, or empty when absent.
+// Use PublicLoc to distinguish an absent value from a written empty value.
 func (declaration NotationDeclaration) Public() string {
 	if declaration.facts == nil {
 		return ""
@@ -736,7 +737,8 @@ func (declaration NotationDeclaration) Public() string {
 	return declaration.facts.public
 }
 
-// PublicLoc returns the source location of the public identifier.
+// PublicLoc returns the source location of the public identifier, or a zero
+// location when the attribute was absent.
 func (declaration NotationDeclaration) PublicLoc() Loc {
 	if declaration.facts == nil {
 		return Loc{}
@@ -747,7 +749,7 @@ func (declaration NotationDeclaration) PublicLoc() Loc {
 // System returns the collapsed optional system identifier and whether it was
 // present in the source declaration.
 func (declaration NotationDeclaration) System() (string, bool) {
-	if declaration.facts == nil || !declaration.facts.hasSystem {
+	if declaration.facts == nil || declaration.facts.systemLoc.IsZero() {
 		return "", false
 	}
 	return declaration.facts.system, true
@@ -756,7 +758,7 @@ func (declaration NotationDeclaration) System() (string, bool) {
 // SystemLoc returns the source location of the optional system identifier and
 // whether it was present in the source declaration.
 func (declaration NotationDeclaration) SystemLoc() (Loc, bool) {
-	if declaration.facts == nil || !declaration.facts.hasSystem {
+	if declaration.facts == nil || declaration.facts.systemLoc.IsZero() {
 		return Loc{}, false
 	}
 	return declaration.facts.systemLoc, true
@@ -2697,7 +2699,6 @@ type schemaNotationInput struct {
 	publicLoc Loc
 	system    string
 	systemLoc Loc
-	hasSystem bool
 }
 
 type schemaSimpleTypeInput struct {
@@ -3153,7 +3154,6 @@ type schemaNotationComponent struct {
 	publicLoc Loc
 	system    string
 	systemLoc Loc
-	hasSystem bool
 }
 
 type schemaComplexTypeComponent struct {
@@ -3713,7 +3713,6 @@ func completeSchemaComponents(
 	return components, byID, nil
 }
 
-//nolint:funlen // Complete all component variants at one immutable publication boundary.
 func completeSchemaComponent(
 	record schemaComponentRecord,
 	simpleType schemaSimpleTypeResult,
@@ -3762,7 +3761,6 @@ func completeSchemaComponent(
 			publicLoc: record.notation.publicLoc,
 			system:    record.notation.system,
 			systemLoc: record.notation.systemLoc,
-			hasSystem: record.notation.hasSystem,
 		}
 	}
 	if simpleType.present {
@@ -3938,7 +3936,6 @@ func cloneSchemaNotationInput(input *schemaNotationInput) *schemaNotationInput {
 		publicLoc: input.publicLoc,
 		system:    input.system,
 		systemLoc: input.systemLoc,
-		hasSystem: input.hasSystem,
 	}
 }
 
