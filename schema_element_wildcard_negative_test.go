@@ -208,6 +208,9 @@ func TestSchemaBridgeNegativeWildcardDiagnostics(t *testing.T) {
 	for _, test := range tests {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, extension := range []bool{false, true} {
+				if test.name == "not_qname" && !extension {
+					continue
+				}
 				name := test.name + "/" + model
 				if extension {
 					name += "/extension"

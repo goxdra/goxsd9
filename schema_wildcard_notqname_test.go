@@ -316,7 +316,7 @@ func TestWildcardQNameExcludedShapes(t *testing.T) {
 	for _, form := range forms {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, shape := range []string{"named", "inline", "group_ref"} {
-				if shape == "named" && (form.name == "lax" || form.name == "skip" || strings.HasPrefix(form.name, "defined") && !strings.HasPrefix(form.name, "defined sibling")) {
+				if shape == "named" && (form.name == "lax" || form.name == "skip" || form.name == "negative namespace" || strings.HasPrefix(form.name, "defined") && !strings.HasPrefix(form.name, "defined sibling")) {
 					continue
 				}
 				t.Run(form.name+"/"+model+"/"+shape, func(t *testing.T) {
