@@ -1,6 +1,7 @@
 package goxsd9
 
 import (
+	"context"
 	"errors"
 	"io"
 	"reflect"
@@ -459,6 +460,113 @@ func TestNegativeExplicitQNameExcludedOwnerMembership(t *testing.T) {
 						t.Fatalf("%s/%s/%s membership before owner = %s related %v", kind, model, shape, d, d.Related())
 					}
 				}
+			}
+		}
+	}
+}
+
+func negativeExplicitQNameAllOrOpenRoot(owner, attributes string) string {
+	wildcard := `<xs:any` + attributes + `/>`
+	body := ""
+	switch owner {
+	case "named-all":
+		body = `<xs:complexType name="R"><xs:all>` + wildcard + `</xs:all></xs:complexType>`
+	case "anonymous-all":
+		body = `<xs:element name="R"><xs:complexType><xs:all>` + wildcard + `</xs:all></xs:complexType></xs:element>`
+	case "named-open":
+		body = `<xs:complexType name="R"><xs:openContent>` + wildcard + `</xs:openContent></xs:complexType>`
+	case "anonymous-open":
+		body = `<xs:element name="R"><xs:complexType><xs:openContent>` + wildcard + `</xs:openContent></xs:complexType></xs:element>`
+	case "default-open":
+		body = `<xs:defaultOpenContent>` + wildcard + `</xs:defaultOpenContent><xs:complexType name="R"><xs:sequence/></xs:complexType>`
+	}
+	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:p="urn:p" targetNamespace="urn:root" version="1.1">` + body + `</xs:schema>`
+}
+
+//nolint:gocognit // Assert exact invalid membership and unchanged unsupported diagnostics for every excluded owner.
+func TestNegativeExplicitQNameAllAndOpenOwnerMembership(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, owner := range []string{"named-all", "anonymous-all", "named-open", "anonymous-open", "default-open"} {
+			for _, qname := range []string{"t:x", "p:x"} {
+				root := negativeExplicitQNameAllOrOpenRoot(owner, ` notNamespace="##targetNamespace" notQName="`+qname+`"`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				assertZeroSchema(t, schema)
+				d := requireDiagnostic(t, err)
+				if qname == "t:x" {
+					if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != wildcardParticleTestLoc(t, root, `notQName=`) ||
+						!reflect.DeepEqual(d.Related(), []Loc{wildcardParticleTestLoc(t, root, `notNamespace=`)}) ||
+						d.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || !errors.Is(err, errSchemaWildcardQNameNamespace) {
+						t.Fatalf("%s/%s invalid membership = %s related %v spec %s cause %v", policy, owner, d, d.Related(), d.SpecRef(), d.Unwrap())
+					}
+					continue
+				}
+				if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode ||
+					d.Loc() != wildcardParticleTestLoc(t, root, `notNamespace=`) || len(d.Related()) != 0 ||
+					d.SpecRef() != "xsd10-structures#schema-document" || d.Unwrap() != nil || !errors.Is(err, ErrUnsupported) {
+					t.Fatalf("%s/%s valid membership owner gate = %s related %v spec %s cause %v", policy, owner, d, d.Related(), d.SpecRef(), d.Unwrap())
+				}
+			}
+		}
+	}
+}
+
+func TestNegativeExplicitQNameAllAndOpenOwnerAlternateExits(t *testing.T) {
+	tests := []struct {
+		name, attributes, marker, spec, code string
+	}{
+		{"malformed QName", ` notNamespace="##targetNamespace" notQName="bad:q:name"`, `notQName=`, schemaWildcardQNameDatatypeXSD11SpecRef, invalidSchemaConditionalCode},
+		{"unbound QName", ` notNamespace="##targetNamespace" notQName="bad:x"`, `notQName=`, schemaWildcardQNameDatatypeXSD11SpecRef, invalidSchemaConditionalCode},
+		{"conflicting namespace", ` notNamespace="##targetNamespace" namespace="##any" notQName="t:x"`, `namespace=`, "", invalidSchemaCompositionCode},
+		{"invalid negative", ` notNamespace="##any" notQName="t:x"`, `notNamespace=`, "", invalidSchemaCompositionCode},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, owner := range []string{"named-all", "anonymous-all", "named-open", "anonymous-open", "default-open"} {
+			for _, test := range tests {
+				root := negativeExplicitQNameAllOrOpenRoot(owner, test.attributes)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				assertZeroSchema(t, schema)
+				d := requireDiagnostic(t, err)
+				if d.Class() != FailureInvalid || d.Code() != test.code || d.Loc() != wildcardParticleTestLoc(t, root, test.marker) ||
+					len(d.Related()) != 0 || d.SpecRef() != test.spec || d.Unwrap() != nil {
+					t.Fatalf("%s/%s/%s alternate exit = %s related %v spec %s cause %v", policy, owner, test.name, d, d.Related(), d.SpecRef(), d.Unwrap())
+				}
+			}
+		}
+	}
+}
+
+func TestNegativeExplicitQNameAllAndOpenOwnerStrict10(t *testing.T) {
+	for _, owner := range []string{"named-all", "anonymous-all", "named-open", "anonymous-open", "default-open"} {
+		root := negativeExplicitQNameAllOrOpenRoot(owner, ` notNamespace="##targetNamespace" notQName="t:x"`)
+		root = strings.Replace(root, `version="1.1"`, `version="1.0"`, 1)
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+		assertZeroSchema(t, schema)
+		d := requireDiagnostic(t, err)
+		if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode ||
+			d.Loc() != wildcardParticleTestLoc(t, root, `notNamespace=`) || len(d.Related()) != 0 ||
+			d.SpecRef() != "xsd11-structures#cSchemaDocument" || !errors.Is(err, errLanguagePolicyMismatch) {
+			t.Fatalf("%s Strict10 = %s related %v spec %s cause %v", owner, d, d.Related(), d.SpecRef(), d.Unwrap())
+		}
+	}
+}
+
+func TestNegativeExplicitQNameAllAndOpenOwnerResolutionPrecedesMembership(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, owner := range []string{"named-all", "anonymous-all", "named-open", "anonymous-open", "default-open"} {
+			root := negativeExplicitQNameAllOrOpenRoot(owner, ` notNamespace="##targetNamespace" notQName="t:x"`)
+			root = strings.Replace(root, `version="1.1">`, `version="1.1"><xs:include schemaLocation="missing.xsd"/>`, 1)
+			source, err := NewResolvedSource(context.Background(), "root.xsd", io.NopCloser(strings.NewReader(root)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cause := errors.New("resolver unavailable")
+			resolver := &discoveryResolver{failures: map[string]error{"missing.xsd": cause}}
+			schema, err := ParseSchemaWithPolicy(source, resolver, policy)
+			assertZeroSchema(t, schema)
+			d := requireDiagnostic(t, err)
+			if d.Class() != FailureResolution || d.Code() != SourceResolveCode || d.Loc() != wildcardParticleTestLoc(t, root, `<xs:include`) ||
+				len(d.Related()) != 0 || d.SpecRef() != "" || !errors.Is(err, cause) || len(resolver.calls) != 1 {
+				t.Fatalf("%s/%s resolution precedence = %s related %v calls %v cause %v", policy, owner, d, d.Related(), resolver.calls, err)
 			}
 		}
 	}

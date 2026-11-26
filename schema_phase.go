@@ -425,10 +425,16 @@ func isDeferredNegativeExplicitAnyQName(element, parent, grandparent *syntaxElem
 	if element.name.namespace != xsdNamespaceURI || element.name.local != "any" || parent == nil || grandparent == nil {
 		return false
 	}
-	if parent.name.namespace != xsdNamespaceURI || parent.name.local != "choice" && parent.name.local != "sequence" {
+	if parent.name.namespace != xsdNamespaceURI {
 		return false
 	}
-	if grandparent.name.namespace == xsdNamespaceURI && grandparent.name.local == "complexType" && len(syntaxAttributesByLocal(grandparent, "name")) == 1 {
+	switch parent.name.local {
+	case "choice", "sequence":
+		if grandparent.name.namespace == xsdNamespaceURI && grandparent.name.local == "complexType" && len(syntaxAttributesByLocal(grandparent, "name")) == 1 {
+			return false
+		}
+	case "all", "openContent", "defaultOpenContent":
+	default:
 		return false
 	}
 	negative := syntaxAttributesByLocal(element, "notNamespace")
