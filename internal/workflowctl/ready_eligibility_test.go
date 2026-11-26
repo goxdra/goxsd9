@@ -102,11 +102,83 @@ func TestReadyHealthKeepsRepositoryFilterBeforeDependencies(t *testing.T) {
 	assertBacklogHealthFormats(t, fixture, newBacklogHealthReport(backlogHealthCounts{Ready: 1, M: 1}))
 }
 
+func TestReadyPickFiltersForeignRepositoryBeforeDependencies(t *testing.T) {
+	for _, foreignNumber := range []int{5, 42} {
+		t.Run(fmt.Sprintf("foreign-%d", foreignNumber), func(t *testing.T) {
+			assertReadyPickForeignCase(t, foreignNumber)
+		})
+	}
+}
+
+func assertReadyPickForeignCase(t *testing.T, foreignNumber int) {
+	t.Helper()
+	foreign := readyTestItem(foreignNumber, "Ready", "Issue", "other/example", "XS", "P0", nil)
+	foreign.Title = "Foreign issue"
+	foreign.Content.URL = "https://example.test/foreign"
+	fixture := backlogFixture{
+		list: projectList{Items: []projectItem{
+			foreign,
+			readyTestItem(44, "Ready", "Issue", repositoryKey, "XS", "P2", nil),
+			readyTestItem(42, "Ready", "Issue", repositoryKey, "S", "P1", nil),
+		}},
+		relations: map[int]issueRelations{
+			44: {},
+			42: {BlockedBy: issueConnection{Nodes: []relatedIssue{{Number: 99, State: "CLOSED"}}}},
+		},
+	}
+	assertReadyRepositoryHealth(t, fixture, backlogHealthCounts{Ready: 2, XS: 1, S: 1}, []int{44, 42})
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"pick"}, want: "#42 [P1/S] Issue #42\nhttps://example.test/42\n"},
+		{args: []string{"pick", "--json"}, want: `{"blocking":0,"effort":"S","number":42,"phase":"Bootstrap","priority":"P1","title":"Issue #42","url":"https://example.test/42"}` + "\n"},
+	} {
+		output, calls, err := runReadyPickFixture(t, fixture, "", test.args)
+		if err != nil {
+			t.Fatalf("pick %v: %v", test.args, err)
+		}
+		if !reflect.DeepEqual(calls, []int{44, 42}) {
+			t.Fatalf("dependency calls = %v, want only canonical [44 42]", calls)
+		}
+		if output != test.want {
+			t.Fatalf("pick output = %q, want %q", output, test.want)
+		}
+	}
+}
+
+func TestReadyPickForeignOnlyRetainsNoWorkDiagnostic(t *testing.T) {
+	fixture := backlogFixture{list: projectList{Items: []projectItem{
+		readyTestItem(51, "Ready", "Issue", "other/example", "XS", "P0", nil),
+		readyTestItem(52, "Ready", "Issue", "another/example", "S", "P1", nil),
+	}}, relations: map[int]issueRelations{}}
+	output, calls, err := runReadyPickFixture(t, fixture, "", []string{"pick", "--json"})
+	if backlogExitCode(err) != 3 || err == nil || err.Error() != "no unblocked Ready issue is available; run backlog curation" {
+		t.Fatalf("pick error = %v (exit %d), want existing no-work diagnostic", err, backlogExitCode(err))
+	}
+	if output != "" || len(calls) != 0 {
+		t.Fatalf("pick output = %q, dependency calls = %v, want neither", output, calls)
+	}
+	assertReadyRepositoryHealth(t, fixture, backlogHealthCounts{}, nil)
+}
+
+func assertReadyRepositoryHealth(t *testing.T, fixture backlogFixture, counts backlogHealthCounts, calls []int) {
+	t.Helper()
+	result := runBacklogFixture(t, []string{"backlog", "health", "--format", "json"}, fixture)
+	want := newBacklogHealthReport(counts)
+	if result.code != backlogExpectedExitCode(want) || result.output != expectedBacklogJSON(want) ||
+		!reflect.DeepEqual(result.dependencyCall, calls) {
+		t.Fatalf("health = %#v, want counts %#v and dependency calls %v", result, counts, calls)
+	}
+}
+
 func TestReadyPickRefusesIncompleteInventoryBeforeSelecting(t *testing.T) {
 	fixture := backlogFixture{relations: map[int]issueRelations{}}
 	for _, response := range []string{
 		`{"items":[],"totalCount":1}`,
 		`{"items":[{"content":{"type":"Issue","number":41,"repository":"goxdra/goxsd9"},"status":"Ready","labels":["needs-human"]}],"totalCount":1,"unexpected":true}`,
+		`{"items":[{"content":{"type":"Issue","number":41,"repository":"other/example"},"status":"Ready"}],"totalCount":2}`,
+		`{"items":[{"content":{"type":"Issue","number":0,"repository":"other/example"},"status":"Ready"}],"totalCount":1}`,
 	} {
 		t.Run(response, func(t *testing.T) {
 			output, calls, err := runReadyPickFixture(t, fixture, response, []string{"pick", "--json"})
