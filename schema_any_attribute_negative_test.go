@@ -16,13 +16,15 @@ func negativeAttributeSchema(model, attributes string) string {
 //nolint:gocognit // Exercise public lexical, namespace, location, copy, and order facts together.
 func TestAnyAttributeNegativeDirectFacts(t *testing.T) {
 	forms := []struct {
-		name, value, lexical, process, processMarker string
-		want                                         []string
+		name, value, lexical, process, processMarker, wantProcess string
+		want                                                      []string
 	}{
-		{"local", "##local", "##local", "", "", []string{""}},
-		{"target", "##targetNamespace", "##targetNamespace", "", "", []string{"urn:t"}},
-		{"uri", "urn:z", "urn:z", "", "", []string{"urn:z"}},
-		{"mixed", "&#xA;urn:z&#x9;##targetNamespace urn:a&#xD;##local urn:z", "urn:z ##targetNamespace urn:a ##local urn:z", ` processContents="&#xA;strict&#x9;"`, `processContents="&#xA;strict&#x9;"`, []string{"", "urn:a", "urn:t", "urn:z"}},
+		{"local", "##local", "##local", "", "", "strict", []string{""}},
+		{"target", "##targetNamespace", "##targetNamespace", ` processContents="lax"`, `processContents="lax"`, "lax", []string{"urn:t"}},
+		{"uri", "urn:z", "urn:z", ` processContents="skip"`, `processContents="skip"`, "skip", []string{"urn:z"}},
+		{"mixed-strict", "&#xA;urn:z&#x9;##targetNamespace urn:a&#xD;##local urn:z", "urn:z ##targetNamespace urn:a ##local urn:z", ` processContents="&#xA;strict&#x9;"`, `processContents="&#xA;strict&#x9;"`, "strict", []string{"", "urn:a", "urn:t", "urn:z"}},
+		{"mixed-lax", "&#xA;urn:z&#x9;##targetNamespace urn:a&#xD;##local urn:z", "urn:z ##targetNamespace urn:a ##local urn:z", ` processContents="&#xA;lax&#x9;"`, `processContents="&#xA;lax&#x9;"`, "lax", []string{"", "urn:a", "urn:t", "urn:z"}},
+		{"mixed-skip", "&#xA;urn:z&#x9;##targetNamespace urn:a&#xD;##local urn:z", "urn:z ##targetNamespace urn:a ##local urn:z", ` processContents="&#xA;skip&#x9;"`, `processContents="&#xA;skip&#x9;"`, "skip", []string{"", "urn:a", "urn:t", "urn:z"}},
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, model := range []string{"choice", "sequence"} {
@@ -47,7 +49,7 @@ func TestAnyAttributeNegativeDirectFacts(t *testing.T) {
 					if constraint.Variety() != WildcardNamespaceConstraintNot || !reflect.DeepEqual(constraint.Namespaces(), form.want) ||
 						constraint.LexicalForm() != form.lexical || wildcard.Namespace() != form.lexical ||
 						constraint.Loc() != anyAttributeTestLoc(root, marker) || wildcard.NamespaceLoc() != constraint.Loc() ||
-						wildcard.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) || wildcard.ProcessContents() != "strict" ||
+						wildcard.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) || wildcard.ProcessContents() != form.wantProcess ||
 						wildcard.ProcessContentsLoc() != anyAttributeTestLocOptional(root, form.processMarker) || wildcard.QNameConstraint().Present() {
 						t.Fatalf("wildcard facts = %#v, effective %v", wildcard, constraint.Namespaces())
 					}
@@ -83,6 +85,46 @@ func definitionAnyAttribute(t *testing.T, definition ComplexTypeDefinition) AnyA
 		t.Fatal("attribute wildcard absent on repeated query")
 	}
 	return wildcard
+}
+
+//nolint:gocognit // Bounds, locations, and annotation opacity share each admitted owner fixture.
+func TestAnyAttributeNegativeLaxSkipPreserveParticleBoundsAndOpaqueAnnotation(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, model := range []string{"choice", "sequence"} {
+			for _, mode := range []string{"lax", "skip"} {
+				root := negativeAttributeSchema(model, ` notNamespace="##local" processContents="`+mode+`"`)
+				root = strings.Replace(root, `<xs:`+model+`>`, `<xs:`+model+` minOccurs="0" maxOccurs="2">`, 1)
+				root = strings.Replace(root, `type="xs:integer"/>`, `type="xs:integer" minOccurs="0" maxOccurs="3"/>`, 1)
+				root = strings.Replace(root, `<xs:anyAttribute notNamespace="##local" processContents="`+mode+`"/>`, `<xs:anyAttribute notNamespace="##local" processContents="`+mode+`"><xs:annotation><xs:documentation><unrelated xmlns="urn:opaque"/></xs:documentation></xs:annotation></xs:anyAttribute>`, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("%s/%s/%s: %v", policy, model, mode, err)
+				}
+				definition := requireAnyAttributeComplexType(t, schema.Components()[0], model)
+				if definitionAnyAttribute(t, definition).ProcessContents() != mode {
+					t.Fatal("annotation changed wildcard mode")
+				}
+				var child Particle
+				switch particle := definition.Particle().(type) {
+				case ChoiceParticle:
+					if particle.Occurrences().String() != "0/2" || len(particle.Alternatives()) != 1 {
+						t.Fatalf("choice bounds/terms = %s/%v", particle.Occurrences(), particle.Alternatives())
+					}
+					child = particle.Alternatives()[0]
+				case SequenceParticle:
+					if particle.Occurrences().String() != "0/2" || len(particle.Particles()) != 1 {
+						t.Fatalf("sequence bounds/terms = %s/%v", particle.Occurrences(), particle.Particles())
+					}
+					child = particle.Particles()[0]
+				default:
+					t.Fatalf("particle = %T", definition.Particle())
+				}
+				if child.Occurrences().String() != "0/3" || child.Loc() != anyAttributeTestLoc(root, `<xs:element name="value"`) {
+					t.Fatalf("child bounds/location = %s/%s", child.Occurrences(), child.Loc())
+				}
+			}
+		}
+	}
 }
 
 func TestAnyAttributeNegativeAbsentOwnerNamespace(t *testing.T) {
@@ -124,8 +166,8 @@ func TestAnyAttributeNegativePolicyLabelsAndOmittedModel(t *testing.T) {
 //nolint:gocognit // One graph checks adoption, import visibility, cycles, order, and provenance.
 func TestAnyAttributeNegativeGraphProvenance(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="included.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
-	included := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Included"><xs:choice/><xs:anyAttribute notNamespace="##targetNamespace urn:z ##local" notQName=""/></xs:complexType></xs:schema>`
-	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence/><xs:anyAttribute notNamespace="##targetNamespace urn:z" notQName="&#x9;"/></xs:complexType></xs:schema>`
+	included := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:complexType name="Included"><xs:choice/><xs:anyAttribute notNamespace="##targetNamespace urn:z ##local" notQName="" processContents="lax"/></xs:complexType></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence/><xs:anyAttribute notNamespace="##targetNamespace urn:z" notQName="&#x9;" processContents="skip"/></xs:complexType></xs:schema>`
 	fixtures := map[string]discoveryFixture{"root.xsd": {id: "root.xsd", contents: root}, "included.xsd": {id: "included.xsd", contents: included}, "other.xsd": {id: "other.xsd", contents: other}}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		var previous []Component
@@ -153,13 +195,13 @@ func TestAnyAttributeNegativeGraphProvenance(t *testing.T) {
 				t.Fatalf("graph walk order = %v", walked)
 			}
 			for i, want := range []struct {
-				name                   QName
-				source                 SourceID
-				content, marker, qname string
-				namespaces             []string
+				name                                     QName
+				source                                   SourceID
+				content, marker, qname, mode, modeMarker string
+				namespaces                               []string
 			}{
-				{mustTestQName(t, "urn:root", "Included"), "included.xsd", included, `notNamespace="##targetNamespace urn:z ##local"`, `notQName=""`, []string{"", "urn:root", "urn:z"}},
-				{mustTestQName(t, "urn:other", "Imported"), "other.xsd", other, `notNamespace="##targetNamespace urn:z"`, `notQName="&#x9;"`, []string{"urn:other", "urn:z"}},
+				{mustTestQName(t, "urn:root", "Included"), "included.xsd", included, `notNamespace="##targetNamespace urn:z ##local"`, `notQName=""`, "lax", `processContents="lax"`, []string{"", "urn:root", "urn:z"}},
+				{mustTestQName(t, "urn:other", "Imported"), "other.xsd", other, `notNamespace="##targetNamespace urn:z"`, `notQName="&#x9;"`, "skip", `processContents="skip"`, []string{"urn:other", "urn:z"}},
 			} {
 				definition, ok := components[i].ComplexType()
 				if !ok || components[i].Name() != want.name {
@@ -169,6 +211,7 @@ func TestAnyAttributeNegativeGraphProvenance(t *testing.T) {
 				if wildcard.Loc() != anyAttributeTestLocForSource(want.source, want.content, `<xs:anyAttribute`) || wildcard.NamespaceLoc() != anyAttributeTestLocForSource(want.source, want.content, want.marker) ||
 					wildcard.NamespaceConstraint().Variety() != WildcardNamespaceConstraintNot || !reflect.DeepEqual(wildcard.NamespaceConstraint().Namespaces(), want.namespaces) ||
 					!wildcard.QNameConstraint().Present() || wildcard.QNameConstraint().Loc() != anyAttributeTestLocForSource(want.source, want.content, want.qname) ||
+					wildcard.ProcessContents() != want.mode || wildcard.ProcessContentsLoc() != anyAttributeTestLocForSource(want.source, want.content, want.modeMarker) ||
 					len(wildcard.QNameConstraint().Names()) != 0 || len(wildcard.QNameConstraint().Tokens()) != 0 {
 					t.Fatalf("component %d wildcard = %#v", i, wildcard)
 				}
@@ -191,21 +234,27 @@ func TestAnyAttributeNegativeDirectDiagnostics(t *testing.T) {
 		cause                                error
 	}{
 		{"strict10", ` notNamespace="##local"`, `notNamespace=`, UnsupportedSchemaSyntaxCode, "xsd11-structures#cSchemaDocument", FailureUnsupported, errLanguagePolicyMismatch},
+		{"strict10-lax", ` notNamespace="##local" processContents="lax"`, `notNamespace=`, UnsupportedSchemaSyntaxCode, "xsd11-structures#cSchemaDocument", FailureUnsupported, errLanguagePolicyMismatch},
+		{"strict10-skip", ` notNamespace="##local" processContents="skip"`, `notNamespace=`, UnsupportedSchemaSyntaxCode, "xsd11-structures#cSchemaDocument", FailureUnsupported, errLanguagePolicyMismatch},
 		{"empty", ` notNamespace="&#x9;"`, `notNamespace=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
+		{"empty-lax", ` notNamespace="&#x9;" processContents="lax"`, `notNamespace=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
+		{"empty-skip", ` notNamespace="&#x9;" processContents="skip"`, `notNamespace=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
 		{"forbidden", ` notNamespace="##any"`, `notNamespace=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
 		{"conflict", ` notNamespace="##local" namespace="##any"`, `namespace=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
+		{"conflict-lax", ` notNamespace="##local" namespace="##any" processContents="lax"`, `namespace=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
+		{"conflict-skip", ` notNamespace="##local" namespace="##any" processContents="skip"`, `namespace=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
 		{"duplicate", ` notNamespace="##local" notNamespace="urn:z"`, `notNamespace="urn:z"`, InvalidXMLSyntaxCode, "", FailureInvalid, nil},
 		{"bad-process", ` notNamespace="##local" processContents="bad"`, `processContents=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
-		{"lax", ` notNamespace="##local" processContents="lax"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
-		{"skip", ` notNamespace="##local" processContents="skip"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"negative-qname", ` notNamespace="##local" notQName="##defined"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
-		{"empty-qname-lax", ` notNamespace="##local" notQName="" processContents="lax"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
-		{"empty-qname-skip", ` notNamespace="##local" notQName="" processContents="skip"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
+		{"negative-qname-lax", ` notNamespace="##local" notQName="##defined" processContents="lax"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
+		{"negative-qname-skip", ` notNamespace="##local" notQName="##defined" processContents="skip"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
+		{"explicit-qname-lax", ` notNamespace="##local" notQName="t:value" processContents="lax"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
+		{"explicit-qname-skip", ` notNamespace="##local" notQName="t:value" processContents="skip"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 	}
 	for _, model := range []string{"choice", "sequence"} {
 		for _, form := range forms {
 			policy := Strict11
-			if form.name == "strict10" {
+			if strings.HasPrefix(form.name, "strict10") {
 				policy = Strict10
 			}
 			t.Run(model+"/"+form.name, func(t *testing.T) {
@@ -269,33 +318,35 @@ func TestAnyAttributeNegativeExcludedOwners(t *testing.T) {
 //nolint:gocognit // Compare omitted and explicit-empty QName facts at both consumer boundaries.
 func TestAnyAttributeNegativeConsumers(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {
-		for _, qname := range []string{"", ` notQName=""`} {
-			root := strings.Replace(negativeAttributeSchema(model, ` notNamespace="##local"`+qname), `</xs:schema>`, `<xs:element name="root" type="t:Record"/></xs:schema>`, 1)
-			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-			if err != nil {
-				t.Fatalf("parse consumer fixture: %v", err)
-			}
-			wildcard := definitionAnyAttribute(t, requireAnyAttributeComplexType(t, schema.Components()[0], model))
-			validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:t"/>`)))
-			v := requireDiagnostic(t, validationErr)
-			wantValidationLoc := mustTestLoc(t, "instance.xml", 1, 1)
-			if model == "choice" {
-				wantValidationLoc = wildcard.Loc()
-			}
-			if v.Class() != FailureUnsupported || v.Code() != UnsupportedInstanceValidationCode || v.Loc() != wantValidationLoc || v.SpecRef() != instanceValidationSpecRef(XSDVersion11) || !negativeWildcardRelatedHas(v.Related(), wildcard.Loc()) || !errors.Is(validationErr, ErrUnsupported) {
-				t.Fatalf("validation %s = %s, related %v", model, v, v.Related())
-			}
-			output, generationErr := GenerateGo(schema, "generated")
-			if output != nil {
-				t.Fatalf("generation output = %q", output)
-			}
-			g := requireDiagnostic(t, generationErr)
-			wantSpec := codegenDirectChoiceXSD11ElementChoiceSpecRef
-			if model == "sequence" {
-				wantSpec = codegenDirectSequenceXSD11ElementSequenceSpecRef
-			}
-			if g.Class() != FailureUnsupported || g.Code() != diagnosticCodegenUnsupported || g.Loc() != wildcard.Loc() || g.SpecRef() != wantSpec || !errors.Is(generationErr, ErrUnsupported) {
-				t.Fatalf("generation %s = %s", model, g)
+		for _, mode := range []string{"lax", "skip"} {
+			for _, qname := range []string{"", ` notQName=""`} {
+				root := strings.Replace(negativeAttributeSchema(model, ` notNamespace="##local" processContents="`+mode+`"`+qname), `</xs:schema>`, `<xs:element name="root" type="t:Record"/></xs:schema>`, 1)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+				if err != nil {
+					t.Fatalf("parse consumer fixture: %v", err)
+				}
+				wildcard := definitionAnyAttribute(t, requireAnyAttributeComplexType(t, schema.Components()[0], model))
+				validationErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:t"/>`)))
+				v := requireDiagnostic(t, validationErr)
+				wantValidationLoc := mustTestLoc(t, "instance.xml", 1, 1)
+				if model == "choice" {
+					wantValidationLoc = wildcard.Loc()
+				}
+				if v.Class() != FailureUnsupported || v.Code() != UnsupportedInstanceValidationCode || v.Loc() != wantValidationLoc || v.SpecRef() != instanceValidationSpecRef(XSDVersion11) || !negativeWildcardRelatedHas(v.Related(), wildcard.Loc()) || !errors.Is(validationErr, ErrUnsupported) {
+					t.Fatalf("validation %s = %s, related %v", model, v, v.Related())
+				}
+				output, generationErr := GenerateGo(schema, "generated")
+				if output != nil {
+					t.Fatalf("generation output = %q", output)
+				}
+				g := requireDiagnostic(t, generationErr)
+				wantSpec := codegenDirectChoiceXSD11ElementChoiceSpecRef
+				if model == "sequence" {
+					wantSpec = codegenDirectSequenceXSD11ElementSequenceSpecRef
+				}
+				if g.Class() != FailureUnsupported || g.Code() != diagnosticCodegenUnsupported || g.Loc() != wildcard.Loc() || g.SpecRef() != wantSpec || !errors.Is(generationErr, ErrUnsupported) {
+					t.Fatalf("generation %s = %s", model, g)
+				}
 			}
 		}
 	}
@@ -455,27 +506,29 @@ func TestAnyAttributeNegativeDerivedExtensionDependencyPrecedence(t *testing.T) 
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, model := range models {
 			for _, scenario := range scenarios {
-				t.Run(string(policy)+"/"+model.name+"/"+scenario.name, func(t *testing.T) {
-					wildcard := `<xs:anyAttribute notNamespace="##local"/>`
-					owner := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="` + scenario.baseRef + `">` + model.model + model.uses + wildcard + `</xs:extension></xs:complexContent></xs:complexType>`
-					group := `<xs:group name="G"><xs:sequence><xs:element name="g" type="xs:integer"/></xs:sequence></xs:group>`
-					root := namedRestrictionSchema("1.1", "urn:t", owner+scenario.base+group)
-					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-					assertZeroSchema(t, schema)
-					d := requireDiagnostic(t, err)
-					spec := schemaComplexTypeExtensionSpecRef(XSDVersion11)
-					if model.model == "" && scenario.name == "valid" {
-						spec = schemaComplexContentExtensionSpecRef(XSDVersion11)
-					}
-					var related []Loc
-					for _, marker := range scenario.related {
-						related = append(related, anyAttributeTestLoc(root, marker))
-					}
-					if d.Class() != scenario.class || d.Code() != scenario.code || d.Loc() != anyAttributeTestLoc(root, scenario.marker) ||
-						!reflect.DeepEqual(d.Related(), related) || d.SpecRef() != spec || !errors.Is(err, scenario.cause) {
-						t.Fatalf("dependency = %s, related %v, cause %v; want %s %s %s %v %q %v", d, d.Related(), err, scenario.class, scenario.code, scenario.marker, related, spec, scenario.cause)
-					}
-				})
+				for _, mode := range []string{"lax", "skip"} {
+					t.Run(string(policy)+"/"+model.name+"/"+scenario.name+"/"+mode, func(t *testing.T) {
+						wildcard := `<xs:anyAttribute notNamespace="##local" processContents="` + mode + `"/>`
+						owner := `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="` + scenario.baseRef + `">` + model.model + model.uses + wildcard + `</xs:extension></xs:complexContent></xs:complexType>`
+						group := `<xs:group name="G"><xs:sequence><xs:element name="g" type="xs:integer"/></xs:sequence></xs:group>`
+						root := namedRestrictionSchema("1.1", "urn:t", owner+scenario.base+group)
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+						assertZeroSchema(t, schema)
+						d := requireDiagnostic(t, err)
+						spec := schemaComplexTypeExtensionSpecRef(XSDVersion11)
+						if model.model == "" && scenario.name == "valid" {
+							spec = schemaComplexContentExtensionSpecRef(XSDVersion11)
+						}
+						var related []Loc
+						for _, marker := range scenario.related {
+							related = append(related, anyAttributeTestLoc(root, marker))
+						}
+						if d.Class() != scenario.class || d.Code() != scenario.code || d.Loc() != anyAttributeTestLoc(root, scenario.marker) ||
+							!reflect.DeepEqual(d.Related(), related) || d.SpecRef() != spec || !errors.Is(err, scenario.cause) {
+							t.Fatalf("dependency = %s, related %v, cause %v; want %s %s %s %v %q %v", d, d.Related(), err, scenario.class, scenario.code, scenario.marker, related, spec, scenario.cause)
+						}
+					})
+				}
 			}
 		}
 	}
@@ -517,25 +570,27 @@ func TestAnyAttributeNegativeExtensionGraphVisibilityPrecedesUnsupported(t *test
 	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:base"><xs:complexType name="Base"/></xs:schema>`
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, visible := range []bool{false, true} {
-			imports := `<xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/>`
-			if visible {
-				imports = `<xs:import namespace="urn:base" schemaLocation="base.xsd"/>`
-			}
-			root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:b="urn:base" targetNamespace="urn:root">` + imports + `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="b:Base"><xs:sequence/><xs:anyAttribute notNamespace="##local"/></xs:extension></xs:complexContent></xs:complexType></xs:schema>`
-			schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
-				"bridge.xsd": {id: "bridge.xsd", contents: bridge},
-				"base.xsd":   {id: "base.xsd", contents: base},
-			}, policy)
-			assertZeroSchema(t, schema)
-			d := requireDiagnostic(t, err)
-			if visible {
-				if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) || len(d.Related()) != 0 || d.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) || !errors.Is(err, errSchemaAnyAttributeUnsupported) {
-					t.Fatalf("visible %s = %s, related %v, cause %v", policy, d, d.Related(), err)
+			for _, mode := range []string{"lax", "skip"} {
+				imports := `<xs:import namespace="urn:bridge" schemaLocation="bridge.xsd"/>`
+				if visible {
+					imports = `<xs:import namespace="urn:base" schemaLocation="base.xsd"/>`
 				}
-				continue
-			}
-			if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != anyAttributeTestLoc(root, `base="b:Base"`) || !reflect.DeepEqual(d.Related(), []Loc{anyAttributeTestLocForSource("base.xsd", base, `<xs:complexType name="Base"`)}) || d.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) || !errors.Is(err, errSchemaComplexTypeBaseUnresolved) {
-				t.Fatalf("hidden %s = %s, related %v, cause %v", policy, d, d.Related(), err)
+				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:b="urn:base" targetNamespace="urn:root">` + imports + `<xs:complexType name="Derived"><xs:complexContent><xs:extension base="b:Base"><xs:sequence/><xs:anyAttribute notNamespace="##local" processContents="` + mode + `"/></xs:extension></xs:complexContent></xs:complexType></xs:schema>`
+				schema, err := discoverTestSchemaWithPolicy(t, root, map[string]discoveryFixture{
+					"bridge.xsd": {id: "bridge.xsd", contents: bridge},
+					"base.xsd":   {id: "base.xsd", contents: base},
+				}, policy)
+				assertZeroSchema(t, schema)
+				d := requireDiagnostic(t, err)
+				if visible {
+					if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) || len(d.Related()) != 0 || d.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) || !errors.Is(err, errSchemaAnyAttributeUnsupported) {
+						t.Fatalf("visible %s = %s, related %v, cause %v", policy, d, d.Related(), err)
+					}
+					continue
+				}
+				if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != anyAttributeTestLoc(root, `base="b:Base"`) || !reflect.DeepEqual(d.Related(), []Loc{anyAttributeTestLocForSource("base.xsd", base, `<xs:complexType name="Base"`)}) || d.SpecRef() != schemaComplexTypeExtensionSpecRef(XSDVersion11) || !errors.Is(err, errSchemaComplexTypeBaseUnresolved) {
+					t.Fatalf("hidden %s = %s, related %v, cause %v", policy, d, d.Related(), err)
+				}
 			}
 		}
 	}
@@ -543,13 +598,15 @@ func TestAnyAttributeNegativeExtensionGraphVisibilityPrecedesUnsupported(t *test
 
 func TestAnyAttributeNegativeQNameMembershipPrecedesUnsupported(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {
-		root := negativeAttributeSchema(model, ` notNamespace="##local" notQName="local"`)
-		schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-		assertZeroSchema(t, schema)
-		d := requireDiagnostic(t, err)
-		if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != anyAttributeTestLoc(root, `notQName="local"`) ||
-			!reflect.DeepEqual(d.Related(), []Loc{anyAttributeTestLoc(root, `notNamespace="##local"`)}) || d.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || !errors.Is(err, errSchemaWildcardQNameNamespace) {
-			t.Fatalf("%s QName membership = %s, related %v", model, d, d.Related())
+		for _, mode := range []string{"lax", "skip"} {
+			root := negativeAttributeSchema(model, ` notNamespace="##local" notQName="local" processContents="`+mode+`"`)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+			assertZeroSchema(t, schema)
+			d := requireDiagnostic(t, err)
+			if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != anyAttributeTestLoc(root, `notQName="local"`) ||
+				!reflect.DeepEqual(d.Related(), []Loc{anyAttributeTestLoc(root, `notNamespace="##local"`)}) || d.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || !errors.Is(err, errSchemaWildcardQNameNamespace) {
+				t.Fatalf("%s QName membership = %s, related %v", model, d, d.Related())
+			}
 		}
 	}
 }

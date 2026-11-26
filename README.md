@@ -32,7 +32,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Named choice/sequence `xs:any` and strict/default `xs:anyAttribute` expose wildcards. Compatibility/Strict11 admit negative namespaces with empty `notQName` or strict explicit QNames; inline negative-skip `xs:anyAttribute` needs empty 1/1 sequence, no uses or `notQName`. Symbolic combinations and consumers reject.
+Named choice/sequence, Compatibility/Strict11: negative `xs:anyAttribute` supports strict/lax/skip with absent/empty `notQName`; strict admits QNames. Absent/positive: `xs:any` supports `##defined`+QNames all modes; `xs:anyAttribute` only strict. Inline negative-skip: empty 1/1 sequence, no uses/`notQName`. Negative symbolic combinations and consumers reject.
 
 ## CLI
 

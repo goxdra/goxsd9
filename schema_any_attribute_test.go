@@ -1511,7 +1511,6 @@ func TestSchemaBridgeRejectsExcludedAnyAttributeForms(t *testing.T) {
 		{name: "target_namespace", policy: Strict11, version: "1.1", attributes: `namespace="##targetNamespace" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "uri_skip", policy: Strict11, version: "1.1", attributes: `namespace="urn:other" processContents="skip"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "empty_namespace_lax", policy: Strict11, version: "1.1", attributes: `namespace="" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
-		{name: "not_namespace_lax", policy: Strict11, version: "1.1", attributes: `notNamespace="##local" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 		{name: "not_qname", policy: Strict11, version: "1.1", attributes: `notQName="xs:string" processContents="lax"`, wantSpec: schemaAnyAttributeXSD11SpecRef},
 	}
 
