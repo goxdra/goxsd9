@@ -251,14 +251,14 @@
 // included namespaces; negative sets contain excluded namespaces. Both retain sorted,
 // unique owner-relative values, normalized lexical forms, and exact attribute locations
 // in lexical order with element and reference terms.
-// Compatibility and Strict11 support ##defined alone on named-global direct
-// choice/sequence xs:any with ##any, ##other, positive, or valid empty namespace
-// sets and strict, lax, or skip processing. Explicit QNames, alone or mixed with
-// ##defined, require membership in the wildcard namespace constraint. Normalized
+// Compatibility and Strict11 support symbolic ##defined and ##definedSibling on
+// named-global direct choice/sequence xs:any with ##any, ##other, positive, or
+// valid empty namespace sets and strict, lax, or skip processing. Explicit QNames,
+// alone or mixed with one or both keywords, require namespace membership. Normalized
 // token order, in-scope bindings, and sorted explicit names remain separate
 // facts. An explicitly empty notQName list or strict/default explicit QNames
 // may accompany notNamespace while retaining presence and location.
-// ##defined stays symbolic; ##definedSibling, symbolic negative combinations,
+// ##defined and ##definedSibling stay symbolic; symbolic negative combinations,
 // lax/skip nonempty negative combinations, and wildcard algebra remain unsupported.
 // Lax/skip notQName on inline, group,
 // or extension placements rejects; existing strict explicit-QName placement

@@ -537,16 +537,27 @@ func TestEmptyWildcardReferenceFailurePrecedesQNameMembership(t *testing.T) {
 }
 
 //nolint:gocognit // Keep each QName combination's phase exit and location explicit.
-func TestEmptyWildcardQNameCombinationsStayUnsupported(t *testing.T) {
+func TestEmptyWildcardQNameCombinations(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, qname := range []string{"", "##definedSibling"} {
 				root := directWildcardSchema("1.1", model, false, ` namespace="" notQName="`+qname+`"`)
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-				assertZeroSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="`+qname+`"`) || diagnostic.SpecRef() != schemaAnyParticleSpecRef(XSDVersion11) || !errors.Is(err, errSchemaAnyParticleUnsupported) {
-					t.Fatalf("any QName combination = %s, cause %v", diagnostic, err)
+				if qname == "##definedSibling" {
+					if err != nil {
+						t.Fatalf("symbolic empty-namespace wildcard: %v", err)
+					}
+					wildcard := directWildcardFromParticle(t, directWildcardDefinition(t, schema).Particle())
+					if !reflect.DeepEqual(wildcard.QNameConstraint().Tokens(), []string{qname}) || len(wildcard.QNameConstraint().Names()) != 0 {
+						t.Fatalf("symbolic empty-namespace facts = %#v", wildcard.QNameConstraint())
+					}
+				}
+				if qname == "" {
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="`+qname+`"`) || diagnostic.SpecRef() != schemaAnyParticleSpecRef(XSDVersion11) || !errors.Is(err, errSchemaAnyParticleUnsupported) {
+						t.Fatalf("any QName combination = %s, cause %v", diagnostic, err)
+					}
 				}
 				attributeRoot := directAnyAttributeSchema("1.1", model, ` namespace="" notQName="`+qname+`"`)
 				attributeSchema, attributeErr := discoverTestSchemaWithPolicy(t, attributeRoot, nil, policy)

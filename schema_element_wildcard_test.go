@@ -1223,14 +1223,6 @@ func TestSchemaBridgeValidatesWildcardBeforeZeroZeroElision(t *testing.T) {
 			marker:     `minOccurs="bad"`,
 			wantClass:  FailureInvalid,
 		},
-		{
-			name:            "keyword_excluded_not_qname",
-			attributes:      ` namespace="##other" processContents="skip" notQName="##definedSibling" minOccurs="0" maxOccurs="0"`,
-			marker:          `notQName="##definedSibling"`,
-			wantClass:       FailureUnsupported,
-			wantUnsupported: true,
-			wantCause:       errSchemaAnyParticleUnsupported,
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1260,6 +1252,7 @@ func TestSchemaBridgeValidatesWildcardBeforeZeroZeroElision(t *testing.T) {
 	}
 }
 
+//nolint:gocognit // Keep the owner and wildcard-form matrix in one test.
 func TestSchemaBridgeKeepsOtherWildcardPlacementsUnsupported(t *testing.T) {
 	base := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root" version="1.1">%s</xs:schema>`
 	cases := []struct {
@@ -1292,17 +1285,25 @@ func TestSchemaBridgeKeepsOtherWildcardPlacementsUnsupported(t *testing.T) {
 		{name: "other_strict_explicit", attributes: ` namespace="##other" processContents="strict"`},
 		{name: "positive_lax", attributes: ` namespace="##local" processContents="lax"`},
 		{name: "positive_skip", attributes: ` namespace="##local" processContents="skip"`},
+		{name: "sibling", attributes: ` notQName="##definedSibling"`},
 	}
 	for _, test := range cases {
 		for _, wildcardForm := range wildcardForms {
 			t.Run(test.name+"/"+wildcardForm.name, func(t *testing.T) {
 				body := fmt.Sprintf(test.body, wildcardForm.attributes)
-				schema, err := discoverTestSchemaWithPolicy(t, fmt.Sprintf(base, body), nil, Strict11)
+				root := fmt.Sprintf(base, body)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
 				if err == nil {
 					t.Fatal("discover schema succeeded, want unsupported diagnostic")
 				}
 				assertZeroSchema(t, schema)
 				assertUnsupportedSchemaSyntaxDiagnostic(t, err)
+				if wildcardForm.name == "sibling" {
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="##definedSibling"`) {
+						t.Fatalf("%s: sibling owner diagnostic = %s", test.name, diagnostic)
+					}
+				}
 			})
 		}
 	}
@@ -1493,7 +1494,6 @@ func TestSchemaBridgeModelsDirectStrictWildcardQNameConstraint(t *testing.T) {
 	}
 }
 
-//nolint:funlen // Keep the bounded wildcard diagnostic matrix explicit.
 func TestSchemaBridgeWildcardQNameConstraintDiagnostics(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -1536,17 +1536,6 @@ func TestSchemaBridgeWildcardQNameConstraintDiagnostics(t *testing.T) {
 			class:      FailureInvalid,
 			code:       invalidSchemaConditionalCode,
 			spec:       schemaWildcardQNameDatatypeXSD11SpecRef,
-		},
-		{
-			name:       "defined sibling",
-			policy:     Strict11,
-			version:    "1.1",
-			attributes: ` notQName="##definedSibling"`,
-			marker:     `notQName="##definedSibling"`,
-			class:      FailureUnsupported,
-			code:       UnsupportedSchemaSyntaxCode,
-			cause:      errSchemaAnyParticleUnsupported,
-			spec:       schemaAnyParticleSpecRef(XSDVersion11),
 		},
 		{
 			name:       "namespace mismatch",
