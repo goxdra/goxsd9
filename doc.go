@@ -63,9 +63,11 @@
 // 1.1, a local attribute targetNamespace selects its explicit namespace only
 // when a containing targetNamespace exists and matches; missing or mismatched
 // values are invalid, while Strict10 reports an edition mismatch.
-// Redefine/override/defaultOpenContent, assertions, and Boolean facets and
-// datatype facets outside the supported string enumeration/whiteSpace, integer/decimal,
-// and optional precisionDecimal boundaries return explicit unsupported diagnostics.
+// With admitted syntax, redefine/override/defaultOpenContent, assertions,
+// Boolean facets, and datatype facets outside the supported string
+// enumeration/whiteSpace, integer/decimal, and optional precisionDecimal
+// boundaries return explicit unsupported diagnostics. A malformed Strict10
+// schemaLocation on redefine/override fails first at its attribute Loc.
 // Global built-in, named, and inline precisionDecimal element/type facts are
 // available only under Compatibility or Strict11; Strict10 rejects each before
 // validation with a located FeatureDatatypeFacets/FailureUnsupported/ErrUnsupported
