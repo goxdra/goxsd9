@@ -95,7 +95,7 @@ Named/untyped-global empties admit empty `block`; named lack particles/occurrenc
 Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
 Named direct choice/sequence `xs:any`: empty/positive all policies; Compatibility/Strict11: negative sets, symbolic `##defined`/`##definedSibling` with omitted/`##any`/`##other`/positive/empty, strict negative QNames. QName membership precedes omission. Symbolic negative combinations, derivation, consumers reject.
 Compatibility/Strict11 named direct choice/sequence `xs:anyAttribute`: strict QNames/`##defined` admit absent/positive namespace; `notNamespace` admits strict/lax/skip with absent/empty `notQName`, plus strict QNames. Derivations/consumers reject.
-Global-element anonymous inline negative skip: Compatibility/Strict11, one written empty default 1/1 sequence, zero uses, explicit skip, no `notQName`; locations persist. Strict10, broader forms, derivations/consumers reject.
+Global-element anonymous inline negative skip: Compatibility/Strict11, one written empty default 1/1 sequence, zero uses, explicit skip, absent/empty `notQName`; locations persist. Strict10, broader forms, derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed/inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.

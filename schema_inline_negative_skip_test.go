@@ -17,6 +17,97 @@ func inlineNegativeSkipWildcard(attributes string) string {
 	return `<xs:anyAttribute` + attributes + `/>`
 }
 
+//nolint:gocognit // Compare every admitted lexical form through immutable public queries.
+func TestInlineNegativeSkipEmptyQNameFacts(t *testing.T) {
+	forms := []struct {
+		name, attribute string
+		present         bool
+	}{
+		{"absent", "", false},
+		{"empty", ` notQName=""`, true},
+		{"xml whitespace", ` notQName=" &#x9;&#xA;&#xD; "`, true},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, form := range forms {
+			t.Run(string(policy)+"/"+form.name, func(t *testing.T) {
+				root := inlineNegativeSkipSchema(` xmlns:p="urn:p" targetNamespace="urn:root"`,
+					`<xs:sequence minOccurs="1" maxOccurs="1"/>`,
+					inlineNegativeSkipWildcard(` notNamespace="urn:z ##targetNamespace ##local urn:z" processContents="skip"`+form.attribute))
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				components := schema.Components()
+				if len(components) != 1 || components[0].Name() != mustTestQName(t, "urn:root", "root") {
+					t.Fatalf("components = %v", components)
+				}
+				declaration, ok := components[0].ElementDeclaration()
+				if !ok || declaration.Loc() != anyAttributeTestLoc(root, `<xs:element`) {
+					t.Fatalf("element = %#v", declaration)
+				}
+				inline, ok := declaration.InlineComplexType()
+				if !ok || inline.Loc() != anyAttributeTestLoc(root, `<xs:complexType`) || len(inline.AttributeUses()) != 0 {
+					t.Fatalf("inline = %#v", inline)
+				}
+				sequence, ok := inline.Particle().(SequenceParticle)
+				if !ok || sequence.Occurrences().String() != "1/1" || !sequence.Occurrences().IsDefault() ||
+					sequence.Loc() != anyAttributeTestLoc(root, `<xs:sequence`) || len(sequence.Particles()) != 0 {
+					t.Fatalf("sequence = %#v", inline.Particle())
+				}
+				wildcard := inlineNegativeSkipWildcardFacts(t, inline)
+				wantNamespaces := []string{"", "urn:root", "urn:z"}
+				if wildcard.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) ||
+					wildcard.ProcessContents() != "skip" || wildcard.ProcessContentsLoc() != anyAttributeTestLoc(root, `processContents=`) ||
+					wildcard.NamespaceConstraint().Variety() != WildcardNamespaceConstraintNot ||
+					wildcard.NamespaceConstraint().LexicalForm() != "urn:z ##targetNamespace ##local urn:z" ||
+					wildcard.NamespaceConstraint().Loc() != anyAttributeTestLoc(root, `notNamespace=`) ||
+					!reflect.DeepEqual(wildcard.NamespaceConstraint().Namespaces(), wantNamespaces) {
+					t.Fatalf("wildcard = %#v", wildcard)
+				}
+				qname := wildcard.QNameConstraint()
+				wantLoc := Loc{}
+				if form.present {
+					wantLoc = anyAttributeTestLoc(root, `notQName=`)
+				}
+				if qname.Present() != form.present || qname.Loc() != wantLoc || qname.LexicalForm() != "" ||
+					len(qname.Tokens()) != 0 || len(qname.Names()) != 0 {
+					t.Fatalf("QName constraint = %#v", qname)
+				}
+				if form.present {
+					bindings := qname.NamespaceBindings()
+					if len(bindings) == 0 {
+						t.Fatal("missing captured namespace bindings")
+					}
+					original := append([]IdentityNamespaceBinding(nil), bindings...)
+					bindings[0].Namespace = "changed"
+					if !reflect.DeepEqual(inlineNegativeSkipWildcardFacts(t, inline).QNameConstraint().NamespaceBindings(), original) {
+						t.Fatal("namespace bindings exposed mutable storage")
+					}
+				}
+				if !form.present && len(qname.NamespaceBindings()) != 0 {
+					t.Fatalf("absent QName bindings = %v", qname.NamespaceBindings())
+				}
+				namespaces := wildcard.NamespaceConstraint().Namespaces()
+				namespaces[0] = "changed"
+				if !reflect.DeepEqual(inlineNegativeSkipWildcardFacts(t, inline).NamespaceConstraint().Namespaces(), wantNamespaces) {
+					t.Fatal("namespace exclusions exposed mutable storage")
+				}
+				walked := []ComponentID{}
+				if walkErr := schema.Walk(func(component Component) error { walked = append(walked, component.ID()); return nil }); walkErr != nil {
+					t.Fatalf("walk: %v", walkErr)
+				}
+				if !reflect.DeepEqual(walked, []ComponentID{declaration.ID()}) {
+					t.Fatalf("walk order = %v", walked)
+				}
+				again, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil || !reflect.DeepEqual(again.Components(), components) {
+					t.Fatalf("repeated build = %v, %v", again.Components(), err)
+				}
+			})
+		}
+	}
+}
+
 //nolint:gocognit // Check copied public facts and the written empty sequence across both admitting policies.
 func TestInlineNegativeSkipEmptySequenceFacts(t *testing.T) {
 	forms := []struct {
@@ -134,36 +225,61 @@ func TestInlineNegativeSkipExplicitDefaultBounds(t *testing.T) {
 	}
 }
 
-func TestInlineNegativeSkipConsumersReject(t *testing.T) {
+func TestInlineNegativeSkipNamedDirectOwnerStillQueryable(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
-		root := inlineNegativeSkipSchema(` targetNamespace="urn:root"`, `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip"`))
+		root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:complexType name="Named"><xs:sequence/><xs:anyAttribute notNamespace="##local" processContents="skip" notQName=""/></xs:complexType></xs:schema>`
 		schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 		if err != nil {
-			t.Fatalf("parse: %v", err)
+			t.Fatalf("named direct owner: %v", err)
 		}
-		instanceErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root"/>`)))
-		instance := requireDiagnostic(t, instanceErr)
-		wantValidationRelated := []Loc{
-			anyAttributeTestLoc(root, `<xs:element`),
-			anyAttributeTestLoc(root, `<xs:complexType`),
-			anyAttributeTestLoc(root, `<xs:sequence`),
-			anyAttributeTestLoc(root, `<xs:anyAttribute`),
+		components := schema.Components()
+		if len(components) != 1 {
+			t.Fatalf("components = %v", components)
 		}
-		if instance.Class() != FailureUnsupported || instance.Code() != UnsupportedInstanceValidationCode ||
-			instance.Loc() != mustTestLoc(t, "instance.xml", 1, 1) || instance.SpecRef() != instanceValidationSpecRef(XSDVersion11) ||
-			!reflect.DeepEqual(instance.Related(), wantValidationRelated) ||
-			!errors.Is(instanceErr, errInstanceAttributes) {
-			t.Fatalf("validation = %s, related = %v", instance, instance.Related())
+		definition, ok := components[0].ComplexType()
+		if !ok || components[0].Name() != mustTestQName(t, "urn:root", "Named") {
+			t.Fatalf("named owner = %#v", components[0])
 		}
-		output, generationErr := GenerateGo(schema, "generated")
-		generation := requireDiagnostic(t, generationErr)
-		wantGenerationRelated := wantValidationRelated[:3]
-		if output != nil || generation.Class() != FailureUnsupported || generation.Code() != diagnosticCodegenUnsupported ||
-			generation.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) ||
-			!reflect.DeepEqual(generation.Related(), wantGenerationRelated) ||
-			generation.SpecRef() != schemaElementTypeSpecRef(XSDVersion11) ||
-			!errors.Is(generationErr, errCodegenUnsupported) {
-			t.Fatalf("generation = (%q, %s), related = %v", output, generation, generation.Related())
+		wildcard := inlineNegativeSkipWildcardFacts(t, definition)
+		if wildcard.ProcessContents() != "skip" || !reflect.DeepEqual(wildcard.NamespaceConstraint().Namespaces(), []string{""}) ||
+			!wildcard.QNameConstraint().Present() || wildcard.QNameConstraint().Loc() != anyAttributeTestLoc(root, `notQName=`) {
+			t.Fatalf("named direct wildcard = %#v", wildcard)
+		}
+	}
+}
+
+func TestInlineNegativeSkipConsumersReject(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, qname := range []string{` notQName=""`, ` notQName=" &#x9;&#xA;&#xD; "`} {
+			root := inlineNegativeSkipSchema(` targetNamespace="urn:root"`, `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip"`+qname))
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			instanceErr := ValidateInstance(schema, "instance.xml", io.NopCloser(strings.NewReader(`<root xmlns="urn:root"/>`)))
+			instance := requireDiagnostic(t, instanceErr)
+			wantValidationRelated := []Loc{
+				anyAttributeTestLoc(root, `<xs:element`),
+				anyAttributeTestLoc(root, `<xs:complexType`),
+				anyAttributeTestLoc(root, `<xs:sequence`),
+				anyAttributeTestLoc(root, `<xs:anyAttribute`),
+			}
+			if instance.Class() != FailureUnsupported || instance.Code() != UnsupportedInstanceValidationCode ||
+				instance.Loc() != mustTestLoc(t, "instance.xml", 1, 1) || instance.SpecRef() != instanceValidationSpecRef(XSDVersion11) ||
+				!reflect.DeepEqual(instance.Related(), wantValidationRelated) ||
+				!errors.Is(instanceErr, errInstanceAttributes) {
+				t.Fatalf("validation = %s, related = %v", instance, instance.Related())
+			}
+			output, generationErr := GenerateGo(schema, "generated")
+			generation := requireDiagnostic(t, generationErr)
+			wantGenerationRelated := wantValidationRelated[:3]
+			if output != nil || generation.Class() != FailureUnsupported || generation.Code() != diagnosticCodegenUnsupported ||
+				generation.Loc() != anyAttributeTestLoc(root, `<xs:anyAttribute`) ||
+				!reflect.DeepEqual(generation.Related(), wantGenerationRelated) ||
+				generation.SpecRef() != schemaElementTypeSpecRef(XSDVersion11) ||
+				!errors.Is(generationErr, errCodegenUnsupported) {
+				t.Fatalf("generation = (%q, %s), related = %v", output, generation, generation.Related())
+			}
 		}
 	}
 }
@@ -175,7 +291,7 @@ func TestInlineNegativeSkipExcludedShapes(t *testing.T) {
 		class                                    FailureClass
 		cause                                    error
 	}
-	base := inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip"`)
+	base := inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip" notQName=""`)
 	forms := []form{
 		{"no sequence", "", base, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeSpecRef(XSDVersion11), Strict11, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"nonempty sequence", `<xs:sequence><xs:element name="value" type="xs:integer"/></xs:sequence>`, base, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeSpecRef(XSDVersion11), Strict11, FailureUnsupported, errSchemaAnyAttributeUnsupported},
@@ -189,6 +305,11 @@ func TestInlineNegativeSkipExcludedShapes(t *testing.T) {
 		{"lax mode", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##local" processContents="lax"`), `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeSpecRef(XSDVersion11), Strict11, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"qname", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip" notQName="##defined"`), `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeSpecRef(XSDVersion11), Strict11, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"explicit qname", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip" notQName="xs:string"`), `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeSpecRef(XSDVersion11), Strict11, FailureUnsupported, errSchemaAnyAttributeUnsupported},
+		{"sibling qname", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip" notQName="##definedSibling"`), `notQName=`, invalidSchemaCompositionCode, "", Strict11, FailureInvalid, nil},
+		{"malformed qname", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip" notQName="bad:q:name"`), `notQName=`, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef, Strict11, FailureInvalid, nil},
+		{"unbound qname", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip" notQName="missing:item"`), `notQName=`, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef, Strict11, FailureInvalid, nil},
+		{"unicode whitespace qname", `<xs:sequence/>`, inlineNegativeSkipWildcard(" notNamespace=\"##local\" processContents=\"skip\" notQName=\"\u00a0\""), `notQName=`, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef, Strict11, FailureInvalid, nil},
+		{"qname outside negative", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="` + testXSDNamespace + `" processContents="skip" notQName="xs:string"`), `notQName=`, invalidSchemaCompositionCode, schemaWildcardQNameNamespaceXSD11SpecRef, Strict11, FailureInvalid, errSchemaWildcardQNameNamespace},
 		{"positive", `<xs:sequence/>`, inlineNegativeSkipWildcard(` namespace="##other" processContents="skip"`), `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeSpecRef(XSDVersion11), Strict11, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"strict10", `<xs:sequence/>`, base, `notNamespace=`, UnsupportedSchemaSyntaxCode, "xsd11-structures#cSchemaDocument", Strict10, FailureUnsupported, errLanguagePolicyMismatch},
 		{"empty negative", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace=" " processContents="skip"`), `notNamespace=`, invalidSchemaCompositionCode, "", Strict11, FailureInvalid, nil},
@@ -203,6 +324,9 @@ func TestInlineNegativeSkipExcludedShapes(t *testing.T) {
 	}
 	for _, tc := range forms {
 		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(tc.wildcard, "notQName=") {
+				tc.wildcard = strings.Replace(tc.wildcard, `/>`, ` notQName=""/>`, 1)
+			}
 			root := inlineNegativeSkipSchema(` targetNamespace="urn:root"`, tc.body, tc.wildcard)
 			if tc.name == "mixed content" {
 				root = strings.Replace(root, `<xs:complexType>`, `<xs:complexType mixed="true">`, 1)
@@ -210,8 +334,12 @@ func TestInlineNegativeSkipExcludedShapes(t *testing.T) {
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, tc.policy)
 			assertZeroSchema(t, schema)
 			got := requireDiagnostic(t, err)
+			var related []Loc
+			if tc.name == "qname outside negative" {
+				related = []Loc{anyAttributeTestLoc(root, `notNamespace=`)}
+			}
 			if got.Class() != tc.class || got.Code() != tc.code || got.Loc() != anyAttributeTestLoc(root, tc.marker) ||
-				got.SpecRef() != tc.spec || len(got.Related()) != 0 || tc.cause != nil && !errors.Is(err, tc.cause) {
+				got.SpecRef() != tc.spec || !reflect.DeepEqual(got.Related(), related) || tc.cause != nil && !errors.Is(err, tc.cause) {
 				t.Fatalf("diagnostic = %s, class=%s code=%s loc=%s wantLoc=%s spec=%q related=%v cause=%v", got, got.Class(), got.Code(), got.Loc(), anyAttributeTestLoc(root, tc.marker), got.SpecRef(), got.Related(), err)
 			}
 		})
@@ -221,8 +349,8 @@ func TestInlineNegativeSkipExcludedShapes(t *testing.T) {
 //nolint:gocognit // One graph covers include adoption, import, a cycle, and stable discovery order.
 func TestInlineNegativeSkipGraphProvenance(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root"><xs:include schemaLocation="included.xsd"/><xs:include schemaLocation="included.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
-	included := inlineNegativeSkipSchema("", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##targetNamespace urn:z ##local" processContents="skip"`))
-	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:element name="other"><xs:complexType><xs:sequence/><xs:anyAttribute notNamespace="##targetNamespace" processContents="skip"/></xs:complexType></xs:element></xs:schema>`
+	included := inlineNegativeSkipSchema("", `<xs:sequence/>`, inlineNegativeSkipWildcard(` notNamespace="##targetNamespace urn:z ##local" processContents="skip" notQName=""`))
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:other"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:element name="other"><xs:complexType><xs:sequence/><xs:anyAttribute notNamespace="##targetNamespace" processContents="skip" notQName=" &#x9;&#xA;&#xD; "/></xs:complexType></xs:element></xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"root.xsd":     {id: "root.xsd", contents: root},
 		"included.xsd": {id: "included.xsd", contents: included},
@@ -275,7 +403,9 @@ func TestInlineNegativeSkipGraphProvenance(t *testing.T) {
 				attribute := inlineNegativeSkipWildcardFacts(t, inline)
 				if attribute.Loc() != anyAttributeTestLocForSource(want.source, want.contents, `<xs:anyAttribute`) ||
 					attribute.NamespaceLoc() != anyAttributeTestLocForSource(want.source, want.contents, `notNamespace=`) ||
-					!reflect.DeepEqual(attribute.NamespaceConstraint().Namespaces(), want.namespaces) || attribute.ProcessContents() != "skip" {
+					!reflect.DeepEqual(attribute.NamespaceConstraint().Namespaces(), want.namespaces) || attribute.ProcessContents() != "skip" ||
+					!attribute.QNameConstraint().Present() || attribute.QNameConstraint().Loc() != anyAttributeTestLocForSource(want.source, want.contents, `notQName=`) ||
+					attribute.QNameConstraint().LexicalForm() != "" || len(attribute.QNameConstraint().Tokens()) != 0 || len(attribute.QNameConstraint().Names()) != 0 {
 					t.Fatalf("graph wildcard %d = %#v", index, attribute)
 				}
 			}
@@ -311,7 +441,7 @@ func TestInlineNegativeSkipGraphResolutionFailure(t *testing.T) {
 }
 
 func TestInlineNegativeSkipReferenceShapeExclusions(t *testing.T) {
-	wildcard := inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip"`)
+	wildcard := inlineNegativeSkipWildcard(` notNamespace="##local" processContents="skip" notQName=""`)
 	for _, tc := range []struct {
 		name, body, marker, spec string
 		cause                    error

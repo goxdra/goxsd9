@@ -4024,8 +4024,11 @@ func supportsInlineEmptySequenceNegativeSkipAnyAttribute(parent, element *syntax
 		}
 	}
 	if len(syntaxAttributesByLocal(element, "notNamespace")) != 1 ||
-		len(syntaxAttributesByLocal(element, "namespace")) != 0 ||
-		len(syntaxAttributesByLocal(element, "notQName")) != 0 {
+		len(syntaxAttributesByLocal(element, "namespace")) != 0 {
+		return false
+	}
+	qname := syntaxAttributesByLocal(element, "notQName")
+	if len(qname) > 1 || len(qname) == 1 && collapseXMLWhitespace(qname[0].value) != "" {
 		return false
 	}
 	process := syntaxAttributesByLocal(element, "processContents")
