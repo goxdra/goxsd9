@@ -3828,26 +3828,27 @@ func syntaxAttributesByLocal(element *syntaxElement, local string) []syntaxAttri
 
 func schemaNotationInputFromElement(element *syntaxElement, version XSDVersion) (*schemaNotationInput, error) {
 	publicAttributes := syntaxAttributesByLocal(element, "public")
-	if len(publicAttributes) == 0 {
+	systemAttributes := syntaxAttributesByLocal(element, "system")
+	if len(publicAttributes) == 0 && len(systemAttributes) == 0 {
 		return nil, newSchemaNotationDiagnostic(
 			element.loc,
-			"notation declaration requires a public attribute",
+			"notation declaration requires a public or system attribute",
 			version,
 			errSchemaNotationPublic,
 		)
 	}
-	if len(publicAttributes) != 1 {
+	if len(publicAttributes) > 1 {
 		return nil, newSchemaCompositionDiagnostic(publicAttributes[1].loc, "notation public attribute must be unique")
 	}
-	public := publicAttributes[0]
-	if err := validateSchemaNotationAttribute(public, version); err != nil {
-		return nil, err
+	notation := &schemaNotationInput{}
+	if len(publicAttributes) == 1 {
+		public := publicAttributes[0]
+		if err := validateSchemaNotationAttribute(public, version); err != nil {
+			return nil, err
+		}
+		notation.public = collapseXMLWhitespace(public.value)
+		notation.publicLoc = public.loc
 	}
-	notation := &schemaNotationInput{
-		public:    collapseXMLWhitespace(public.value),
-		publicLoc: public.loc,
-	}
-	systemAttributes := syntaxAttributesByLocal(element, "system")
 	if len(systemAttributes) == 0 {
 		return notation, nil
 	}
@@ -3860,7 +3861,6 @@ func schemaNotationInputFromElement(element *syntaxElement, version XSDVersion) 
 	}
 	notation.system = collapseXMLWhitespace(system.value)
 	notation.systemLoc = system.loc
-	notation.hasSystem = true
 	return notation, nil
 }
 

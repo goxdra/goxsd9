@@ -14,6 +14,11 @@
 // StringEnumerationFacets, and StringWhiteSpaceFacet report immutable kind
 // and implemented scalar facts. ParseSchema uses graph-wide Compatibility;
 // ParseSchemaWithPolicy applies one validated policy to the complete graph.
+// Global notation declarations retain optional public and system identifiers
+// and their authored locations. PublicLoc is zero when public is absent, so a
+// written empty public value remains distinct. At least one identifier is
+// required. Notation-valued types and Go generation of notation components
+// remain unsupported.
 // xs:normalizedString has distinct built-in identity and replace whiteSpace.
 // Restrictions, list items, and union members may reference it. Direct,
 // named-typed, and inline atomic-restriction global elements are queryable;

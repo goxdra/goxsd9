@@ -1093,7 +1093,7 @@ func validateGlobalSchemaDeclarationRequirements(element *syntaxElement, kind Co
 	if err := validateGlobalSchemaNamePresence(element); err != nil {
 		return err
 	}
-	return validateSchemaNotationPublicPresence(element, kind, version)
+	return validateSchemaNotationIdentifierPresence(element, kind, version)
 }
 
 func preferSchemaUnsupported(err error, loc Loc, message string) error {
@@ -1350,21 +1350,17 @@ func globalSchemaAttributeStatus(kind ComponentKind, local string) schemaAttribu
 	return schemaAttributeForbidden
 }
 
-func validateSchemaNotationPublicPresence(element *syntaxElement, kind ComponentKind, version XSDVersion) error {
+func validateSchemaNotationIdentifierPresence(element *syntaxElement, kind ComponentKind, version XSDVersion) error {
 	if kind != ComponentKindNotationDeclaration {
 		return nil
 	}
-	attributes := syntaxAttributesByLocal(element, "public")
-	if len(attributes) == 0 {
+	if len(syntaxAttributesByLocal(element, "public")) == 0 && len(syntaxAttributesByLocal(element, "system")) == 0 {
 		return newSchemaNotationDiagnostic(
 			element.loc,
-			"notation declaration requires a public attribute",
+			"notation declaration requires a public or system attribute",
 			version,
 			errSchemaNotationPublic,
 		)
-	}
-	if len(attributes) != 1 {
-		return newSchemaCompositionDiagnostic(attributes[1].loc, "notation public attribute must be unique")
 	}
 	return nil
 }
@@ -1372,10 +1368,10 @@ func validateSchemaNotationPublicPresence(element *syntaxElement, kind Component
 func validateSchemaNotationAttribute(attribute syntaxAttribute, version XSDVersion) error {
 	switch attribute.name.local {
 	case "public":
-		if collapseXMLWhitespace(attribute.value) == "" {
+		if !validInstancePubid([]byte(collapseXMLWhitespace(attribute.value))) {
 			return newSchemaNotationDiagnostic(
 				attribute.loc,
-				"notation public identifier must be non-empty",
+				"notation public identifier contains a character outside PubidChar",
 				version,
 				errSchemaNotationPublic,
 			)

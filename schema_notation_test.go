@@ -11,6 +11,7 @@ func TestSchemaNotationViewExposesNormalizedIdentifiers(t *testing.T) {
 		name   string
 		policy LanguagePolicy
 	}{
+		{name: "compatibility", policy: Compatibility},
 		{name: "XSD 1.0", policy: Strict10},
 		{name: "XSD 1.1", policy: Strict11},
 	} {
@@ -90,6 +91,7 @@ func TestSchemaNotationPreservesPresentEmptySystemIdentifier(t *testing.T) {
 		name   string
 		policy LanguagePolicy
 	}{
+		{name: "compatibility", policy: Compatibility},
 		{name: "XSD 1.0", policy: Strict10},
 		{name: "XSD 1.1", policy: Strict11},
 	} {
@@ -124,6 +126,7 @@ func TestSchemaNotationDeclarationsComposeInDiscoveryOrder(t *testing.T) {
 		name   string
 		policy LanguagePolicy
 	}{
+		{name: "compatibility", policy: Compatibility},
 		{name: "XSD 1.0", policy: Strict10},
 		{name: "XSD 1.1", policy: Strict11},
 	} {
@@ -181,7 +184,7 @@ func TestSchemaNotationRejectsInvalidIdentifiers(t *testing.T) {
 		extra func(t *testing.T, diagnostic Diagnostic)
 	}{
 		{
-			name: "missing public",
+			name: "missing both identifiers",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
   <xs:notation name="item"/>
 </xs:schema>`,
@@ -189,11 +192,11 @@ func TestSchemaNotationRejectsInvalidIdentifiers(t *testing.T) {
 			cause: errSchemaNotationPublic,
 		},
 		{
-			name: "empty public",
+			name: "illegal public character",
 			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
   <xs:notation
     name="item"
-    public="  "/>
+    public="bad[public"/>
 </xs:schema>`,
 			loc:   mustTestLoc(t, "root.xsd", 4, 5),
 			cause: errSchemaNotationPublic,
@@ -224,6 +227,7 @@ func TestSchemaNotationRejectsInvalidIdentifiers(t *testing.T) {
 		value   LanguagePolicy
 		specRef string
 	}{
+		{name: "compatibility", value: Compatibility, specRef: schemaNotationXSD11SpecRef},
 		{name: "XSD 1.0", value: Strict10, specRef: schemaNotationXSD10SpecRef},
 		{name: "XSD 1.1", value: Strict11, specRef: schemaNotationXSD11SpecRef},
 	} {
@@ -292,7 +296,7 @@ func TestSchemaNotationValidatesCommonIdentifiers(t *testing.T) {
 			loc:  mustTestLoc(t, "root.xsd", 5, 5),
 		},
 	}
-	for _, policy := range []LanguagePolicy{Strict10, Strict11} {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, test := range tests {
 			t.Run(string(policy)+"/"+test.name, func(t *testing.T) {
 				schema, err := discoverTestSchemaWithPolicy(t, test.root, nil, policy)
@@ -322,7 +326,7 @@ func TestSchemaNotationDuplicateAttributeUsesXMLSyntaxDiagnostic(t *testing.T) {
   <xs:notation name="item" public="first"
     public="later"/>
 </xs:schema>`
-	for _, policy := range []LanguagePolicy{Strict10, Strict11} {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		t.Run(string(policy), func(t *testing.T) {
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 			if err == nil || schema.storage != nil {
@@ -349,7 +353,6 @@ func TestSchemaNotationInputAndQueriesAreImmutable(t *testing.T) {
 		publicLoc: publicLoc,
 		system:    "urn:before",
 		systemLoc: systemLoc,
-		hasSystem: true,
 	}
 	schema, err := newSchema([]schemaDocumentInput{{
 		source:  "input.xsd",
@@ -368,7 +371,6 @@ func TestSchemaNotationInputAndQueriesAreImmutable(t *testing.T) {
 	inputNotation.publicLoc = Loc{}
 	inputNotation.system = "urn:after"
 	inputNotation.systemLoc = Loc{}
-	inputNotation.hasSystem = false
 
 	component := schema.Components()[0]
 	notation, ok := component.Notation()
