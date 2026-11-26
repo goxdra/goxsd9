@@ -440,7 +440,6 @@ func TestAnyAttributeQNameExcludedForms(t *testing.T) {
 		{"skip-defined", "choice", ` processContents="skip" notQName="##defined"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
 		{"other", "sequence", ` namespace="##other" notQName="p:item"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
 		{"other-defined", "sequence", ` namespace="##other" notQName="##defined"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
-		{"negative", "choice", ` notNamespace="##local" notQName="t:item"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
 		{"negative-defined", "choice", ` notNamespace="##local" notQName="##defined"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
 		{"sibling", "sequence", ` notQName="##definedSibling"`, `notQName=`, FailureInvalid, invalidSchemaCompositionCode, "", nil},
 		{"malformed", "choice", ` notQName="bad:q:name"`, `notQName=`, FailureInvalid, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef, nil},

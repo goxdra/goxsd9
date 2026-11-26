@@ -284,6 +284,17 @@ const (
 )
 
 func validateSyntaxDocumentStructureWithPolicy(document *syntaxDocument, policy LanguagePolicy) error {
+	err := validateSyntaxDocumentStructureWithoutWildcardDeferral(document, policy)
+	if err == nil || policy == Strict10 || document == nil || document.root == nil {
+		return err
+	}
+	if deferred, syntaxErr := deferNegativeExplicitAnyQNameUnsupported(document.root, err); deferred {
+		return syntaxErr
+	}
+	return err
+}
+
+func validateSyntaxDocumentStructureWithoutWildcardDeferral(document *syntaxDocument, policy LanguagePolicy) error {
 	version, err := xsdVersionForLanguagePolicy(policy)
 	if err != nil {
 		return invalidLanguagePolicyDiagnostic(policy, err)
@@ -308,6 +319,128 @@ func validateSyntaxDocumentStructureWithPolicy(document *syntaxDocument, policy 
 		)
 	}
 	return validateSchemaRootContents(document, version)
+}
+
+func deferNegativeExplicitAnyQNameUnsupported(root *syntaxElement, err error) (bool, error) {
+	var diagnostic Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+		return false, nil
+	}
+	if deferred, syntaxErr := deferredNegativeExplicitAnyQNameElement(root, nil, nil, diagnostic.Loc()); deferred {
+		return true, syntaxErr
+	}
+	return deferredNegativeExplicitAnyAttributeQNameElement(root, nil, diagnostic.Loc())
+}
+
+//nolint:gocognit // Match the exact deferred wildcard and preserve invalid syntax before recursing.
+func deferredNegativeExplicitAnyAttributeQNameElement(element, parent *syntaxElement, loc Loc) (bool, error) {
+	if !isActiveSchemaSyntaxSubtree(element) {
+		return false, nil
+	}
+	if isDeferredNegativeExplicitAnyAttributeQName(element, parent) {
+		qname := syntaxAttributesByLocal(element, "notQName")[0]
+		if loc == parent.loc || loc == element.loc || loc == qname.loc || deferredRestrictionModelLoc(parent, loc) {
+			if err := validateAnyAttributeSyntax(element, XSDVersion11); err != nil {
+				var diagnostic Diagnostic
+				if errors.As(err, &diagnostic) && diagnostic.Class() == FailureInvalid {
+					return true, err
+				}
+				return false, nil
+			}
+			return true, nil
+		}
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if deferred, err := deferredNegativeExplicitAnyAttributeQNameElement(child, element, loc); deferred {
+			return true, err
+		}
+	}
+	return false, nil
+}
+
+func deferredRestrictionModelLoc(parent *syntaxElement, loc Loc) bool {
+	if parent.name.local != "restriction" {
+		return false
+	}
+	for _, node := range parent.children {
+		child, ok := node.(*syntaxElement)
+		if !ok || child.name.namespace != xsdNamespaceURI {
+			continue
+		}
+		if child.name.local == "choice" || child.name.local == "sequence" {
+			return loc == child.loc
+		}
+	}
+	return false
+}
+
+func isDeferredNegativeExplicitAnyAttributeQName(element, parent *syntaxElement) bool {
+	if parent == nil || parent.name.namespace != xsdNamespaceURI || parent.name.local != "extension" && parent.name.local != "restriction" ||
+		element.name.namespace != xsdNamespaceURI || element.name.local != "anyAttribute" {
+		return false
+	}
+	if len(syntaxAttributesByLocal(element, "notNamespace")) != 1 || len(syntaxAttributesByLocal(element, "namespace")) != 0 {
+		return false
+	}
+	qname := syntaxAttributesByLocal(element, "notQName")
+	return len(qname) == 1 && collapseXMLWhitespace(qname[0].value) != "" && !wildcardQNameHasSymbolicToken(qname[0].value)
+}
+
+//nolint:gocognit // Match the exact deferred wildcard and preserve invalid syntax before recursing.
+func deferredNegativeExplicitAnyQNameElement(element, parent, grandparent *syntaxElement, loc Loc) (bool, error) {
+	if !isActiveSchemaSyntaxSubtree(element) {
+		return false, nil
+	}
+	if isDeferredNegativeExplicitAnyQName(element, parent, grandparent) {
+		negative := syntaxAttributesByLocal(element, "notNamespace")[0]
+		qname := syntaxAttributesByLocal(element, "notQName")[0]
+		if loc == element.loc || loc == negative.loc || loc == qname.loc || parent != nil && loc == parent.loc {
+			if err := validateAnyParticleWithOptions(element, XSDVersion11, true); err != nil {
+				var diagnostic Diagnostic
+				if errors.As(err, &diagnostic) && diagnostic.Class() == FailureInvalid {
+					return true, err
+				}
+				return false, nil
+			}
+			return true, nil
+		}
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if deferred, err := deferredNegativeExplicitAnyQNameElement(child, element, parent, loc); deferred {
+			return true, err
+		}
+	}
+	return false, nil
+}
+
+func isDeferredNegativeExplicitAnyQName(element, parent, grandparent *syntaxElement) bool {
+	if element.name.namespace != xsdNamespaceURI || element.name.local != "any" || parent == nil || grandparent == nil {
+		return false
+	}
+	if parent.name.namespace != xsdNamespaceURI {
+		return false
+	}
+	switch parent.name.local {
+	case "choice", "sequence":
+		if grandparent.name.namespace == xsdNamespaceURI && grandparent.name.local == "complexType" && len(syntaxAttributesByLocal(grandparent, "name")) == 1 {
+			return false
+		}
+	case "all", "openContent", "defaultOpenContent":
+	default:
+		return false
+	}
+	negative := syntaxAttributesByLocal(element, "notNamespace")
+	qname := syntaxAttributesByLocal(element, "notQName")
+	return len(negative) == 1 && len(syntaxAttributesByLocal(element, "namespace")) == 0 && len(qname) == 1 &&
+		collapseXMLWhitespace(qname[0].value) != "" && !wildcardQNameHasSymbolicToken(qname[0].value)
 }
 
 func validateSchemaRootContents(document *syntaxDocument, version XSDVersion) error {
@@ -3992,9 +4125,14 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 		return false
 	}
 	if len(notNamespaceAttributes) > 0 {
-		return len(notNamespaceAttributes) == 1 && len(namespaceAttributes) == 0 &&
-			(len(qname) == 0 || len(qname) == 1 && collapseXMLWhitespace(qname[0].value) == "") &&
-			(len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict")
+		if len(notNamespaceAttributes) != 1 || len(namespaceAttributes) != 0 {
+			return false
+		}
+		strict := len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict"
+		if len(qname) == 0 || collapseXMLWhitespace(qname[0].value) == "" {
+			return strict
+		}
+		return len(qname) == 1 && !wildcardQNameHasSymbolicToken(qname[0].value)
 	}
 	namespace := "##any"
 	if len(namespaceAttributes) == 1 {
@@ -5798,7 +5936,7 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 		return false
 	}
 	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 {
-		return collapseXMLWhitespace(attributes[0].value) == ""
+		return !wildcardQNameHasSymbolicToken(attributes[0].value)
 	}
 	if namespace := syntaxAttributesByLocal(element, "namespace"); len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) == "" && collapseXMLWhitespace(attributes[0].value) == "" {
 		return false
@@ -5809,6 +5947,15 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 		}
 	}
 	return true
+}
+
+func wildcardQNameHasSymbolicToken(lexical string) bool {
+	for _, token := range strings.Fields(lexical) {
+		if token == "##defined" || token == "##definedSibling" {
+			return true
+		}
+	}
+	return false
 }
 
 func unsupportedNondirectWildcardConstraints(model *syntaxElement, version XSDVersion) error {
@@ -5832,7 +5979,7 @@ func unsupportedNondirectWildcardConstraint(wildcard *syntaxElement, version XSD
 	if len(qname) != 1 {
 		return nil
 	}
-	if len(syntaxAttributesByLocal(wildcard, "notNamespace")) != 0 && collapseXMLWhitespace(qname[0].value) == "" {
+	if len(syntaxAttributesByLocal(wildcard, "notNamespace")) != 0 {
 		return newSchemaAnyParticleUnsupported(qname[0].loc, "wildcard notQName with notNamespace outside named direct choice/sequence is not implemented", version)
 	}
 	for _, token := range strings.Fields(collapseXMLWhitespace(qname[0].value)) {

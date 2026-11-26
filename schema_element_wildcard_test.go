@@ -1549,17 +1549,6 @@ func TestSchemaBridgeWildcardQNameConstraintDiagnostics(t *testing.T) {
 			spec:       schemaAnyParticleSpecRef(XSDVersion11),
 		},
 		{
-			name:       "not namespace",
-			policy:     Strict11,
-			version:    "1.1",
-			attributes: ` notNamespace="##local" notQName="xs:integer"`,
-			marker:     `notQName="xs:integer"`,
-			class:      FailureUnsupported,
-			code:       UnsupportedSchemaSyntaxCode,
-			cause:      errSchemaAnyParticleUnsupported,
-			spec:       schemaAnyParticleSpecRef(XSDVersion11),
-		},
-		{
 			name:       "namespace mismatch",
 			policy:     Strict11,
 			version:    "1.1",

@@ -256,10 +256,11 @@
 // sets and strict, lax, or skip processing. Explicit QNames, alone or mixed with
 // ##defined, require membership in the wildcard namespace constraint. Normalized
 // token order, in-scope bindings, and sorted explicit names remain separate
-// facts. An explicitly empty notQName list may accompany notNamespace while
-// retaining its presence and location. ##defined stays symbolic;
-// ##definedSibling, nonempty notNamespace/notQName combinations, and wildcard
-// algebra remain unsupported. Lax/skip notQName on inline, group,
+// facts. An explicitly empty notQName list or strict/default explicit QNames
+// may accompany notNamespace while retaining presence and location.
+// ##defined stays symbolic; ##definedSibling, symbolic negative combinations,
+// lax/skip nonempty negative combinations, and wildcard algebra remain unsupported.
+// Lax/skip notQName on inline, group,
 // or extension placements rejects; existing strict explicit-QName placement
 // behavior persists. QName-constrained derived restrictions reject.
 // Nonzero wildcard particles remain unsupported to validation
@@ -277,8 +278,10 @@
 // global direct choice/sequence attribute wildcards. NamespaceConstraint
 // reports sorted, distinct effective exclusions; Namespace preserves the
 // normalized lexical order. Empty notQName lists retain presence and location
-// without excluding names. Lax/skip negative lists on named owners, nonempty
-// notQName combinations, other named shapes, and negative namespace derivation
+// without excluding names. Strict/default explicit QNames also retain lexical
+// tokens, namespace bindings, and sorted unique exclusions after membership.
+// Lax/skip negative lists on named owners, symbolic negative combinations,
+// other named shapes, and negative namespace derivation
 // comparisons remain unsupported.
 // Compatibility and Strict11 also expose negative notNamespace with explicit
 // processContents=skip on a global element's anonymous complex type when it

@@ -665,14 +665,23 @@ func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy La
 	if err != nil {
 		return Schema{}, err
 	}
+	version, err := xsdVersionForLanguagePolicy(policy)
+	if err != nil {
+		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
+	}
+	err = preflightSchemaNegativeWildcardQNameNamespaces(discovery.documents, declaredNamespaces, namespaces, version)
+	if err != nil {
+		return Schema{}, err
+	}
 	err = preflightSchemaAnyAttributeQNameNamespaces(discovery.documents, declaredNamespaces, namespaces)
 	if err != nil {
 		return Schema{}, err
 	}
-
-	version, err := xsdVersionForLanguagePolicy(policy)
-	if err != nil {
-		return Schema{}, invalidLanguagePolicyDiagnostic(policy, err)
+	for _, document := range discovery.documents {
+		err = validateSyntaxDocumentStructureWithoutWildcardDeferral(document, policy)
+		if err != nil {
+			return Schema{}, err
+		}
 	}
 	inputs, err := schemaDocumentInputs(discovery.documents, namespaces, visibleSources, version)
 	if err != nil {
@@ -684,6 +693,54 @@ func newSchemaFromDiscoveryWithPolicy(discovery syntaxDiscoveryResult, policy La
 		return Schema{}, err
 	}
 	return schema, nil
+}
+
+func preflightSchemaNegativeWildcardQNameNamespaces(documents []*syntaxDocument, declared, effective []schemaTargetNamespace, version XSDVersion) error {
+	for index, document := range documents {
+		facts := schemaDocumentFacts{
+			targetNamespace: effective[index],
+			chameleon:       !declared[index].present && effective[index].present,
+		}
+		if err := preflightSchemaNegativeWildcardQNameElement(document.root, nil, nil, facts, version); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+//nolint:gocognit // Check both wildcard kinds before visiting active syntax children in lexical order.
+func preflightSchemaNegativeWildcardQNameElement(element, parent, grandparent *syntaxElement, facts schemaDocumentFacts, version XSDVersion) error {
+	if !isActiveSchemaSyntaxSubtree(element) {
+		return nil
+	}
+	if isDeferredNegativeExplicitAnyQName(element, parent, grandparent) {
+		input, err := schemaWildcardParticleInputFromElement(element, facts, version)
+		if err != nil {
+			return err
+		}
+		if _, err := schemaWildcardParticleQNameNamespace(input, facts.targetNamespace.value); err != nil {
+			return err
+		}
+	}
+	if isDeferredNegativeExplicitAnyAttributeQName(element, parent) {
+		input, err := schemaAnyAttributeInputFromWildcard(element, facts)
+		if err != nil {
+			return err
+		}
+		if _, err := schemaAnyAttributeQNameNamespace(input, facts.targetNamespace.value); err != nil {
+			return err
+		}
+	}
+	for _, node := range element.children {
+		child, ok := node.(*syntaxElement)
+		if !ok {
+			continue
+		}
+		if err := preflightSchemaNegativeWildcardQNameElement(child, element, parent, facts, version); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func schemaDiscoveryNamespacesWithPolicy(documents []*syntaxDocument, policy LanguagePolicy) ([]schemaTargetNamespace, map[SourceID]int, error) {
@@ -6929,7 +6986,7 @@ func resolveSchemaComplexTypeDirectBody(
 	}
 	if body.anyAttribute != nil && body.anyAttribute.qnameConstraint.present &&
 		(body.anyAttribute.processContents != "strict" ||
-			body.anyAttribute.namespaceConstraint.variety == WildcardNamespaceConstraintNot && body.anyAttribute.qnameConstraint.lexical != "" ||
+			body.anyAttribute.namespaceConstraint.variety == WildcardNamespaceConstraintNot && wildcardQNameHasSymbolicToken(body.anyAttribute.qnameConstraint.lexical) ||
 			body.anyAttribute.namespaceConstraint.lexical == "##other") {
 		return nil, newSchemaAnyAttributeUnsupported(body.anyAttribute.loc, version)
 	}
@@ -10155,30 +10212,28 @@ func resolveSchemaParticleTerm(
 		}
 		return resolveSchemaElementParticle(*term, owner, records, byName, visibleSources, simpleTypes, version, model)
 	case schemaWildcardParticleInput:
-		return resolveSchemaWildcardParticle(term, owner)
+		return resolveSchemaWildcardParticle(term, owner, version)
 	case *schemaWildcardParticleInput:
 		if term == nil {
 			return nil, newSchemaBridgeInvariant(Loc{}, "particle term has a nil wildcard input")
 		}
-		return resolveSchemaWildcardParticle(*term, owner)
+		return resolveSchemaWildcardParticle(*term, owner, version)
 	default:
 		return nil, newSchemaBridgeInvariant(Loc{}, "particle term has an unknown input")
 	}
 }
 
-func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord) (Particle, error) {
+func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner schemaComponentRecord, version XSDVersion) (Particle, error) {
 	if input.namespaceConstraint.variety == WildcardNamespaceConstraintNot && input.processContents != "strict" && input.processContents != "lax" && input.processContents != "skip" ||
 		input.namespaceConstraint.variety != WildcardNamespaceConstraintNot && !isSupportedDirectAnyParticleFacts(input.namespaceConstraint.lexical, input.processContents, input.namespaceConstraint.variety == WildcardNamespaceConstraintEnumeration) {
 		return nil, newSchemaBridgeInvariant(input.loc, "unsupported wildcard facts reached component resolution")
 	}
-	constraint := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, owner.name.Namespace())
-	if input.qnameConstraint.present {
-		for _, name := range input.qnameConstraint.names {
-			if schemaWildcardNamespaceAllowsQName(constraint, name, owner.name.Namespace()) {
-				continue
-			}
-			return nil, newSchemaWildcardQNameNamespaceDiagnostic(input, name, owner.name.Namespace())
-		}
+	constraint, err := schemaWildcardParticleQNameNamespace(input, owner.name.Namespace())
+	if err != nil {
+		return nil, err
+	}
+	if input.namespaceConstraint.variety == WildcardNamespaceConstraintNot && input.qnameConstraint.lexical != "" && input.processContents != "strict" {
+		return nil, newSchemaAnyParticleUnsupported(input.qnameConstraint.loc, "element wildcard notQName constraints are not implemented", version)
 	}
 	if !input.occurrences.mapsToParticle() {
 		return nil, nil
@@ -10191,6 +10246,17 @@ func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner sche
 		processContents:     input.processContents,
 		processContentsLoc:  input.processContentsLoc,
 	}}, nil
+}
+
+func schemaWildcardParticleQNameNamespace(input schemaWildcardParticleInput, ownerNamespace string) (schemaWildcardNamespaceConstraint, error) {
+	constraint := resolveSchemaWildcardNamespaceConstraint(input.namespaceConstraint, ownerNamespace)
+	for _, name := range input.qnameConstraint.names {
+		if schemaWildcardNamespaceAllowsQName(constraint, name, ownerNamespace) {
+			continue
+		}
+		return schemaWildcardNamespaceConstraint{}, newSchemaWildcardQNameNamespaceDiagnostic(input, name, ownerNamespace)
+	}
+	return constraint, nil
 }
 
 func sortedSchemaWildcardQNameConstraint(input schemaWildcardQNameConstraint) schemaWildcardQNameConstraint {
