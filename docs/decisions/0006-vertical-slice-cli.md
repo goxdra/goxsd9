@@ -68,10 +68,11 @@ policy without changing this library composition behavior. Normatively, XSD 1.0/
 `schemaLocation` on `include` and `redefine`, and XSD 1.1 `override`, as
 dereference expectations rather than namespace lookup hints. This first-slice
 CLI boundary covers only the currently handled `include`/`import` references.
-The current parser reports `redefine` and `override` as explicit unsupported
-behavior before resolution; the CLI preserves that diagnostic and never
-relabels either construct as invalid input or a resolution failure. Their
-normative dereference behavior remains future library work. For handled
+The parser reports `redefine` and `override` with admitted syntax as explicit
+unsupported behavior before resolution; the CLI preserves that diagnostic.
+A malformed Strict10 `schemaLocation` fails first as invalid input at its
+attribute `Loc`. Their normative dereference behavior remains future library
+work. For handled
 `include`, an absent required location is invalid schema representation and a
 failed local dereference is a resolution failure. An `import` may legally omit
 `schemaLocation`; that normative namespace-only case is not invalid input, but
@@ -79,10 +80,11 @@ this CLI has no namespace-only policy and reports a resolution failure when it
 cannot obtain the imported components. When an import location is present, its
 namespace and lexical location still pass unchanged to the resolver.
 
-The first slice does not interpret `xml:base`. A schema graph containing
-`xml:base` is rejected with an explicit unsupported-resolution diagnostic and
-the XML Base specification reference; it is not classified as invalid XSD.
-This is a product restriction, not a conformance claim. In an instance,
+The first slice does not interpret `xml:base`. Malformed XML Base URI-reference
+syntax is invalid at the `xml:base` attribute `Loc` in every policy.
+Syntactically admitted `xml:base` remains unsupported for schema resolution,
+with the XML Base specification reference. This is a product restriction, not
+a conformance claim. In an instance,
 `xsi:schemaLocation` and `xsi:noNamespaceSchemaLocation` are optional hints.
 Because the schema operand is explicit, the CLI never uses them to select or
 open another schema. It passes the instance unchanged to current

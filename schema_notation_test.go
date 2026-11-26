@@ -201,26 +201,6 @@ func TestSchemaNotationRejectsInvalidIdentifiers(t *testing.T) {
 			loc:   mustTestLoc(t, "root.xsd", 4, 5),
 			cause: errSchemaNotationPublic,
 		},
-		{
-			name: "malformed system",
-			root: `<xs:schema xmlns:xs="` + testXSDNamespace + `">
-  <xs:notation
-    name="item"
-    public="public"
-    system="http://[bad"/>
-</xs:schema>`,
-			loc:   mustTestLoc(t, "root.xsd", 5, 5),
-			cause: errSchemaNotationSystem,
-			extra: func(t *testing.T, diagnostic Diagnostic) {
-				var uriDiagnostic Diagnostic
-				if !errors.As(diagnostic.Unwrap(), &uriDiagnostic) {
-					t.Fatal("notation diagnostic did not preserve the anyURI diagnostic")
-				}
-				if uriDiagnostic.Code() != invalidSchemaCompositionCode || uriDiagnostic.Loc() != diagnostic.Loc() {
-					t.Fatalf("preserved anyURI diagnostic = %s, want composition at %s", uriDiagnostic, diagnostic.Loc())
-				}
-			},
-		},
 	}
 	for _, policy := range []struct {
 		name    string

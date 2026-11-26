@@ -172,6 +172,9 @@ func TestNotationIdentifierAlternateFailures(t *testing.T) {
 			{"invalid system only", `system="http://[bad"`, `system="`, errSchemaNotationSystem},
 			{"invalid system with public", `public="ok" system="http://[bad"`, `system="`, errSchemaNotationSystem},
 		} {
+			if errors.Is(tc.cause, errSchemaNotationSystem) && policy.policy != Strict10 {
+				continue
+			}
 			t.Run(policy.name+"/"+tc.name, func(t *testing.T) {
 				root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="n" ` + tc.attributes + `/></xs:schema>`
 				var previous Diagnostic

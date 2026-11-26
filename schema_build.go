@@ -1354,7 +1354,7 @@ func schemaDocumentDeclaration(node syntaxNode, targetNamespace string, version 
 }
 
 func schemaDocumentDeclarationWithFacts(node syntaxNode, facts schemaDocumentFacts, version XSDVersion) (schemaComponentInput, bool, error) {
-	element, kind, present, err := schemaDocumentDeclarationSyntax(node)
+	element, kind, present, err := schemaDocumentDeclarationSyntax(node, version)
 	if err != nil {
 		return schemaComponentInput{}, false, err
 	}
@@ -1368,7 +1368,7 @@ func schemaDocumentDeclarationWithFacts(node syntaxNode, facts schemaDocumentFac
 	return declaration, true, nil
 }
 
-func schemaDocumentDeclarationSyntax(node syntaxNode) (*syntaxElement, ComponentKind, bool, error) {
+func schemaDocumentDeclarationSyntax(node syntaxNode, version XSDVersion) (*syntaxElement, ComponentKind, bool, error) {
 	textNode, ok := node.(syntaxText)
 	if ok {
 		if xmlWhitespace([]byte(textNode.data)) {
@@ -1391,7 +1391,7 @@ func schemaDocumentDeclarationSyntax(node syntaxNode) (*syntaxElement, Component
 	}
 	kind, named := schemaDeclarationKind(element.name.local)
 	if !named {
-		ignored, err := schemaRootChildIgnored(element)
+		ignored, err := schemaRootChildIgnored(element, version)
 		if err != nil {
 			return nil, "", false, err
 		}
@@ -3796,20 +3796,20 @@ func expandSchemaSubstitutionGroupQName(element *syntaxElement, attribute syntax
 	return name, nil
 }
 
-func schemaRootChildIgnored(element *syntaxElement) (bool, error) {
+func schemaRootChildIgnored(element *syntaxElement, version XSDVersion) (bool, error) {
 	switch element.name.local {
 	case "annotation":
-		if err := validateSchemaAnnotationElement(element); err != nil {
+		if err := validateSchemaAnnotationElement(element, version); err != nil {
 			return false, err
 		}
 		return true, nil
 	case "include":
-		if err := validateSchemaReferenceElement(element, syntaxReferenceInclude); err != nil {
+		if err := validateSchemaReferenceElement(element, syntaxReferenceInclude, version); err != nil {
 			return false, err
 		}
 		return true, nil
 	case "import":
-		if err := validateSchemaReferenceElement(element, syntaxReferenceImport); err != nil {
+		if err := validateSchemaReferenceElement(element, syntaxReferenceImport, version); err != nil {
 			return false, err
 		}
 		return true, nil

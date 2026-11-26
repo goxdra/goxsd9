@@ -346,7 +346,7 @@ func validateSchemaIdentityXPathAttribute(attribute syntaxAttribute, version XSD
 		if version == XSDVersion10 {
 			return newXSD11FeatureMismatchAtReference(FeatureSchemaSyntax, UnsupportedSchemaSyntaxCode, attribute.loc, "identity XPath default namespace is an XSD 1.1-only construct", schemaIdentitySpecRef(XSDVersion11, "src-identity-constraint"), nil)
 		}
-		if err := validateSchemaXPathDefaultNamespace(attribute); err != nil {
+		if err := validateSchemaXPathDefaultNamespace(attribute, version); err != nil {
 			return newSchemaIdentityDiagnostic(FailureInvalid, diagnosticSchemaIdentitySyntaxCode, attribute.loc, "identity XPath default namespace is invalid", nil, version, "src-identity-constraint", errors.Join(errSchemaIdentitySyntax, err))
 		}
 		return nil
@@ -374,7 +374,7 @@ func validateSchemaIdentityXPathChildren(element *syntaxElement, version XSDVers
 		if annotationSeen {
 			return newSchemaIdentityInvalid(child.loc, "identity XPath annotation must be unique", version)
 		}
-		if err := validateSchemaAnnotationElement(child); err != nil {
+		if err := validateSchemaAnnotationElement(child, version); err != nil {
 			return err
 		}
 		annotationSeen = true
@@ -482,7 +482,7 @@ func validateSchemaIdentityRefReuseChildren(element *syntaxElement, version XSDV
 		if child.name.namespace != xsdNamespaceURI || child.name.local != "annotation" || annotationSeen {
 			return newSchemaIdentityInvalid(child.loc, "identity ref has a forbidden child", version)
 		}
-		if err := validateSchemaAnnotationElement(child); err != nil {
+		if err := validateSchemaAnnotationElement(child, version); err != nil {
 			return err
 		}
 		annotationSeen = true
@@ -556,7 +556,7 @@ func schemaIdentityConstraintChildren(element *syntaxElement, input *schemaIdent
 			if annotationSeen || seenSelector || seenField {
 				return newSchemaIdentityInvalid(child.loc, "identity annotation must be first", version)
 			}
-			if err := validateSchemaAnnotationElement(child); err != nil {
+			if err := validateSchemaAnnotationElement(child, version); err != nil {
 				return err
 			}
 			annotationSeen = true

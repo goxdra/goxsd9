@@ -121,6 +121,9 @@ func TestSchemaBridgeMalformedRootXPathDefaultNamespacePrecedesPolicyClassificat
 		{name: "Strict10", policy: Strict10},
 		{name: "Strict11", policy: Strict11},
 	} {
+		if profile.policy != Strict10 {
+			continue
+		}
 		profile := profile
 		t.Run(profile.name, func(t *testing.T) {
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, profile.policy)

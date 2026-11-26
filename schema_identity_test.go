@@ -417,7 +417,6 @@ func TestIdentityConstraintAdditionalMalformedExits(t *testing.T) {
 		{"ref with selector", `<xs:key ref="t:k"><xs:selector xpath="."/></xs:key>`, `<xs:selector`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"ref with field", `<xs:key ref="t:k"><xs:field xpath="@id"/></xs:key>`, `<xs:field`, Compatibility, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"keyref ref with refer", `<xs:keyref ref="t:k" refer="t:k"/>`, `ref=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
-		{"invalid XPath namespace", `<xs:key name="k"><xs:selector xpathDefaultNamespace="%ZZ" xpath="."/><xs:field xpath="@id"/></xs:key>`, `xpathDefaultNamespace=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"identity text", `<xs:key name="k">invalid<xs:selector xpath="."/><xs:field xpath="@id"/></xs:key>`, `invalid<xs:selector`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"XPath text", `<xs:key name="k"><xs:selector xpath=".">invalid</xs:selector><xs:field xpath="@id"/></xs:key>`, `invalid</xs:selector`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
 		{"qualified identity attribute", `<xs:key xs:name="k"><xs:selector xpath="."/><xs:field xpath="@id"/></xs:key>`, `xs:name=`, Strict11, diagnosticSchemaIdentitySyntaxCode, errSchemaIdentitySyntax},
