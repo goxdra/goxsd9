@@ -345,6 +345,7 @@ func FuzzNotationIdentifierAdmission(f *testing.F) {
 		`public="a b" system="urn:n"`,
 		`public="bad["`,
 		`system="http://[bad"`,
+		`system="urn:n"/><xs:notation name="m" system="urn:m"`,
 		``,
 	} {
 		f.Add(seed)
@@ -381,17 +382,42 @@ func assertNotationFuzzSuccess(t *testing.T, first, second Schema) {
 	t.Helper()
 	firstComponents := first.Components()
 	secondComponents := second.Components()
-	if len(firstComponents) != 1 || len(secondComponents) != 1 {
+	if len(firstComponents) != len(secondComponents) {
 		t.Fatalf("component counts = %d, %d", len(firstComponents), len(secondComponents))
 	}
-	firstView, firstOK := firstComponents[0].Notation()
-	secondView, secondOK := secondComponents[0].Notation()
-	if !firstOK || !secondOK || firstView.Public() != secondView.Public() || firstView.PublicLoc() != secondView.PublicLoc() {
-		t.Fatal("notation facts changed between parses")
+	for index := range firstComponents {
+		firstComponent := firstComponents[index]
+		secondComponent := secondComponents[index]
+		if firstComponent.Kind() != secondComponent.Kind() || firstComponent.Name() != secondComponent.Name() ||
+			firstComponent.ID() != secondComponent.ID() || firstComponent.Loc() != secondComponent.Loc() ||
+			firstComponent.Document() != secondComponent.Document() {
+			t.Fatalf("component %d changed between parses", index)
+		}
+		firstView, firstOK := firstComponent.Notation()
+		secondView, secondOK := secondComponent.Notation()
+		if firstOK != secondOK {
+			t.Fatalf("component %d changed notation kind", index)
+		}
+		if !firstOK {
+			continue
+		}
+		assertNotationFuzzFacts(t, index, firstView, secondView)
+	}
+	if first.LanguagePolicy() != second.LanguagePolicy() {
+		t.Fatal("schema policy changed between parses")
+	}
+}
+
+func assertNotationFuzzFacts(t *testing.T, index int, firstView, secondView NotationDeclaration) {
+	t.Helper()
+	if firstView.Public() != secondView.Public() || firstView.PublicLoc() != secondView.PublicLoc() {
+		t.Fatalf("notation %d public facts changed between parses", index)
 	}
 	firstSystem, firstPresent := firstView.System()
 	secondSystem, secondPresent := secondView.System()
-	if firstSystem != secondSystem || firstPresent != secondPresent {
-		t.Fatal("system facts changed between parses")
+	firstSystemLoc, firstLocPresent := firstView.SystemLoc()
+	secondSystemLoc, secondLocPresent := secondView.SystemLoc()
+	if firstSystem != secondSystem || firstPresent != secondPresent || firstSystemLoc != secondSystemLoc || firstLocPresent != secondLocPresent {
+		t.Fatalf("notation %d system facts changed between parses", index)
 	}
 }
