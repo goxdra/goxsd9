@@ -280,9 +280,9 @@
 // normalized lexical order. Empty notQName lists retain presence and location
 // without excluding names. Strict/default explicit QNames also retain lexical
 // tokens, namespace bindings, and sorted unique exclusions after membership.
-// Lax/skip negative lists require absent or empty notQName; nonempty QName
-// combinations, symbolic negative combinations, other named shapes, and negative namespace derivation
-// comparisons remain unsupported.
+// Lax/skip negative lists require absent or empty notQName; their nonempty
+// QName combinations remain unsupported. Symbolic negative combinations,
+// other named shapes, and negative namespace derivation comparisons remain unsupported.
 // Compatibility and Strict11 also expose negative notNamespace with explicit
 // processContents=skip on a global element's anonymous complex type when it
 // contains exactly one written, default-bound empty sequence and no attribute
