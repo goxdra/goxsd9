@@ -101,14 +101,68 @@ func TestSchemaAnyURINotationLexicalAdmission(t *testing.T) {
 	}
 }
 
-func TestSchemaAnyURILegacyIPv6LocationReachesResolverUnchanged(t *testing.T) {
-	const location = "http://[::192.009.5.5]/"
+func TestSchemaAnyURILegacyAuthorityMarks(t *testing.T) {
+	for _, mark := range "-_.!~*'()" {
+		for _, authority := range []struct{ name, value string }{
+			{"registered name", "http://a" + string(mark) + "b/"},
+			{"IPv6 userinfo", "http://u" + string(mark) + "v@[::1]/"},
+		} {
+			for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+				t.Run(authority.name+"/"+string(mark)+"/"+string(policy), func(t *testing.T) {
+					assertAnyURIAuthorityMarkNotation(t, authority.value, policy)
+					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xml:base="` + authority.value + `"/>`
+					assertAnyURIAlternateCase(t, anyURIAlternateCase{"XML Base mark", root, `xml:base=`, UnsupportedSchemaSyntaxCode, "xmlbase#matching", FailureUnsupported}, policy)
+				})
+			}
+		}
+	}
+}
+
+func assertAnyURIAuthorityMarkNotation(t *testing.T, value string, policy LanguagePolicy) {
+	t.Helper()
+	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:notation name="n" public="p" system="` + value + `"/></xs:schema>`
+	resolver := &discoveryResolver{}
+	schema, err := parseAnyURIPublic(t, root, resolver, policy)
+	if err != nil {
+		t.Fatalf("notation system %q: %v", value, err)
+	}
+	if len(resolver.calls) != 0 || len(schema.Documents()) != 1 || len(schema.Components()) != 1 {
+		t.Fatalf("notation discovery = documents %d, components %d, calls %#v", len(schema.Documents()), len(schema.Components()), resolver.calls)
+	}
+	notation, ok := schema.Components()[0].Notation()
+	if !ok {
+		t.Fatal("notation view absent")
+	}
+	if got, present := notation.System(); !present || got != value {
+		t.Fatalf("notation system = %q/%t, want %q", got, present, value)
+	}
+	if got, present := notation.SystemLoc(); !present || got != mustSchemaTokenLoc(t, "root.xsd", root, 1, `system=`) {
+		t.Fatalf("notation system location = %s/%t", got, present)
+	}
+}
+
+func TestSchemaAnyURILegacyAuthorityLocationReachesResolverUnchanged(t *testing.T) {
+	for _, location := range []string{
+		"http://[::192.009.5.5]/",
+		"http://a(b)/",
+		"http://u(v)@[::1]/",
+	} {
+		for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
+			t.Run(location+"/"+string(policy), func(t *testing.T) {
+				assertAnyURIAuthorityLocationReachesResolver(t, location, policy)
+			})
+		}
+	}
+}
+
+func assertAnyURIAuthorityLocationReachesResolver(t *testing.T, location string, policy LanguagePolicy) {
+	t.Helper()
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:include schemaLocation="` + location + `"/><xs:element name="root"/></xs:schema>`
 	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="child"/></xs:schema>`
 	resolver := &discoveryResolver{fixtures: map[string]discoveryFixture{location: {id: "child.xsd", contents: child}}}
-	schema, err := parseAnyURIPublic(t, root, resolver, Strict10)
+	schema, err := parseAnyURIPublic(t, root, resolver, policy)
 	if err != nil {
-		t.Fatalf("Strict10 legacy IPv6 schemaLocation: %v", err)
+		t.Fatalf("schemaLocation %q: %v", location, err)
 	}
 	if len(schema.Documents()) != 2 || len(schema.Components()) != 2 || schema.Components()[1].Name().Local() != "child" {
 		t.Fatalf("discovered schema = %#v, %#v", schema.Documents(), schema.Components())

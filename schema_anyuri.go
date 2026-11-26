@@ -227,12 +227,12 @@ func xlinkEscapeURI(value string) string {
 }
 
 func isLegacyURILiteral(character byte) bool {
-	return isLegacyUnreserved(character) || strings.ContainsRune("();/?:@&=+$,#%[]", rune(character))
+	return isLegacyUnreserved(character) || strings.ContainsRune(";/?:@&=+$,#%[]", rune(character))
 }
 
 func isLegacyUnreserved(character byte) bool {
 	if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' {
 		return true
 	}
-	return strings.ContainsRune("-_.!~*'", rune(character))
+	return strings.ContainsRune("-_.!~*'()", rune(character))
 }
