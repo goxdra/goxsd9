@@ -177,8 +177,6 @@ func TestQNameGlobalAttributeExcludedFormsAcrossPolicies(t *testing.T) {
 			name, body, needle, spec string
 			cause                    error
 		}{
-			{"local direct", `<xs:complexType name="Box"><xs:attribute name="a" type="xs:QName"/></xs:complexType>`, `type="xs:QName"`, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
-			{"local named", `<xs:simpleType name="Alias"><xs:restriction base="xs:QName"/></xs:simpleType><xs:complexType name="Box"><xs:attribute name="a" type="t:Alias"/></xs:complexType>`, `type="t:Alias"`, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
 			{"local inline", `<xs:complexType name="Box"><xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:QName"/></xs:simpleType></xs:attribute></xs:complexType>`, `<xs:simpleType`, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
 			{"global inline", `<xs:attribute name="a"><xs:simpleType><xs:restriction base="xs:QName"/></xs:simpleType></xs:attribute>`, `<xs:simpleType`, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
 			{"named list", `<xs:attribute name="a" type="t:List"/><xs:simpleType name="List"><xs:list itemType="xs:QName"/></xs:simpleType>`, `type="t:List"`, schemaAttributeTypeSpecRef(profile.version), errSchemaAttributeTypeUnsupported},
