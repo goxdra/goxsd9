@@ -95,8 +95,7 @@ standalone attributes: ValidateInstance N/A; GenerateGo rejects at declaration
 
 Named/untyped-global empties: empty `block`, no particles.
 Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
-Named direct choice/sequence `xs:any`: empty/positive all policies; Compatibility/Strict11 add negatives, `##defined`/`##definedSibling`, strict negative QNames, paired empty `namespace`+`notQName` (strict/lax/skip). Membership before omission; symbolic negatives/derivations/consumers reject.
-Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits member QNames, lax/skip only absent/empty `notQName`; negative symbols reject. Strict/default admits QNames/`##defined` for absent/positive namespace, empty `notQName`/`##defined` for empty namespace. QName membership precedes publication; derivations/consumers reject.
+Direct choice/sequence wildcards retain namespace/QName facts; policy, syntax, and membership precede publication and omission. Named direct `all` also admits negative `anyAttribute` with absent/empty `notQName` in Compatibility/Strict11. Its direct body retains members, uses, and wildcard after 0/0 omission. Other forms and consumers reject; details: [contract](doc.go).
 Global-element anonymous complexType negative `xs:anyAttribute`: Compatibility/Strict11, written empty default-1/1 sequence, no uses. `notQName` absent for omitted/strict/lax; absent/empty for skip. Strict10/broader owners/derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed/inline-simple globals expose true.

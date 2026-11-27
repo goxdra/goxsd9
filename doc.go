@@ -290,7 +290,13 @@
 // tokens, namespace bindings, and sorted unique exclusions after membership.
 // Lax/skip negative lists require absent or empty notQName; their nonempty
 // QName combinations remain unsupported. Symbolic negative combinations,
-// other named shapes, and negative namespace derivation comparisons remain unsupported.
+// negative namespace derivation comparisons remain unsupported.
+// Named direct all complex types also expose negative notNamespace with absent
+// or explicitly empty notQName and default/strict/lax/skip processing under
+// Compatibility and Strict11. The all retains exact member bounds and order,
+// and independently supported scalar uses; 0/0 omission retains the wildcard.
+// Nonnegative all wildcards, nonempty QName/symbolic exclusions, other named
+// shapes, inline and derived all owners, and validation/generation remain unsupported.
 // Compatibility and Strict11 also expose negative notNamespace with omitted
 // (effective strict), explicit strict, lax, or skip processContents on a
 // global element's anonymous complex type when it
