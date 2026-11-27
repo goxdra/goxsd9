@@ -390,38 +390,51 @@ func TestEmptyWildcardNamespaceExcludedShapes(t *testing.T) {
 				{"restriction", `<xs:complexType name="Base"><xs:sequence/></xs:complexType><xs:complexType name="Record"><xs:complexContent><xs:restriction base="t:Base"><xs:` + model + `><xs:any namespace=""/></xs:` + model + `></xs:restriction></xs:complexContent></xs:complexType>`, `namespace=""`},
 				{"inline_restriction", `<xs:complexType name="Base"><xs:sequence/></xs:complexType><xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base"><xs:` + model + `><xs:any namespace=""/></xs:` + model + `></xs:restriction></xs:complexContent></xs:complexType></xs:element>`, `namespace=""`},
 			} {
-				t.Run(string(policy)+"/"+model+"/"+shape.name, func(t *testing.T) {
-					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">` + shape.body + `</xs:schema>`
-					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-					assertZeroSchema(t, schema)
-					diagnostic := requireDiagnostic(t, err)
-					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
-						t.Fatalf("%s diagnostic = %s", shape.name, diagnostic)
+				for _, paired := range []bool{false, true} {
+					if paired && policy == Strict10 {
+						continue
 					}
-					if diagnostic.Loc() != wildcardParticleTestLoc(t, root, shape.marker) || !errors.Is(err, ErrUnsupported) {
-						t.Fatalf("%s location/cause = %v/%v", shape.name, diagnostic.Loc(), err)
+					pairName := "namespace_only"
+					if paired {
+						pairName = "paired"
 					}
-					selectedVersion := XSDVersion11
-					if policy == Strict10 {
-						selectedVersion = XSDVersion10
-					}
-					wantSpec := schemaAnyParticleSpecRef(selectedVersion)
-					wantWildcardCause := true
-					if shape.name == "group" || shape.name == "group_ref" || strings.Contains(shape.name, "restriction") {
-						wantWildcardCause = false
-						wantSpec = "xsd11-structures#cSchemaDocument"
+					t.Run(string(policy)+"/"+model+"/"+shape.name+"/"+pairName, func(t *testing.T) {
+						body := shape.body
+						if paired {
+							body = strings.ReplaceAll(body, `namespace=""`, `namespace="" notQName=""`)
+						}
+						root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">` + body + `</xs:schema>`
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+						assertZeroSchema(t, schema)
+						diagnostic := requireDiagnostic(t, err)
+						if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode {
+							t.Fatalf("%s diagnostic = %s", shape.name, diagnostic)
+						}
+						if diagnostic.Loc() != wildcardParticleTestLoc(t, root, shape.marker) || !errors.Is(err, ErrUnsupported) {
+							t.Fatalf("%s location/cause = %v/%v", shape.name, diagnostic.Loc(), err)
+						}
+						selectedVersion := XSDVersion11
 						if policy == Strict10 {
+							selectedVersion = XSDVersion10
+						}
+						wantSpec := schemaAnyParticleSpecRef(selectedVersion)
+						wantWildcardCause := true
+						if shape.name == "group" || shape.name == "group_ref" || strings.Contains(shape.name, "restriction") {
+							wantWildcardCause = false
+							wantSpec = "xsd11-structures#cSchemaDocument"
+							if policy == Strict10 {
+								wantSpec = "xsd10-structures#schema-document"
+							}
+						}
+						if shape.name == "inline" && model == "choice" {
+							wantWildcardCause = false
 							wantSpec = "xsd10-structures#schema-document"
 						}
-					}
-					if shape.name == "inline" && model == "choice" {
-						wantWildcardCause = false
-						wantSpec = "xsd10-structures#schema-document"
-					}
-					if diagnostic.SpecRef() != wantSpec || errors.Is(err, errSchemaAnyParticleUnsupported) != wantWildcardCause {
-						t.Fatalf("%s spec/cause = %q/%v", shape.name, diagnostic.SpecRef(), err)
-					}
-				})
+						if diagnostic.SpecRef() != wantSpec || errors.Is(err, errSchemaAnyParticleUnsupported) != wantWildcardCause {
+							t.Fatalf("%s spec/cause = %q/%v", shape.name, diagnostic.SpecRef(), err)
+						}
+					})
+				}
 			}
 		}
 	}
@@ -439,19 +452,32 @@ func TestEmptyAnyAttributeNamespaceExcludedShapes(t *testing.T) {
 				{"restriction", `<xs:complexType name="Base"><xs:` + model + `/><xs:anyAttribute namespace="##any"/></xs:complexType><xs:complexType name="Record"><xs:complexContent><xs:restriction base="t:Base"><xs:anyAttribute namespace="" processContents="strict"/></xs:restriction></xs:complexContent></xs:complexType>`},
 				{"inline_restriction", `<xs:complexType name="Base"><xs:` + model + `/><xs:anyAttribute namespace="##any"/></xs:complexType><xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base"><xs:anyAttribute namespace="" processContents="strict"/></xs:restriction></xs:complexContent></xs:complexType></xs:element>`},
 			} {
-				t.Run(string(policy)+"/"+model+"/"+shape.name, func(t *testing.T) {
-					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">` + shape.body + `</xs:schema>`
-					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-					assertZeroSchema(t, schema)
-					diagnostic := requireDiagnostic(t, err)
-					wantLoc := anyAttributeTestLoc(root, `<xs:anyAttribute`)
-					if strings.Contains(shape.name, "restriction") {
-						wantLoc = Loc{source: "root.xsd", line: 1, column: len([]rune(root[:strings.LastIndex(root, `<xs:anyAttribute`)])) + 1}
+				for _, paired := range []bool{false, true} {
+					if paired && policy == Strict10 {
+						continue
 					}
-					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || !errors.Is(err, ErrUnsupported) {
-						t.Fatalf("%s diagnostic = %s, cause %v", shape.name, diagnostic, err)
+					pairName := "namespace_only"
+					if paired {
+						pairName = "paired"
 					}
-				})
+					t.Run(string(policy)+"/"+model+"/"+shape.name+"/"+pairName, func(t *testing.T) {
+						body := shape.body
+						if paired {
+							body = strings.ReplaceAll(body, `namespace=""`, `namespace="" notQName=""`)
+						}
+						root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" targetNamespace="urn:root">` + body + `</xs:schema>`
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+						assertZeroSchema(t, schema)
+						diagnostic := requireDiagnostic(t, err)
+						wantLoc := anyAttributeTestLoc(root, `<xs:anyAttribute`)
+						if strings.Contains(shape.name, "restriction") {
+							wantLoc = Loc{source: "root.xsd", line: 1, column: len([]rune(root[:strings.LastIndex(root, `<xs:anyAttribute`)])) + 1}
+						}
+						if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wantLoc || !errors.Is(err, ErrUnsupported) {
+							t.Fatalf("%s diagnostic = %s, cause %v", shape.name, diagnostic, err)
+						}
+					})
+				}
 			}
 		}
 	}
@@ -553,24 +579,30 @@ func TestEmptyWildcardQNameCombinations(t *testing.T) {
 					}
 				}
 				if qname == "" {
-					assertZeroSchema(t, schema)
-					diagnostic := requireDiagnostic(t, err)
-					if diagnostic.Class() != FailureUnsupported || diagnostic.Code() != UnsupportedSchemaSyntaxCode || diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="`+qname+`"`) || diagnostic.SpecRef() != schemaAnyParticleSpecRef(XSDVersion11) || !errors.Is(err, errSchemaAnyParticleUnsupported) {
-						t.Fatalf("any QName combination = %s, cause %v", diagnostic, err)
+					if err != nil {
+						t.Fatalf("empty QName list: %v", err)
+					}
+					wildcard := directWildcardFromParticle(t, directWildcardDefinition(t, schema).Particle())
+					if !wildcard.QNameConstraint().Present() || wildcard.QNameConstraint().Loc() != wildcardParticleTestLoc(t, root, `notQName=""`) || len(wildcard.QNameConstraint().Tokens()) != 0 || len(wildcard.QNameConstraint().Names()) != 0 {
+						t.Fatalf("empty QName facts = %#v", wildcard.QNameConstraint())
 					}
 				}
 				attributeRoot := directAnyAttributeSchema("1.1", model, ` namespace="" notQName="`+qname+`"`)
 				attributeSchema, attributeErr := discoverTestSchemaWithPolicy(t, attributeRoot, nil, policy)
-				assertZeroSchema(t, attributeSchema)
-				attributeDiagnostic := requireDiagnostic(t, attributeErr)
 				if qname == "##definedSibling" {
+					assertZeroSchema(t, attributeSchema)
+					attributeDiagnostic := requireDiagnostic(t, attributeErr)
 					if attributeDiagnostic.Class() != FailureInvalid || attributeDiagnostic.Code() != invalidSchemaCompositionCode || attributeDiagnostic.Loc() != anyAttributeTestLoc(attributeRoot, `notQName="##definedSibling"`) || attributeDiagnostic.SpecRef() != "" || attributeDiagnostic.Unwrap() != nil {
 						t.Fatalf("forbidden anyAttribute token = %s", attributeDiagnostic)
 					}
 					continue
 				}
-				if attributeDiagnostic.Class() != FailureUnsupported || attributeDiagnostic.Code() != UnsupportedSchemaSyntaxCode || attributeDiagnostic.Loc() != anyAttributeTestLoc(attributeRoot, `<xs:anyAttribute`) || attributeDiagnostic.SpecRef() != schemaAnyAttributeSpecRef(XSDVersion11) || !errors.Is(attributeErr, errSchemaAnyAttributeUnsupported) {
-					t.Fatalf("attribute QName combination = %s, cause %v", attributeDiagnostic, attributeErr)
+				if attributeErr != nil {
+					t.Fatalf("empty attribute QName list: %v", attributeErr)
+				}
+				attribute := definitionAnyAttribute(t, requireAnyAttributeComplexType(t, attributeSchema.Components()[1], model))
+				if !attribute.QNameConstraint().Present() || attribute.QNameConstraint().Loc() != anyAttributeTestLoc(attributeRoot, `notQName=""`) || len(attribute.QNameConstraint().Tokens()) != 0 || len(attribute.QNameConstraint().Names()) != 0 {
+					t.Fatalf("empty attribute QName facts = %#v", attribute.QNameConstraint())
 				}
 			}
 		}

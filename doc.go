@@ -260,6 +260,8 @@
 // token order, in-scope bindings, and sorted explicit names remain separate
 // facts. An explicitly empty notQName list or strict/default explicit QNames
 // may accompany notNamespace while retaining presence and location.
+// An explicitly empty namespace enumeration may likewise accompany an empty
+// notQName list under Compatibility and Strict11 with strict, lax, or skip processing.
 // ##defined and ##definedSibling stay symbolic; symbolic negative combinations,
 // lax/skip nonempty negative combinations, and wildcard algebra remain unsupported.
 // Nonempty lax/skip notQName on inline, group, or extension placements
@@ -276,6 +278,8 @@
 // exact anyAttribute, namespace, and processContents source locations are
 // retained, with omitted locations zero. Attribute-wildcard validation and
 // generation remain unsupported.
+// Compatibility and Strict11 also admit explicit empty namespace and notQName
+// lists together for strict-processing named direct choice/sequence attribute wildcards.
 // Compatibility and Strict11 also retain strict/lax/skip notNamespace lists on named
 // global direct choice/sequence attribute wildcards. NamespaceConstraint
 // reports sorted, distinct effective exclusions; Namespace preserves the

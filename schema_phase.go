@@ -4142,7 +4142,7 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 		return true
 	}
 	if len(qname) == 1 {
-		return isSupportedDirectAnyAttributeQName(qname[0], namespace, processContents)
+		return isSupportedDirectAnyAttributeQName(namespace, processContents)
 	}
 	switch namespace {
 	case "##any":
@@ -4154,11 +4154,8 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 	}
 }
 
-func isSupportedDirectAnyAttributeQName(attribute syntaxAttribute, namespace, processContents string) bool {
+func isSupportedDirectAnyAttributeQName(namespace, processContents string) bool {
 	if processContents != "strict" || namespace != "##any" && namespace != "" && !isPositiveWildcardNamespace(namespace) {
-		return false
-	}
-	if namespace == "" && collapseXMLWhitespace(attribute.value) == "" {
 		return false
 	}
 	return true
@@ -5933,9 +5930,6 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 	}
 	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 {
 		return !wildcardQNameHasSymbolicToken(attributes[0].value)
-	}
-	if namespace := syntaxAttributesByLocal(element, "namespace"); len(namespace) == 1 && collapseXMLWhitespace(namespace[0].value) == "" && collapseXMLWhitespace(attributes[0].value) == "" {
-		return false
 	}
 	return true
 }
