@@ -120,7 +120,7 @@ func TestNegativeExplicitQNameDirectFacts(t *testing.T) {
 
 func TestNegativeExplicitQNameZeroOccurrenceOmission(t *testing.T) {
 	for _, model := range []string{"choice", "sequence"} {
-		root := negativeExplicitQNameSchema("any", model, "1.1", ` notNamespace="##targetNamespace" notQName="p:x" minOccurs="0" maxOccurs="0"`)
+		root := negativeExplicitQNameSchema("any", model, "1.1", ` notNamespace="##targetNamespace" notQName="##definedSibling ##defined p:x" minOccurs="0" maxOccurs="0"`)
 		schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
 		if err != nil {
 			t.Fatalf("%s: %v", model, err)
@@ -169,6 +169,18 @@ func TestNegativeExplicitQNameDiagnostics(t *testing.T) {
 		{"bad negative", "any", ` notNamespace="##any" notQName="p:a"`, `notNamespace=`, "", "", invalidSchemaCompositionCode, Strict11, FailureInvalid, nil},
 		{"bad process", "anyAttribute", ` notNamespace="##local" processContents="other" notQName="p:a"`, `processContents=`, "", "", invalidSchemaCompositionCode, Strict11, FailureInvalid, nil},
 		{"bad bounds", "any", ` notNamespace="##local" notQName="p:a" minOccurs="2" maxOccurs="1"`, `<xs:any `, `minOccurs=`, "xsd11-structures#coss-particle", invalidSchemaCompositionCode, Strict11, FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum},
+		{"symbol local member zero", "any", ` notNamespace="##local" notQName="##definedSibling local" minOccurs="0" maxOccurs="0"`, `notQName=`, `notNamespace=`, schemaWildcardQNameNamespaceXSD11SpecRef, invalidSchemaCompositionCode, Strict11, FailureInvalid, errSchemaWildcardQNameNamespace},
+		{"symbol target member", "anyAttribute", ` notNamespace="##targetNamespace" notQName="##defined t:record"`, `notQName=`, `notNamespace=`, schemaWildcardQNameNamespaceXSD11SpecRef, invalidSchemaCompositionCode, Strict11, FailureInvalid, errSchemaWildcardQNameNamespace},
+		{"symbol URI member", "any", ` notNamespace="urn:p" notQName="##definedSibling p:z"`, `notQName=`, `notNamespace=`, schemaWildcardQNameNamespaceXSD11SpecRef, invalidSchemaCompositionCode, Strict11, FailureInvalid, errSchemaWildcardQNameNamespace},
+		{"symbol lax membership", "any", ` notNamespace="##local" processContents="lax" notQName="##definedSibling local"`, `notQName=`, `notNamespace=`, schemaWildcardQNameNamespaceXSD11SpecRef, invalidSchemaCompositionCode, Strict11, FailureInvalid, errSchemaWildcardQNameNamespace},
+		{"symbol skip membership", "anyAttribute", ` notNamespace="##local" processContents="skip" notQName="##defined local"`, `notQName=`, `notNamespace=`, schemaWildcardQNameNamespaceXSD11SpecRef, invalidSchemaCompositionCode, Strict11, FailureInvalid, errSchemaWildcardQNameNamespace},
+		{"symbol strict10 element", "any", ` notNamespace="##local" notQName="##definedSibling p:a"`, `notNamespace=`, "", "xsd11-structures#cSchemaDocument", UnsupportedSchemaSyntaxCode, Strict10, FailureUnsupported, errLanguagePolicyMismatch},
+		{"symbol strict10 attribute", "anyAttribute", ` notNamespace="##local" notQName="##defined p:a"`, `notNamespace=`, "", "xsd11-structures#cSchemaDocument", UnsupportedSchemaSyntaxCode, Strict10, FailureUnsupported, errLanguagePolicyMismatch},
+		{"symbol malformed element", "any", ` notNamespace="##local" notQName="##definedSibling bad:q:name"`, `notQName=`, "", schemaWildcardQNameDatatypeXSD11SpecRef, invalidSchemaConditionalCode, Strict11, FailureInvalid, nil},
+		{"symbol unbound attribute", "anyAttribute", ` notNamespace="##local" notQName="##defined bad:name"`, `notQName=`, "", schemaWildcardQNameDatatypeXSD11SpecRef, invalidSchemaConditionalCode, Strict11, FailureInvalid, nil},
+		{"symbol conflict", "any", ` notNamespace="##local" namespace="##any" notQName="##definedSibling p:a"`, `namespace=`, "", "", invalidSchemaCompositionCode, Strict11, FailureInvalid, nil},
+		{"symbol forbidden sibling", "anyAttribute", ` notNamespace="##local" notQName="##definedSibling p:a"`, `notQName=`, "", "", invalidSchemaCompositionCode, Strict11, FailureInvalid, nil},
+		{"symbol bounds", "any", ` notNamespace="##local" notQName="##definedSibling p:a" minOccurs="2" maxOccurs="1"`, `<xs:any `, `minOccurs=`, "xsd11-structures#coss-particle", invalidSchemaCompositionCode, Strict11, FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum},
 	}
 	for _, test := range tests {
 		for _, model := range []string{"choice", "sequence"} {
@@ -187,7 +199,7 @@ func TestNegativeExplicitQNameDiagnostics(t *testing.T) {
 				if test.related != "" {
 					wantRelated = []Loc{wildcardParticleTestLoc(t, root, test.related)}
 				}
-				if test.name == "bad bounds" {
+				if test.name == "bad bounds" || test.name == "symbol bounds" {
 					wantRelated = []Loc{wildcardParticleTestLoc(t, root, `minOccurs=`), wildcardParticleTestLoc(t, root, `maxOccurs=`)}
 				}
 				if !reflect.DeepEqual(d.Related(), wantRelated) || test.cause != nil && !errors.Is(err, test.cause) || test.cause == nil && d.Unwrap() != nil {
@@ -257,14 +269,21 @@ func TestNegativeExplicitQNameConsumers(t *testing.T) {
 	}
 }
 
-func TestNegativeExplicitQNameUnsupportedModesAndSymbols(t *testing.T) {
+//nolint:gocognit // Both kinds and models share strict-exclusion diagnostics.
+func TestNegativeExplicitQNameUnsupportedModes(t *testing.T) {
 	for _, kind := range []string{"any", "anyAttribute"} {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, form := range []struct{ name, attributes, marker string }{
 				{"lax", ` notNamespace="##local" processContents="lax" notQName="p:a"`, `notQName=`},
 				{"skip", ` notNamespace="##local" processContents="skip" notQName="p:a"`, `notQName=`},
-				{"defined", ` notNamespace="##local" notQName="##defined p:a"`, `notQName=`},
+				{"lax defined", ` notNamespace="##local" processContents="lax" notQName="##defined"`, `notQName=`},
+				{"skip sibling", ` notNamespace="##local" processContents="skip" notQName="##definedSibling"`, `notQName=`},
+				{"lax mixed", ` notNamespace="##local" processContents="lax" notQName="##defined p:a"`, `notQName=`},
+				{"skip mixed", ` notNamespace="##local" processContents="skip" notQName="##definedSibling p:a"`, `notQName=`},
 			} {
+				if kind == "anyAttribute" && strings.Contains(form.attributes, "##definedSibling") {
+					continue
+				}
 				root := negativeExplicitQNameSchema(kind, model, "1.1", form.attributes)
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
 				assertZeroSchema(t, schema)
@@ -289,8 +308,8 @@ func TestNegativeExplicitQNameUnsupportedModesAndSymbols(t *testing.T) {
 //nolint:gocognit // Check one deterministic include/import cycle with both wildcard kinds.
 func TestNegativeExplicitQNameGraphProvenance(t *testing.T) {
 	root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" targetNamespace="urn:root" version="1.1"><xs:include schemaLocation="child.xsd"/><xs:import namespace="urn:other" schemaLocation="other.xsd"/></xs:schema>`
-	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.1"><xs:complexType name="Included"><xs:choice><xs:any notNamespace="##local" notQName="local local"/></xs:choice></xs:complexType></xs:schema>`
-	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p" targetNamespace="urn:other" version="1.1"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence/><xs:anyAttribute notNamespace="##targetNamespace" notQName="p:a p:a"/></xs:complexType></xs:schema>`
+	child := `<xs:schema xmlns:xs="` + testXSDNamespace + `" version="1.1"><xs:complexType name="Included"><xs:choice><xs:any notNamespace="##local" notQName="##definedSibling local local"/></xs:choice></xs:complexType></xs:schema>`
+	other := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:p="urn:p" targetNamespace="urn:other" version="1.1"><xs:import namespace="urn:root" schemaLocation="root.xsd"/><xs:complexType name="Imported"><xs:sequence/><xs:anyAttribute notNamespace="##targetNamespace" notQName="##defined p:a p:a"/></xs:complexType></xs:schema>`
 	fixtures := map[string]discoveryFixture{
 		"root.xsd":  {id: "root.xsd", contents: root},
 		"child.xsd": {id: "child.xsd", contents: child},
@@ -315,6 +334,7 @@ func TestNegativeExplicitQNameGraphProvenance(t *testing.T) {
 			particle := directWildcardFromParticle(t, included.Particle())
 			if particle.NamespaceConstraint().Variety() != WildcardNamespaceConstraintNot ||
 				!reflect.DeepEqual(particle.NamespaceConstraint().Namespaces(), []string{""}) ||
+				!reflect.DeepEqual(particle.QNameConstraint().Tokens(), []string{"##definedSibling", "local", "local"}) ||
 				!reflect.DeepEqual(particle.QNameConstraint().Names(), []QName{mustTestQName(t, "urn:root", "local")}) ||
 				particle.NamespaceLoc() != wildcardQNameDocumentLoc(t, "child.xsd", child, `notNamespace=`) ||
 				particle.QNameConstraint().Loc() != wildcardQNameDocumentLoc(t, "child.xsd", child, `notQName=`) {
@@ -326,6 +346,7 @@ func TestNegativeExplicitQNameGraphProvenance(t *testing.T) {
 			}
 			attribute := definitionAnyAttribute(t, imported)
 			if !reflect.DeepEqual(attribute.NamespaceConstraint().Namespaces(), []string{"urn:other"}) ||
+				!reflect.DeepEqual(attribute.QNameConstraint().Tokens(), []string{"##defined", "p:a", "p:a"}) ||
 				!reflect.DeepEqual(attribute.QNameConstraint().Names(), []QName{mustTestQName(t, "urn:p", "a")}) ||
 				attribute.NamespaceLoc() != wildcardQNameDocumentLoc(t, "other.xsd", other, `notNamespace=`) ||
 				attribute.QNameConstraint().Loc() != wildcardQNameDocumentLoc(t, "other.xsd", other, `notQName=`) {
@@ -357,7 +378,11 @@ func TestNegativeExplicitQNameAnnotationOpaque(t *testing.T) {
 func TestNegativeExplicitQNameReferencePrecedesMembership(t *testing.T) {
 	for _, kind := range []string{"any", "anyAttribute"} {
 		for _, model := range []string{"choice", "sequence"} {
-			root := negativeExplicitQNameSchema(kind, model, "1.1", ` notNamespace="##local" notQName="local"`)
+			qname := "##definedSibling local"
+			if kind == "anyAttribute" {
+				qname = "##defined local"
+			}
+			root := negativeExplicitQNameSchema(kind, model, "1.1", ` notNamespace="##local" notQName="`+qname+`"`)
 			root = strings.Replace(root, `<xs:element name="first" type="xs:integer"/>`, `<xs:element ref="t:missing"/>`, 1)
 			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
 			assertZeroSchema(t, schema)
@@ -381,83 +406,88 @@ func TestNegativeExplicitQNameExcludedOwnerMembership(t *testing.T) {
 					continue
 				}
 				for _, excluded := range []string{"t:x", "p:x"} {
-					wildcard := `<xs:` + kind + ` notNamespace="##targetNamespace" notQName="` + excluded + `"/>`
-					modelXML := `<xs:` + model + `>`
-					if kind == "any" {
-						modelXML += wildcard
-					}
-					modelXML += `</xs:` + model + `>`
-					if kind == "anyAttribute" {
-						modelXML += wildcard
-					}
-					body := ""
-					switch shape {
-					case "named-empty":
-						body = `<xs:complexType name="Record">` + wildcard + `</xs:complexType>`
-					case "inline":
-						body = `<xs:element name="root"><xs:complexType>` + modelXML + `</xs:complexType></xs:element>`
-					case "ref":
-						if kind == "any" {
-							body = `<xs:group name="G">` + modelXML + `</xs:group><xs:complexType name="Record"><xs:group ref="t:G"/></xs:complexType>`
+					for _, prefix := range []string{"", "##defined "} {
+						if kind == "any" && prefix != "" {
+							prefix = "##definedSibling "
 						}
+						wildcard := `<xs:` + kind + ` notNamespace="##targetNamespace" notQName="` + prefix + excluded + `"/>`
+						modelXML := `<xs:` + model + `>`
+						if kind == "any" {
+							modelXML += wildcard
+						}
+						modelXML += `</xs:` + model + `>`
 						if kind == "anyAttribute" {
-							body = `<xs:attributeGroup name="G">` + wildcard + `</xs:attributeGroup><xs:complexType name="Record"><xs:` + model + `/><xs:attributeGroup ref="t:G"/></xs:complexType>`
+							modelXML += wildcard
 						}
-					case "extension":
-						body = `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="t:Base">` + modelXML + `</xs:extension></xs:complexContent></xs:complexType>`
-					case "restriction":
-						body = `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:restriction base="t:Base">` + modelXML + `</xs:restriction></xs:complexContent></xs:complexType>`
-					case "inline-restriction":
-						body = `<xs:complexType name="Base"/><xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base">` + modelXML + `</xs:restriction></xs:complexContent></xs:complexType></xs:element>`
-					}
-					root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:p="urn:p" targetNamespace="urn:root" version="1.1">` + body + `</xs:schema>`
-					schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
-					assertZeroSchema(t, schema)
-					d := requireDiagnostic(t, err)
-					if excluded == "p:x" {
-						marker := `<xs:anyAttribute`
-						spec := schemaAnyAttributeXSD11SpecRef
-						var cause error
-						cause = errSchemaAnyAttributeUnsupported
-						if kind == "any" {
-							marker = `notQName=`
-							spec = schemaAnyParticleSpecRef(XSDVersion11)
-							cause = errSchemaAnyParticleUnsupported
-							if shape == "restriction" || shape == "inline-restriction" {
-								marker = `notNamespace=`
-								spec = "xsd11-structures#cSchemaDocument"
-								cause = nil
+						body := ""
+						switch shape {
+						case "named-empty":
+							body = `<xs:complexType name="Record">` + wildcard + `</xs:complexType>`
+						case "inline":
+							body = `<xs:element name="root"><xs:complexType>` + modelXML + `</xs:complexType></xs:element>`
+						case "ref":
+							if kind == "any" {
+								body = `<xs:group name="G">` + modelXML + `</xs:group><xs:complexType name="Record"><xs:group ref="t:G"/></xs:complexType>`
 							}
-							if shape == "ref" || shape == "inline" && model == "choice" {
-								marker = `notNamespace=`
-								cause = nil
-								spec = "xsd11-structures#cSchemaDocument"
-								if shape == "inline" {
-									spec = "xsd10-structures#schema-document"
+							if kind == "anyAttribute" {
+								body = `<xs:attributeGroup name="G">` + wildcard + `</xs:attributeGroup><xs:complexType name="Record"><xs:` + model + `/><xs:attributeGroup ref="t:G"/></xs:complexType>`
+							}
+						case "extension":
+							body = `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:extension base="t:Base">` + modelXML + `</xs:extension></xs:complexContent></xs:complexType>`
+						case "restriction":
+							body = `<xs:complexType name="Base"/><xs:complexType name="Record"><xs:complexContent><xs:restriction base="t:Base">` + modelXML + `</xs:restriction></xs:complexContent></xs:complexType>`
+						case "inline-restriction":
+							body = `<xs:complexType name="Base"/><xs:element name="root"><xs:complexType><xs:complexContent><xs:restriction base="t:Base">` + modelXML + `</xs:restriction></xs:complexContent></xs:complexType></xs:element>`
+						}
+						root := `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:p="urn:p" targetNamespace="urn:root" version="1.1">` + body + `</xs:schema>`
+						schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+						assertZeroSchema(t, schema)
+						d := requireDiagnostic(t, err)
+						if excluded == "p:x" {
+							marker := `<xs:anyAttribute`
+							spec := schemaAnyAttributeXSD11SpecRef
+							var cause error
+							cause = errSchemaAnyAttributeUnsupported
+							if kind == "any" {
+								marker = `notQName=`
+								spec = schemaAnyParticleSpecRef(XSDVersion11)
+								cause = errSchemaAnyParticleUnsupported
+								if shape == "restriction" || shape == "inline-restriction" {
+									marker = `notNamespace=`
+									spec = "xsd11-structures#cSchemaDocument"
+									cause = nil
+								}
+								if shape == "ref" || shape == "inline" && model == "choice" {
+									marker = `notNamespace=`
+									cause = nil
+									spec = "xsd11-structures#cSchemaDocument"
+									if shape == "inline" {
+										spec = "xsd10-structures#schema-document"
+									}
 								}
 							}
+							if kind == "anyAttribute" && shape == "extension" {
+								marker = `<xs:extension`
+								spec = schemaComplexTypeExtensionSpecRef(XSDVersion11)
+								cause = nil
+							}
+							if kind == "anyAttribute" && (shape == "restriction" || shape == "inline-restriction") {
+								marker = `<xs:` + model
+								spec = "xsd11-structures#cSchemaDocument"
+								cause = nil
+							}
+							if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode ||
+								d.Loc() != wildcardParticleTestLoc(t, root, marker) || len(d.Related()) != 0 ||
+								d.SpecRef() != spec || cause != nil && !errors.Is(err, cause) || cause == nil && d.Unwrap() != nil || !errors.Is(err, ErrUnsupported) {
+								t.Fatalf("%s/%s/%s supported QName escaped owner gate: %s related %v spec %s cause %v", kind, model, shape, d, d.Related(), d.SpecRef(), d.Unwrap())
+							}
+							continue
 						}
-						if kind == "anyAttribute" && shape == "extension" {
-							marker = `<xs:extension`
-							spec = schemaComplexTypeExtensionSpecRef(XSDVersion11)
-							cause = nil
+						if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != wildcardParticleTestLoc(t, root, `notQName=`) ||
+							!reflect.DeepEqual(d.Related(), []Loc{wildcardParticleTestLoc(t, root, `notNamespace=`)}) ||
+							d.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || !errors.Is(err, errSchemaWildcardQNameNamespace) {
+							t.Fatalf("%s/%s/%s membership before owner = %s related %v", kind, model, shape, d, d.Related())
 						}
-						if kind == "anyAttribute" && (shape == "restriction" || shape == "inline-restriction") {
-							marker = `<xs:` + model
-							spec = "xsd11-structures#cSchemaDocument"
-							cause = nil
-						}
-						if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode ||
-							d.Loc() != wildcardParticleTestLoc(t, root, marker) || len(d.Related()) != 0 ||
-							d.SpecRef() != spec || cause != nil && !errors.Is(err, cause) || cause == nil && d.Unwrap() != nil || !errors.Is(err, ErrUnsupported) {
-							t.Fatalf("%s/%s/%s supported QName escaped owner gate: %s related %v spec %s cause %v", kind, model, shape, d, d.Related(), d.SpecRef(), d.Unwrap())
-						}
-						continue
-					}
-					if d.Class() != FailureInvalid || d.Code() != invalidSchemaCompositionCode || d.Loc() != wildcardParticleTestLoc(t, root, `notQName=`) ||
-						!reflect.DeepEqual(d.Related(), []Loc{wildcardParticleTestLoc(t, root, `notNamespace=`)}) ||
-						d.SpecRef() != schemaWildcardQNameNamespaceXSD11SpecRef || !errors.Is(err, errSchemaWildcardQNameNamespace) {
-						t.Fatalf("%s/%s/%s membership before owner = %s related %v", kind, model, shape, d, d.Related())
 					}
 				}
 			}
@@ -488,7 +518,7 @@ func TestNegativeExplicitQNameAllAndOpenOwnerMembership(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, owner := range []string{"named-all", "anonymous-all", "named-open", "anonymous-open", "default-open"} {
 			for _, qname := range []string{"t:x", "p:x"} {
-				root := negativeExplicitQNameAllOrOpenRoot(owner, ` notNamespace="##targetNamespace" notQName="`+qname+`"`)
+				root := negativeExplicitQNameAllOrOpenRoot(owner, ` notNamespace="##targetNamespace" notQName="##definedSibling `+qname+`"`)
 				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
 				assertZeroSchema(t, schema)
 				d := requireDiagnostic(t, err)

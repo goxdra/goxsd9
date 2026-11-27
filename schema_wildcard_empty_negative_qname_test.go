@@ -208,8 +208,6 @@ func TestEmptyNegativeQNameAlternateExits(t *testing.T) {
 		{"attribute-empty-negative", "anyAttribute", ` notNamespace="&#x9;" notQName=""`, `notNamespace="&#x9;"`, "", Strict11, FailureInvalid, invalidSchemaCompositionCode, nil, nil},
 		{"element-conflict", "any", ` notNamespace="##local" notQName="" namespace="##any"`, `namespace="##any"`, "", Strict11, FailureInvalid, invalidSchemaCompositionCode, nil, nil},
 		{"attribute-conflict", "anyAttribute", ` notNamespace="##local" notQName="" namespace="##any"`, `namespace="##any"`, "", Strict11, FailureInvalid, invalidSchemaCompositionCode, nil, nil},
-		{"element-nonempty", "any", ` notNamespace="##local" notQName="##defined"`, `notQName="##defined"`, schemaAnyParticleSpecRef(XSDVersion11), Strict11, FailureUnsupported, UnsupportedSchemaSyntaxCode, errSchemaAnyParticleUnsupported, nil},
-		{"attribute-nonempty", "anyAttribute", ` notNamespace="##local" notQName="##defined"`, `<xs:anyAttribute`, schemaAnyAttributeXSD11SpecRef, Strict11, FailureUnsupported, UnsupportedSchemaSyntaxCode, errSchemaAnyAttributeUnsupported, nil},
 		{"element-occurrence", "any", ` notNamespace="##local" notQName="" minOccurs="2" maxOccurs="1"`, `<xs:any `, "xsd11-structures#coss-particle", Strict11, FailureInvalid, invalidSchemaCompositionCode, errParticleOccurrenceMinimumExceedsMaximum, []string{`minOccurs="2"`, `maxOccurs="1"`}},
 		{"element-process", "any", ` notNamespace="##local" notQName="" processContents="bad"`, `processContents="bad"`, "", Strict11, FailureInvalid, invalidSchemaCompositionCode, nil, nil},
 		{"attribute-process", "anyAttribute", ` notNamespace="##local" notQName="" processContents="bad"`, `processContents="bad"`, "", Strict11, FailureInvalid, invalidSchemaCompositionCode, nil, nil},
