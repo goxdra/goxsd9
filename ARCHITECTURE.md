@@ -96,8 +96,8 @@ standalone attributes: ValidateInstance N/A; GenerateGo rejects at declaration
 Named/untyped-global empties: empty `block`, no particles.
 Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
 Named direct choice/sequence `xs:any`: empty/positive all policies; Compatibility/Strict11 add negatives, `##defined`/`##definedSibling`, strict negative QNames, paired empty `namespace`+`notQName` (strict/lax/skip). Membership before omission; symbolic negatives/derivations/consumers reject.
-Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits member QNames, lax/skip only absent/empty `notQName`; negative symbols reject. Strict absent/positive namespace admits QNames/`##defined`; empty namespace admits empty `notQName` or `##defined` alone. Explicit QNames fail membership before publication; derivations/consumers reject.
-Inline global negative-skip `xs:anyAttribute`: Compatibility/Strict11, written empty default-1/1 sequence, no uses, absent/empty `notQName`; `Loc`s persist. Strict10/broader forms/derivations/consumers reject.
+Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits member QNames, lax/skip only absent/empty `notQName`; negative symbols reject. Strict absent/positive namespace admits QNames/`##defined`; empty admits empty `notQName` or `##defined`. QName membership precedes publication; derivations/consumers reject.
+Inline negative `xs:anyAttribute`: Compatibility/Strict11, written empty default-1/1 sequence, no uses. `notQName` absent for omitted/strict/lax; absent/empty for skip. Mode/`Loc`s persist; Strict10/broader owners/derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed/inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.

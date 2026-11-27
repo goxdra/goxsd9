@@ -3999,7 +3999,7 @@ func validateDirectComplexTypeAnyAttribute(parent, element *syntaxElement, versi
 	if err := validateAnyAttributeSyntax(element, version); err != nil {
 		return err
 	}
-	if supportsInlineEmptySequenceNegativeSkipAnyAttribute(parent, element, version, globalElementInline) {
+	if supportsInlineEmptySequenceNegativeAnyAttribute(parent, element, version, globalElementInline) {
 		return nil
 	}
 	if !supportsDirectNamedComplexTypeAnyAttribute(parent) || !isSupportedDirectNamedComplexTypeAnyAttribute(element) {
@@ -4012,7 +4012,7 @@ func validateDirectComplexTypeAnyAttribute(parent, element *syntaxElement, versi
 }
 
 //nolint:gocognit // Keep the bounded inline owner and wildcard admission together.
-func supportsInlineEmptySequenceNegativeSkipAnyAttribute(parent, element *syntaxElement, version XSDVersion, globalElementInline bool) bool {
+func supportsInlineEmptySequenceNegativeAnyAttribute(parent, element *syntaxElement, version XSDVersion, globalElementInline bool) bool {
 	if !globalElementInline || version == XSDVersion10 || parent == nil || parent.name.local != "complexType" ||
 		len(syntaxAttributesByLocal(parent, "name")) != 0 {
 		return false
@@ -4028,12 +4028,29 @@ func supportsInlineEmptySequenceNegativeSkipAnyAttribute(parent, element *syntax
 		return false
 	}
 	qname := syntaxAttributesByLocal(element, "notQName")
-	if len(qname) > 1 || len(qname) == 1 && collapseXMLWhitespace(qname[0].value) != "" {
+	if len(qname) > 1 {
 		return false
 	}
 	process := syntaxAttributesByLocal(element, "processContents")
-	if len(process) != 1 || collapseXMLWhitespace(process[0].value) != "skip" {
+	if len(process) > 1 {
 		return false
+	}
+	if len(process) == 0 && len(qname) != 0 {
+		return false
+	}
+	if len(process) == 1 {
+		switch collapseXMLWhitespace(process[0].value) {
+		case "skip":
+			if len(qname) == 1 && collapseXMLWhitespace(qname[0].value) != "" {
+				return false
+			}
+		case "strict", "lax":
+			if len(qname) != 0 {
+				return false
+			}
+		default:
+			return false
+		}
 	}
 	model := schemaComplexTypeModel(parent)
 	if model == nil || model.name.namespace != xsdNamespaceURI || model.name.local != "sequence" {
