@@ -96,7 +96,7 @@ standalone attributes: ValidateInstance N/A; GenerateGo rejects at declaration
 Untyped: `block=""` retains `Loc`; no authored type QName/ID/ref;
 consumers reject. Nonempty block rejects.
 Named direct choice/sequence `xs:any`: empty/positive; Compatibility/Strict11 add negatives, `##defined`/`##definedSibling`, strict negative symbol/QName mixtures, empty `namespace`+`notQName` (strict/lax/skip). Membership precedes omission; negative nonstrict nonempty `notQName`, derivations, consumers reject.
-Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits `##defined`, QNames, mixtures; lax/skip only absent/empty `notQName`. Strict/default admits QNames/`##defined` for absent/positive namespace, empty `notQName`/`##defined` for empty namespace. Membership precedes publication; derivations/consumers reject.
+Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits `##defined`, QNames, mixtures; lax/skip absent/empty `notQName`. Compatibility/Strict11 admits strict/default QNames/`##defined` for absent/positive namespace, empty `notQName`/`##defined` for empty namespace. Membership precedes publication; derivations/consumers reject.
 Global-element anonymous complexType negative `xs:anyAttribute`: Compatibility/Strict11, written empty default-1/1 sequence, no uses. `notQName` absent for omitted/strict/lax; absent/empty for skip. Strict10/broader owners/derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed/abstract/nillable=false/0` omit; true/1 reject. Untyped
