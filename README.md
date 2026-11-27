@@ -6,8 +6,8 @@ Parses XSD into immutable components or diagnostics.
 
 `NewResolvedSource`/`ParseSchema`/`Resolver` resolve XSD 1.0/1.1 graphs.
 `ParseSchemaWithPolicy` selects policy.
-Typed globals retain identity constraints; consumers reject.
-Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Effective short/int/byte/unsignedLong grouped uses require empty/use-free bases. Named grouped inherited-ID exception: immediate completed sequence-extension base (default 1/1 sequence, 0/1 global ref, optional direct local ID); query inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: use-free base, default 1/1 sequence, 0/1 global ref; consumers reject. Attribute-free named simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
+Admitted typed globals retain authored identity constraints; consumers reject.
+Named complex and extension shapes query selected atomic scalars; attribute-free named simpleContent queries selected strings. Exact owner/base limits and exclusions: [contract](doc.go).
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -16,7 +16,7 @@ precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits `xs:byte`/`xs:long`/`xs:int`/`xs:unsignedLong`:
 built-ins: `StrictInteger`; named: generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Untyped globals expose abstract/nillable facts/`Loc`s without an authored type; `xs:ID`/inline atomic uses query; consumers reject. `block=""` overrides blockDefault with `Loc`. Compatibility/Strict11 omit false/0 `inheritable` for named empty/all/choice/sequence/group or grouped/direct-sequence-extension locals, selected name-bearing non-ID global-inline grouped/direct-sequence-extension locals, and untyped globals; refs reject.
+Untyped global elements expose abstract/nillable facts/`Loc`s without an authored type; consumers reject. Named empty/choice/sequence/all/direct-group/grouped/sequence-extension complex owners query facet-free `xs:ID`; supported global-inline grouped/direct-sequence extensions query atomic local uses; consumers reject. `block=""` overrides blockDefault with `Loc`. Compatibility/Strict11 omit false/0 `inheritable` for named empty/all/choice/sequence/group or grouped/direct-sequence-extension locals, selected name-bearing non-ID global-inline grouped/direct-sequence-extension locals, and untyped global attributes (no view; refs reject).
 [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Empty-base anonymous extensions query ref-only choices plus nested group-ref/element-ref sequences. Bounds/order/`Loc`s/wildcards persist; deeper nesting/attributes reject.

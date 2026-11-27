@@ -51,9 +51,11 @@
 // Compatibility/Strict11 admit inheritable=false/0 on untyped global attributes
 // as omission. These components have no AttributeDeclaration view, and local
 // references to them remain unsupported at the use location.
-// Supported global elements expose ordered immutable unique, key, and keyref
-// facts with lexical XPath and namespace context. Keyrefs resolve to nested
-// identity IDs before publication. Identity-constrained elements are query-only;
+// Admitted typed global elements expose ordered immutable unique, key, and keyref
+// facts with lexical XPath and namespace context. Identity constraints on an
+// untyped global remain unsupported at the first constraint Loc, with no Schema.
+// Keyrefs resolve to nested identity IDs before publication.
+// Identity-constrained elements are query-only;
 // ValidateInstance and GenerateGo return located unsupported diagnostics;
 // XPath evaluation, local constraints, and XSD 1.1 ref reuse remain unsupported.
 // ValidateInstance and GenerateGo are separate consumers of their supported
