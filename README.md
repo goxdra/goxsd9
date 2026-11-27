@@ -16,7 +16,7 @@ precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits `xs:byte`/`xs:long`/`xs:int`/`xs:unsignedLong`:
 built-ins: `StrictInteger`; named: generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Untyped global elements expose abstract/nillable facts/`Loc`s without an authored type; consumers reject. Named empty/choice/sequence/all/direct-group/grouped/sequence-extension complex owners query facet-free `xs:ID`; supported global-inline grouped/direct-sequence extensions query atomic local uses; consumers reject. `block=""` overrides blockDefault with `Loc`. Compatibility/Strict11 omit false/0 `inheritable` for named empty/all/choice/sequence/group or grouped/direct-sequence-extension locals, selected name-bearing non-ID global-inline grouped/direct-sequence-extension locals, and untyped global attributes (no view; refs reject).
+Untyped global elements expose abstract/nillable facts/`Loc`s without an authored type; consumers reject. Named empty/choice/sequence/all/direct-group/grouped/sequence-extension complex owners query facet-free `xs:ID`; supported global-inline grouped/direct-sequence extensions query selected non-ID atomic local uses; consumers reject. `block=""` overrides blockDefault with `Loc`. Compatibility/Strict11 omit false/0 `inheritable` for named empty/all/choice/sequence/group or grouped/direct-sequence-extension locals, selected name-bearing non-ID global-inline grouped/direct-sequence-extension locals, and untyped global attributes (no view; refs reject).
 [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
 Empty-base anonymous extensions query ref-only choices plus nested group-ref/element-ref sequences. Bounds/order/`Loc`s/wildcards persist; deeper nesting/attributes reject.
@@ -25,8 +25,9 @@ Named/global-inline wildcard-only restrictions query ##any/##other/positive-set 
 Named-group sequences/nested choices: atomic integer/string/token; consumers reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
-`GenerateGo` supports default Boolean/integer/decimal choice and ordered
-integer/decimal sequence refs; others reject.
+`GenerateGo` supports non-extension default-occurrence direct-choice refs to eligible
+typed Boolean/integer/decimal globals and ordered default-occurrence direct-sequence
+refs to eligible typed integer/decimal globals; other targets reject.
 Named choice/sequence and empty-base direct-sequence/grouped extensions query
 built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
