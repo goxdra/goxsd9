@@ -4424,7 +4424,7 @@ func resolveSchemaAttributeType(
 			return schemaAttributeTypeResult{}, diagnostic
 		}
 	}
-	if input.inlineSimpleType == nil && !schemaAttributeTypeReferenceSupported(reference) {
+	if input.inlineSimpleType == nil && !schemaAttributeTypeReferenceSupported(reference) && !schemaGlobalQNameAttributeTypeSupported(reference) {
 		return schemaAttributeTypeResult{}, unsupportedSchemaAttributeType(
 			input,
 			version,
@@ -4698,6 +4698,14 @@ func schemaAttributeTypeReferenceSupported(reference schemaSimpleTypeReferenceCo
 	default:
 		return false
 	}
+}
+
+func schemaGlobalQNameAttributeTypeSupported(reference schemaSimpleTypeReferenceComponent) bool {
+	if reference.variety != SimpleTypeVarietyAtomicRestriction || reference.atomicKind != schemaSimpleTypeAtomicQName {
+		return false
+	}
+	_, ok := reference.facets.(schemaAtomicFacetVariant)
+	return ok
 }
 
 //nolint:gocognit // Walk resolved list and union members in their lexical order.

@@ -34,10 +34,12 @@
 // facet, and policy gates. Element-ref particles to
 // admitted global elements query; ValidateInstance and GenerateGo reject them.
 // xs:QName references are distinct context-sensitive atomics in facet-free
-// restrictions, lists, unions, and direct/named/inline global elements.
+// restrictions, lists, unions, direct/named/inline global elements, and
+// explicit built-in/named/inherited global attribute types.
 // Mapped nonzero QName-bearing typed local particles reject, including mixed
 // precisionDecimal unions; applicable 0/0 forms omit after
 // reference, facet, and policy gates. All QName facets reject at schema admission.
+// Inline global attribute types and local attribute uses of QName reject.
 // Individual default/fixed values on QName-typed global declarations are
 // unsupported; simultaneous values or either on an element ref are invalid at
 // the conflicting or forbidden attribute.
@@ -740,7 +742,7 @@
 // Strict10, and Strict11 admit built-in or supported named atomic xs:boolean,
 // xs:integer, xs:decimal, xs:normalizedString, xs:token, xs:negativeInteger,
 // xs:positiveInteger, xs:nonPositiveInteger, xs:language, xs:NCName, xs:anyURI, xs:ID,
-// xs:long, xs:int, xs:short, xs:byte, and xs:unsignedLong. Integer-derived
+// xs:long, xs:int, xs:short, xs:byte, xs:unsignedLong, and facet-free xs:QName. Integer-derived
 // types retain copied exact bounds. One inline simpleType may instead declare a
 // restriction, list, or union. Its named and anonymous item/member references
 // retain lexical order. Top-level atomic xs:normalizedString restrictions admit;

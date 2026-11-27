@@ -75,8 +75,9 @@ Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers r
 `xs:long`: named empty/choice/sequence/all/direct-group/direct-sequence/grouped owners, built-in/named uses.
 Named empty/choice/sequence/all and empty-base direct-sequence/grouped extensions:
 built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`. Consumers reject.
-Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
-NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
+Global attributes: Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
+NCName/anyURI/ID/long/int/short/byte/unsignedLong, facet-free QName,
+policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
 Strict10/true/1 reject; refs reject at use `Loc`.
 Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; atomic inline
@@ -89,9 +90,10 @@ Integer exact; unsignedLong digits-only Strict10, plus/signed-zero
 Compatibility/Strict11. Local refs to global inline lists/unions reject; atomic
 refs query-only. Inline defaults/fixed fail at value `Loc`, retaining
 causes/related `Loc`s. Conflicts locate fixed/default; type-only unconstrained;
-global attribute consumers reject.
+standalone attributes: ValidateInstance N/A; GenerateGo rejects at declaration
+`Loc` with nil output.
 
-Named/untyped-global empties admit empty `block`; named lack particles/occurrences.
+Named/untyped-global empties: empty `block`, no particles.
 Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
 Named direct choice/sequence `xs:any`: empty/positive all policies; Compatibility/Strict11 add negatives, `##defined`/`##definedSibling`, strict negative QNames, paired empty `namespace`+`notQName` (strict/lax/skip). Membership before omission; symbolic negatives/derivations/consumers reject.
 Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits member QNames, lax/skip only absent/empty `notQName`; negative symbols reject. Strict absent/positive namespace admits QNames/`##defined`; empty namespace admits empty `notQName` or `##defined` alone. Explicit QNames fail membership before publication; derivations/consumers reject.
@@ -103,8 +105,8 @@ Inline IDs omit from walks; precisionDecimal sequences validate.
 Local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Named grouped extensions query optional local `final` through structurally
 matched named `xs:simpleDerivationSet`; its union/list values and consumers reject.
-Strict10 rejects precisionDecimal; element refs retain ranges.
-Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
+Facet-free `QName` refs/global attributes query; locals, inline attributes,
+facets, values reject.
 
 ## Datatypes
 
@@ -130,9 +132,10 @@ Inline roots validate selected bounded list/union sequences, attributes,
 simpleContent; complex-content extensions reject after 0/0/prohibited omission.
 Mixed-content validation and inline-complex generation remain unsupported.
 Nonzero `xs:any` query-only. Identity-constrained roots reject at instance-use `Loc`,
-relating first constraint. QName globals/refs reject validation/generation.
+relating first constraint. QName elements/element refs reject validation/generation;
+attribute refs fail admission.
 Structure precedes facets; first failure retains instance/schema `Loc`s.
-Occurrence and scalar failures differ. `xsi:schemaLocation` never resolves;
+`xsi:schemaLocation` never resolves;
 other byte/short/int/long/unsignedLong validation uses reject.
 
 Generation covers named/inline scalars, default Boolean/integer/decimal

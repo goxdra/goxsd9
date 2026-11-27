@@ -9,7 +9,7 @@ import (
 	goxsd9 "github.com/goxdra/goxsd9"
 )
 
-//nolint:gocognit // Digest, projected reference, and next boundary share pinned provenance.
+//nolint:gocognit,funlen // Digest, projected reference, and next boundary share pinned provenance.
 func TestBootstrapQNameBoundedReferences(t *testing.T) {
 	manifest := readBootstrapProbeManifest(t)
 	for _, artifact := range []struct {
@@ -71,8 +71,8 @@ func TestBootstrapQNameBoundedReferences(t *testing.T) {
 			if reference.Loc() != loc || reference.VarietyLoc() != loc {
 				t.Fatalf("reference location = %s/%s, want %s", reference.Loc(), reference.VarietyLoc(), loc)
 			}
-			if id, ok := reference.ComponentID(); ok || !id.IsZero() {
-				t.Fatalf("built-in ID = %v/%t", id, ok)
+			if id, hasID := reference.ComponentID(); hasID || !id.IsZero() {
+				t.Fatalf("built-in ID = %v/%t", id, hasID)
 			}
 			withOriginalAttribute := boundedPositiveIntegerRoot(attribute)
 			schema, err := parseBoundedPositiveInteger(t, source, withOriginalAttribute, artifact.policy)
@@ -85,11 +85,21 @@ func TestBootstrapQNameBoundedReferences(t *testing.T) {
 			}
 			withoutUse := boundedPositiveIntegerRoot(strings.Replace(attribute, ` use="optional"`, "", 1))
 			schema, err = parseBoundedPositiveInteger(t, source, withoutUse, artifact.policy)
-			if err == nil || len(schema.Components()) != 0 {
-				t.Fatal("global QName attribute returned schema or no error")
+			if err != nil {
+				t.Fatalf("projected global QName attribute: %v", err)
 			}
-			if !errors.As(err, &d) || d.Class() != goxsd9.FailureUnsupported || d.Code() != goxsd9.UnsupportedSchemaSyntaxCode || d.Loc() != boundedPositiveIntegerLoc(t, source, strings.Index(withoutUse, `type="xs:QName"`)) || !errors.Is(err, goxsd9.ErrUnsupported) {
-				t.Fatalf("QName attribute outcome = %v", err)
+			attributes := schema.FindKind(goxsd9.ComponentKindAttributeDeclaration, name)
+			if len(attributes) != 1 || len(schema.Components()) != 1 {
+				t.Fatalf("projected attribute components = %d/%d", len(attributes), len(schema.Components()))
+			}
+			global, ok := attributes[0].AttributeDeclaration()
+			if !ok {
+				t.Fatal("projected attribute view missing")
+			}
+			attributeReference, ok := global.TypeReference()
+			attributeTypeLoc := boundedPositiveIntegerLoc(t, source, strings.Index(withoutUse, `type="xs:QName"`))
+			if !ok || !attributeReference.IsBuiltin() || attributeReference.Name() != reference.Name() || attributeReference.Loc() != attributeTypeLoc || attributeReference.VarietyLoc() != attributeTypeLoc {
+				t.Fatalf("projected attribute QName reference = %#v/%t", attributeReference, ok)
 			}
 		})
 	}
