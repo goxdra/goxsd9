@@ -7,7 +7,7 @@ Parses XSD into immutable components or diagnostics.
 `NewResolvedSource`/`ParseSchema`/`Resolver` resolve mixed XSD 1.0/1.1 graphs.
 `ParseSchemaWithPolicy` selects policy.
 Identity constraints retain XPath/namespaces/targets; consumers reject.
-Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Named effective short/int/byte/unsignedLong grouped uses require empty/use-free bases. Named grouped inherited-ID exception: immediate completed sequence-extension base (default 1/1 sequence, one 0/1 global ref, one optional direct local ID), querying inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: use-free base with default 1/1 sequence and one 0/1 global ref; consumers reject. Attribute-free named simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
+Named empty/choice/sequence/all/direct-group/grouped/sequence-extension: NCName/`xs:normalizedString`. Language/anyURI/long/token/NMTOKEN/short/int/byte/unsignedLong limits: [contract](doc.go); consumers reject. Effective short/int/byte/unsignedLong grouped uses require empty/use-free bases. Named grouped inherited-ID exception: immediate completed sequence-extension base (default 1/1 sequence, 0/1 global ref, optional direct local ID); query inherited ID and own optional final:xs:simpleDerivationSet/name:xs:NCName; consumers reject. Named zero-use direct-group extensions: use-free base, default 1/1 sequence, 0/1 global ref; consumers reject. Attribute-free named simpleContent: normalizedString/token/NMTOKEN/language/anyURI; consumers reject. Enumerated NCName list/union reject.
 
 `ValidateInstance(schema, sourceID, reader)` checks instances with
 built-in/named `xs:short`, `xs:int`, `xs:long`, `xs:unsignedLong`, and bounded
@@ -16,12 +16,12 @@ precisionDecimal sequences of typed locals/global refs; `xsi:schemaLocation`
 never resolves. `GenerateGo(schema, packageName)` emits `xs:byte`/`xs:long`/`xs:int`/`xs:unsignedLong`:
 built-ins: `StrictInteger`; named: generated types.
 Selected local precisionDecimal attributes validate; `GenerateGo` rejects uses.
-Named empty/choice/sequence/all/direct-group/grouped/sequence-extension query facet-free `xs:ID`; inline grouped/sequence extensions query atomic uses. Consumers reject. Empty `block` overrides named empty complexes/untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals, anonymous global-element inline grouped/direct-sequence non-ID locals, and untyped globals; refs reject.
+Named empty/choice/sequence/all/direct-group/grouped/sequence-extension query facet-free `xs:ID`; inline grouped/sequence extensions query atomic uses; consumers reject. Empty `block` overrides named empties/untyped globals. Compatibility/Strict11 omit false/0 `inheritable` on supported named locals, global-element inline grouped/direct-sequence non-ID locals, and untyped globals; refs reject.
 [contract](doc.go), [architecture](ARCHITECTURE.md#schema-model), [occurrences](docs/decisions/0007-particle-occurrence.md).
 
-Anonymous empty-base extensions query combinable ref-only choices and nested group-ref/element-ref sequences. Bounds/order/`Loc`s/wildcards persist; deeper nesting/attributes reject.
+Empty-base anonymous extensions query ref-only choices plus nested group-ref/element-ref sequences. Bounds/order/`Loc`s/wildcards persist; deeper nesting/attributes reject.
 Anonymous empty-base ref-sequences query built-in `xs:token`/`xs:anyURI`; consumers reject.
-Named/global-inline wildcard-only restrictions query empty/use-free named bases: ##any/##other/positive-set wildcard subsets; validation/generation reject.
+Named/global-inline wildcard-only restrictions query ##any/##other/positive-set subsets of empty/use-free named bases; consumers reject.
 Named-group sequences/nested choices: atomic integer/string/token; consumers reject.
 Named-complex choices/sequences query built-in/named `xs:positiveInteger`/`xs:nonPositiveInteger`;
 named-complex direct choices/sequences query built-in/named effective `xs:normalizedString` facets/ranges; consumers reject.
@@ -32,7 +32,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Compatibility/Strict11 named choice/sequence wildcards: `xs:any`: `##defined`/`##definedSibling` and empty `namespace`+`notQName` (strict/lax/skip); `xs:anyAttribute`: negative strict/lax/skip, strict QNames/`##defined`, and empty `namespace`+`notQName` (strict). QNames require membership; consumers reject. Inline global `xs:anyAttribute`: negative skip, empty sequence, no uses, absent/empty `notQName`.
+Compatibility/Strict11 named choice/sequence: `xs:any` admits `##defined`/`##definedSibling`, paired empty `namespace`+`notQName` (strict/lax/skip); `xs:anyAttribute` admits negative strict (QNames allowed), negative lax/skip (absent/empty `notQName`), strict QNames/`##defined`, paired empty lists (strict). Negative symbols reject; QNames require membership. Consumers reject, including inline-global negative-skip `xs:anyAttribute` (empty sequence, no uses, absent/empty `notQName`).
 
 ## CLI
 

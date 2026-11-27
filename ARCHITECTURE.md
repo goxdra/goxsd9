@@ -48,13 +48,13 @@ Negative/QName-constrained restriction comparisons remain unsupported.
 Missing bases, widening, final, cycles invalidate; missing derived
 wildcards, richer bodies, consumers are unsupported.
 Grouped/sequence IDs persist; ID/list/union and nested `inheritable` excluded.
-SimpleContent retains base/type/use `Loc`s, nil particle; dependencies precede owner gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
+SimpleContent: base/type/use `Loc`s, nil particle; dependencies before owner gates. Boolean/string/integer/decimal, policy-gated `precisionDecimal`.
 Attribute-free named simpleContent queries facet-free language/anyURI; restrictions/consumers reject.
-Direct/extension particles model selected integers; named direct adds sign restrictions. Built-in/named integers validate; other extensions are query-only.
+Selected direct/extension integer particles; named-direct sign restrictions. Built-in/named integers validate; other extensions query-only.
 Syntax/policy/occurrences precede mapping; refs precede omission.
 Named direct choice/sequence and named-group sequence/nested-choice locals match `targetNamespace`.
 Compatibility/Strict11 admit; Strict10, absent/mismatched owners, form/ref conflicts invalidate.
-Named-group choices reject direct element-ref substitution overlaps beside group refs; group-ref attribution unchecked. Atomic-local/opaque-ref facts: [contract](doc.go).
+Named-group choices reject element-ref substitution overlaps beside group refs; group-ref attribution unchecked. Atomic-local/opaque-ref facts: [contract](doc.go).
 Empty-base anonymous extensions admit ref-only choice, nested group/element-ref sequence, or both; bounds/order/targets/`Loc`s/wildcard persist.
 Broader nesting/direct groups/wildcards/locals/nested attributes reject.
 Type conflicts: XSD3063; ambiguity relates `Loc`s.
@@ -93,9 +93,9 @@ global attribute consumers reject.
 
 Named/untyped-global empties admit empty `block`; named lack particles/occurrences.
 Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
-Named direct choice/sequence `xs:any`: empty/positive universally. Compatibility/Strict11 add negative sets, symbolic `##defined`/`##definedSibling`, strict negative QNames, and empty `namespace`+`notQName` with strict/lax/skip. Membership precedes omission; symbolic negatives, derivation, consumers reject.
-Their `xs:anyAttribute`: Compatibility/Strict11 admit negative sets with strict/lax/skip and absent/empty `notQName`; strict QNames/`##defined` with absent/positive namespace; empty `namespace`+`notQName` with strict. Derivations/consumers reject.
-Global-element anonymous inline negative skip: Compatibility/Strict11, one written empty default 1/1 sequence, zero uses, explicit skip, absent/empty `notQName`; locations persist. Strict10, broader forms, derivations/consumers reject.
+Named direct choice/sequence `xs:any`: empty/positive all policies; Compatibility/Strict11 add negatives, `##defined`/`##definedSibling`, strict negative QNames, paired empty `namespace`+`notQName` (strict/lax/skip). Membership before omission; symbolic negatives/derivations/consumers reject.
+Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits member QNames, lax/skip only absent/empty `notQName`; negative symbols reject. Strict absent/positive namespace admits QNames/`##defined`; empty namespace admits empty `notQName` or `##defined` alone. Explicit QNames fail membership before publication; derivations/consumers reject.
+Inline global negative-skip `xs:anyAttribute`: Compatibility/Strict11, written empty default-1/1 sequence, no uses, absent/empty `notQName`; `Loc`s persist. Strict10/broader forms/derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
 Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed/inline-simple globals expose true.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.
