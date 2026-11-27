@@ -39,7 +39,10 @@
 // Mapped nonzero QName-bearing typed local particles reject, including mixed
 // precisionDecimal unions; applicable 0/0 forms omit after
 // reference, facet, and policy gates. All QName facets reject at schema admission.
-// Inline global attribute types and local attribute uses of QName reject.
+// Direct name-bearing local attributes of named empty, direct-choice, and
+// direct-sequence complex owners admit built-in or facet-free named effective
+// QName types for queries. Inline, referenced, valued, and broader-owner uses
+// reject; validation and generation reject admitted uses.
 // Individual default/fixed values on QName-typed global declarations are
 // unsupported; simultaneous values or either on an element ref are invalid at
 // the conflicting or forbidden attribute.
@@ -408,6 +411,8 @@
 // Named complex owners with empty, direct choice, direct sequence, direct all, direct-group, grouped
 // extension, or direct-sequence extension bodies admit built-in or facet-free
 // named effective xs:ID local uses for queries.
+// Named empty, direct-choice, and direct-sequence owners also admit built-in
+// and facet-free named effective xs:QName local uses for queries.
 // Named empty, direct choice, direct sequence, and direct all owners admit
 // built-in and facet-free named effective xs:language and xs:anyURI local
 // declarations. Named direct-sequence extensions over supported use-free empty

@@ -19,7 +19,7 @@ Identities precede references; slices order walks/output; no backpatching.
 ## Resolution
 
 `ParseSchema` defaults Compatibility; `ParseSchemaWithPolicy` selects policy.
-Resolvers acquire sources; streams close; identities decode once.
+Streams close; identities decode once.
 
 ```go
 type Resolver interface {
@@ -27,8 +27,8 @@ type Resolver interface {
 }
 ```
 
-Sources retain opaque identity/context; resolvers own locations.
-FIFO discovery; sequential calls. `Loc`: one-based lines, Unicode code-point columns.
+Sources retain identity/context; resolvers own locations.
+FIFO discovery; sequential calls. `Loc`: one-based Unicode positions.
 
 ## Diagnostics
 
@@ -39,7 +39,7 @@ errors prevent `Schema`.
 
 Typed globals retain identity constraints, XPath, scopes, `Loc`s, keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
-`FailureResolution` at `refer`; wrong-kind/field-count yield `FailureInvalid`.
+`FailureResolution`; wrong-kind/field-count yield `FailureInvalid`.
 
 Extensions/restrictions retain IDs/`Loc`s/wildcards. Named-base restrictions need
 completed particle-free, use-free bases. Derived namespace/process constraints
@@ -106,8 +106,8 @@ Inline IDs omit from walks; precisionDecimal sequences validate.
 Local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Named grouped extensions query optional local `final` through structurally
 matched named `xs:simpleDerivationSet`; its union/list values and consumers reject.
-Facet-free `QName` refs/global attributes query; locals, inline attributes,
-facets, values reject.
+Facet-free `QName` refs, global attributes, and local uses on named
+empty/choice/sequence owners query. Other local forms and consumers reject.
 
 ## Datatypes
 

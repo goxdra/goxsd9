@@ -208,7 +208,7 @@ func TestLanguageLocalAttributeExclusionsRemainLocated(t *testing.T) {
 }
 
 //nolint:gocognit // Each syntax exit is checked at its authored location and edition.
-func TestLanguageLocalAttributeInvalidCompositionAndAdjacentType(t *testing.T) {
+func TestLanguageLocalAttributeInvalidComposition(t *testing.T) {
 	cases := []struct {
 		name, body, marker string
 		class              FailureClass
@@ -220,7 +220,6 @@ func TestLanguageLocalAttributeInvalidCompositionAndAdjacentType(t *testing.T) {
 		{"missing name and ref", `<xs:attribute type="xs:language"/>`, `<xs:attribute type=`, FailureInvalid, invalidSchemaCompositionCode, "use", nil},
 		{"both name and ref", `<xs:attribute name="a" ref="r:b" type="xs:language"/>`, `ref="r:b"`, FailureInvalid, invalidSchemaCompositionCode, "use", nil},
 		{"type and inline", `<xs:attribute name="a" type="xs:language"><xs:simpleType><xs:restriction base="xs:language"/></xs:simpleType></xs:attribute>`, `<xs:simpleType`, FailureInvalid, invalidSchemaCompositionCode, "use", nil},
-		{"adjacent built-in QName", `<xs:attribute name="a" type="xs:QName"/>`, `type="xs:QName"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, "type", errSchemaAttributeUseUnsupported},
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, test := range cases {

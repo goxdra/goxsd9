@@ -252,7 +252,6 @@ func directBuiltinExcludedUses(name string) []directBuiltinExcludedUse {
 		{"named fixed", `<xs:attribute name="a" type="r:Alias" fixed="` + value + `"/>`, alias, `fixed="` + value + `"`, "", errSchemaAttributeUseUnsupported, true},
 		{"inline default", `<xs:attribute name="a" default="` + value + `">` + inline + `</xs:attribute>`, "", `default="` + value + `"`, "", errSchemaAttributeUseUnsupported, true},
 		{"inline fixed", `<xs:attribute name="a" fixed="` + value + `">` + inline + `</xs:attribute>`, "", `fixed="` + value + `"`, "", errSchemaAttributeUseUnsupported, true},
-		{"broader QName", `<xs:attribute name="a" type="xs:QName"/>`, "", `type="xs:QName"`, "", errSchemaAttributeUseUnsupported, false},
 	}
 }
 

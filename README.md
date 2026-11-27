@@ -30,6 +30,8 @@ typed Boolean/integer/decimal globals and ordered default-occurrence direct-sequ
 refs to eligible typed integer/decimal globals; other targets reject.
 Named choice/sequence and empty-base direct-sequence/grouped extensions query
 built-in/named short/int/byte/unsignedLong attributes; consumers reject.
+Named empty/direct-choice/direct-sequence owners query facet-free built-in/named
+QName local attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.

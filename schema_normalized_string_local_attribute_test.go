@@ -229,9 +229,9 @@ func TestNormalizedStringLocalAttributeExcludedFormsAcrossNamedOwners(t *testing
 	}
 }
 
-func TestNormalizedStringLocalAttributeExcludesUnsupportedOtherStringKinds(t *testing.T) {
+func TestNormalizedStringLocalAttributeExcludesString(t *testing.T) {
 	for _, profile := range tokenPolicyProfiles() {
-		for _, kind := range []string{"string", "QName"} {
+		for _, kind := range []string{"string"} {
 			for _, named := range []bool{false, true} {
 				name := "built-in"
 				typeName := "xs:" + kind

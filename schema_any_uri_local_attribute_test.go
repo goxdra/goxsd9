@@ -222,7 +222,7 @@ func TestAnyURILocalAttributeExclusionsRemainLocated(t *testing.T) {
 }
 
 //nolint:gocognit // Each syntax exit is checked at its authored location and edition.
-func TestAnyURILocalAttributeInvalidCompositionAndAdjacentType(t *testing.T) {
+func TestAnyURILocalAttributeInvalidComposition(t *testing.T) {
 	cases := []struct {
 		name, body, marker string
 		class              FailureClass
@@ -236,7 +236,6 @@ func TestAnyURILocalAttributeInvalidCompositionAndAdjacentType(t *testing.T) {
 		{"type and inline", `<xs:attribute name="a" type="xs:anyURI"><xs:simpleType><xs:restriction base="xs:anyURI"/></xs:simpleType></xs:attribute>`, `<xs:simpleType`, FailureInvalid, invalidSchemaCompositionCode, "use", nil},
 		{"model after attribute", `<xs:attribute name="a" type="xs:anyURI"/><xs:sequence><xs:element name="x" type="xs:integer"/></xs:sequence>`, `<xs:sequence`, FailureInvalid, invalidSchemaCompositionCode, "composition", nil},
 		{"attribute after wildcard", `<xs:anyAttribute namespace="##other"/><xs:attribute name="a" type="xs:anyURI"/>`, `<xs:attribute name="a"`, FailureInvalid, invalidSchemaCompositionCode, "composition", nil},
-		{"adjacent built-in QName", `<xs:attribute name="a" type="xs:QName"/>`, `type="xs:QName"`, FailureUnsupported, UnsupportedSchemaSyntaxCode, "type", errSchemaAttributeUseUnsupported},
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict10, Strict11} {
 		for _, test := range cases {
