@@ -75,8 +75,9 @@ Anonymous empty-base ref-sequences: built-in `xs:token`/`xs:anyURI`; consumers r
 `xs:long`: named empty/choice/sequence/all/direct-group/direct-sequence/grouped owners, built-in/named uses.
 Named empty/choice/sequence/all and empty-base direct-sequence/grouped extensions:
 built-in/named `xs:short`/`xs:int`/`xs:byte`/`xs:unsignedLong`. Consumers reject.
-Global attributes: built-in/named Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
-NCName/anyURI/ID/long/int/short/byte/unsignedLong, policy-gated `precisionDecimal`.
+Global attributes: Boolean/integer/decimal/normalizedString/token/negativeInteger/positiveInteger/nonPositiveInteger/language/
+NCName/anyURI/ID/long/int/short/byte/unsignedLong, facet-free QName,
+policy-gated `precisionDecimal`.
 Compatibility/Strict11 omit untyped-global `inheritable=false/0`;
 Strict10/true/1 reject; refs reject at use `Loc`.
 Inline varieties retain IDs/refs/`Loc`s/facets/`finalDefault`; atomic inline
@@ -91,7 +92,7 @@ refs query-only. Inline defaults/fixed fail at value `Loc`, retaining
 causes/related `Loc`s. Conflicts locate fixed/default; type-only unconstrained;
 global attribute consumers reject.
 
-Named/untyped-global empties admit empty `block`; named lack particles/occurrences.
+Named/untyped-global empties: empty `block`, no particles.
 Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
 Named direct choice/sequence `xs:any`: empty/positive all policies; Compatibility/Strict11 add negatives, `##defined`/`##definedSibling`, strict negative QNames, paired empty `namespace`+`notQName` (strict/lax/skip). Membership before omission; symbolic negatives/derivations/consumers reject.
 Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits member QNames, lax/skip only absent/empty `notQName`; negative symbols reject. Strict absent/positive namespace admits QNames/`##defined`; empty namespace admits empty `notQName` or `##defined` alone. Explicit QNames fail membership before publication; derivations/consumers reject.
@@ -104,7 +105,8 @@ Local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
 Named grouped extensions query optional local `final` through structurally
 matched named `xs:simpleDerivationSet`; its union/list values and consumers reject.
 Strict10 rejects precisionDecimal; element refs retain ranges.
-Facet-free `QName` varieties/global refs retain context; QName locals/attributes/facets/values reject.
+Facet-free `QName` refs/global attributes query; locals, inline attributes,
+facets, values reject.
 
 ## Datatypes
 
