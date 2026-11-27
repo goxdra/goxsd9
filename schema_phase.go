@@ -386,7 +386,7 @@ func isDeferredNegativeExplicitAnyAttributeQName(element, parent *syntaxElement)
 		return false
 	}
 	qname := syntaxAttributesByLocal(element, "notQName")
-	return len(qname) == 1 && collapseXMLWhitespace(qname[0].value) != "" && !wildcardQNameHasSymbolicToken(qname[0].value)
+	return len(qname) == 1 && wildcardQNameHasExplicitToken(qname[0].value)
 }
 
 //nolint:gocognit // Match the exact deferred wildcard and preserve invalid syntax before recursing.
@@ -439,7 +439,7 @@ func isDeferredNegativeExplicitAnyQName(element, parent, grandparent *syntaxElem
 	negative := syntaxAttributesByLocal(element, "notNamespace")
 	qname := syntaxAttributesByLocal(element, "notQName")
 	return len(negative) == 1 && len(syntaxAttributesByLocal(element, "namespace")) == 0 && len(qname) == 1 &&
-		collapseXMLWhitespace(qname[0].value) != "" && !wildcardQNameHasSymbolicToken(qname[0].value)
+		wildcardQNameHasExplicitToken(qname[0].value)
 }
 
 func validateSchemaRootContents(document *syntaxDocument, version XSDVersion) error {
@@ -4137,8 +4137,7 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 		if len(qname) == 0 || collapseXMLWhitespace(qname[0].value) == "" {
 			return true
 		}
-		return (len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict") &&
-			!wildcardQNameHasSymbolicToken(qname[0].value)
+		return len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict"
 	}
 	namespace := "##any"
 	if len(namespaceAttributes) == 1 {
@@ -5934,19 +5933,12 @@ func isSupportedDirectAnyNotQName(element *syntaxElement) bool {
 	if !isSupportedDirectAnyParticle(element) {
 		return false
 	}
-	attributes := syntaxAttributesByLocal(element, "notQName")
-	if len(attributes) != 1 {
-		return false
-	}
-	if len(syntaxAttributesByLocal(element, "notNamespace")) != 0 {
-		return !wildcardQNameHasSymbolicToken(attributes[0].value)
-	}
-	return true
+	return len(syntaxAttributesByLocal(element, "notQName")) == 1
 }
 
-func wildcardQNameHasSymbolicToken(lexical string) bool {
+func wildcardQNameHasExplicitToken(lexical string) bool {
 	for _, token := range strings.Fields(lexical) {
-		if token == "##defined" || token == "##definedSibling" {
+		if token != "##defined" && token != "##definedSibling" {
 			return true
 		}
 	}

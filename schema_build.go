@@ -7016,7 +7016,6 @@ func resolveSchemaComplexTypeDirectBody(
 	}
 	if body.anyAttribute != nil && body.anyAttribute.qnameConstraint.present &&
 		(body.anyAttribute.processContents != "strict" ||
-			body.anyAttribute.namespaceConstraint.variety == WildcardNamespaceConstraintNot && wildcardQNameHasSymbolicToken(body.anyAttribute.qnameConstraint.lexical) ||
 			body.anyAttribute.namespaceConstraint.lexical == "##other") &&
 		(body.anyAttribute.namespaceConstraint.variety != WildcardNamespaceConstraintNot || body.anyAttribute.qnameConstraint.lexical != "") {
 		return nil, newSchemaAnyAttributeUnsupported(body.anyAttribute.loc, version)

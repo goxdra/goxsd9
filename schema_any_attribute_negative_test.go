@@ -245,7 +245,6 @@ func TestAnyAttributeNegativeDirectDiagnostics(t *testing.T) {
 		{"conflict-skip", ` notNamespace="##local" namespace="##any" processContents="skip"`, `namespace=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
 		{"duplicate", ` notNamespace="##local" notNamespace="urn:z"`, `notNamespace="urn:z"`, InvalidXMLSyntaxCode, "", FailureInvalid, nil},
 		{"bad-process", ` notNamespace="##local" processContents="bad"`, `processContents=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
-		{"negative-qname", ` notNamespace="##local" notQName="##defined"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"negative-qname-lax", ` notNamespace="##local" notQName="##defined" processContents="lax"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"negative-qname-skip", ` notNamespace="##local" notQName="##defined" processContents="skip"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"explicit-qname-lax", ` notNamespace="##local" notQName="t:value" processContents="lax"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},

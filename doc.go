@@ -269,8 +269,9 @@
 // may accompany notNamespace while retaining presence and location.
 // An explicitly empty namespace enumeration may likewise accompany an empty
 // notQName list under Compatibility and Strict11 with strict, lax, or skip processing.
-// ##defined and ##definedSibling stay symbolic; symbolic negative combinations,
-// lax/skip nonempty negative combinations, and wildcard algebra remain unsupported.
+// ##defined and ##definedSibling stay symbolic. Negative combinations with
+// nonempty notQName require omitted or strict processing; wildcard algebra
+// remains unsupported.
 // Nonempty lax/skip notQName on inline, group, or extension placements
 // rejects; existing strict explicit-QName placement behavior persists.
 // QName-constrained derived restrictions reject.
@@ -293,9 +294,9 @@
 // normalized lexical order. Empty notQName lists retain presence and location
 // without excluding names. Strict/default explicit QNames also retain lexical
 // tokens, namespace bindings, and sorted unique exclusions after membership.
-// Lax/skip negative lists require absent or empty notQName; their nonempty
-// QName combinations remain unsupported. Symbolic negative combinations,
-// other named shapes, and negative namespace derivation comparisons remain unsupported.
+// Negative lists with nonempty notQName require omitted or strict processing;
+// lax/skip, other named shapes, and negative namespace derivation comparisons
+// remain unsupported. ##defined stays symbolic and may mix with member QNames.
 // Compatibility and Strict11 also expose negative notNamespace with omitted
 // (effective strict), explicit strict, lax, or skip processContents on a
 // global element's anonymous complex type when it
@@ -313,7 +314,8 @@
 // anyAttribute wildcards admit explicit QNames alone, symbolic ##defined alone,
 // or both in notQName. Absent or positive namespace constraints admit these
 // forms subject to explicit-QName membership; an empty namespace enumeration
-// admits the keyword alone. Tokens retain lexical order and duplicates;
+// admits the keyword alone. Negative notNamespace constraints also admit these
+// strict forms. Tokens retain lexical order and duplicates;
 // expanded explicit exclusions are sorted and unique. QName membership
 // precedes publication, including when the owner particle omits at 0/0.
 // After those gates, effective 0/0 sequence, choice, child, and wildcard ranges

@@ -20,22 +20,25 @@ func attributeQNamePlacementSchema(shape, model, wildcard string) string {
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:t" xmlns:p="urn:p" targetNamespace="urn:t">` + body + `</xs:schema>`
 }
 
+//nolint:gocognit // Both namespace varieties must reject sibling tokens in every owner shape.
 func TestWildcardSiblingAttributeForbiddenShapes(t *testing.T) {
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11, Strict10} {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, shape := range []string{"named", "inline", "attributeGroupRef"} {
-				wildcard := `<xs:anyAttribute notQName="##definedSibling"/>`
-				root := attributeQNameSchema(model, ` notQName="##definedSibling"`, "")
-				if shape != "named" {
-					root = attributeQNamePlacementSchema(shape, model, wildcard)
-				}
-				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
-				assertZeroSchema(t, schema)
-				diagnostic := requireDiagnostic(t, err)
-				if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
-					diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="##definedSibling"`) ||
-					len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != "" || errors.Unwrap(err) != nil {
-					t.Fatalf("%s/%s/%s attribute sibling diagnostic = %s related=%v cause=%v", policy, model, shape, diagnostic, diagnostic.Related(), err)
+				for _, namespace := range []string{"", ` notNamespace="##local"`} {
+					wildcard := `<xs:anyAttribute` + namespace + ` notQName="##definedSibling"/>`
+					root := attributeQNameSchema(model, namespace+` notQName="##definedSibling"`, "")
+					if shape != "named" {
+						root = attributeQNamePlacementSchema(shape, model, wildcard)
+					}
+					schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+					assertZeroSchema(t, schema)
+					diagnostic := requireDiagnostic(t, err)
+					if diagnostic.Class() != FailureInvalid || diagnostic.Code() != invalidSchemaCompositionCode ||
+						diagnostic.Loc() != wildcardParticleTestLoc(t, root, `notQName="##definedSibling"`) ||
+						len(diagnostic.Related()) != 0 || diagnostic.SpecRef() != "" || errors.Unwrap(err) != nil {
+						t.Fatalf("%s/%s/%s/%s attribute sibling diagnostic = %s related=%v cause=%v", policy, model, shape, namespace, diagnostic, diagnostic.Related(), err)
+					}
 				}
 			}
 		}
@@ -462,7 +465,6 @@ func TestAnyAttributeQNameExcludedForms(t *testing.T) {
 		{"skip-defined", "choice", ` processContents="skip" notQName="##defined"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
 		{"other", "sequence", ` namespace="##other" notQName="p:item"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
 		{"other-defined", "sequence", ` namespace="##other" notQName="##defined"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
-		{"negative-defined", "choice", ` notNamespace="##local" notQName="##defined"`, `<xs:anyAttribute`, FailureUnsupported, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported},
 		{"sibling", "sequence", ` notQName="##definedSibling"`, `notQName=`, FailureInvalid, invalidSchemaCompositionCode, "", nil},
 		{"malformed", "choice", ` notQName="bad:q:name"`, `notQName=`, FailureInvalid, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef, nil},
 		{"malformed-after-defined", "choice", ` processContents="lax" notQName="##defined bad:q:name"`, `notQName=`, FailureInvalid, invalidSchemaConditionalCode, schemaWildcardQNameDatatypeXSD11SpecRef, nil},
@@ -491,7 +493,6 @@ func TestAnyAttributeQNameExcludedModeMembershipPrecedesUnsupported(t *testing.T
 		{"lax", ` namespace="urn:p" processContents="lax"`, "p:item", `namespace=`},
 		{"skip", ` namespace="urn:p" processContents="skip"`, "p:item", `namespace=`},
 		{"other", ` namespace="##other"`, "p:item", `namespace=`},
-		{"negative", ` notNamespace="##targetNamespace"`, "p:item", `notNamespace=`},
 	}
 	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
 		for _, model := range []string{"sequence", "choice"} {
@@ -611,6 +612,27 @@ func TestAnyAttributeQNameExcludedMembershipGraphAndEdition(t *testing.T) {
 			for _, policy := range []LanguagePolicy{Compatibility, Strict11, Strict10} {
 				t.Run(string(policy)+"/"+shape+"/"+test.name, func(t *testing.T) {
 					schema, err := discoverTestSchemaWithPolicy(t, root, fixtures, policy)
+					if policy != Strict10 && shape == "direct" && !test.invalid {
+						if err != nil {
+							t.Fatal(err)
+						}
+						components := schema.Components()
+						if len(components) != 1 || components[0].Name() != mustTestQName(t, "urn:t", "Included") {
+							t.Fatalf("components = %v", components)
+						}
+						definition, ok := components[0].ComplexType()
+						if !ok {
+							t.Fatal("Included is not a complex type")
+						}
+						wildcard := definitionAnyAttribute(t, definition)
+						if !reflect.DeepEqual(wildcard.NamespaceConstraint().Namespaces(), []string{""}) ||
+							!reflect.DeepEqual(wildcard.QNameConstraint().Tokens(), []string{"##defined", "local"}) ||
+							!reflect.DeepEqual(wildcard.QNameConstraint().Names(), []QName{mustTestQName(t, "urn:t", "local")}) ||
+							wildcard.QNameConstraint().Loc() != wildcardQNameDocumentLoc(t, "included.xsd", included, `notQName=`) {
+							t.Fatalf("direct chameleon wildcard = %#v", wildcard)
+						}
+						return
+					}
 					assertZeroSchema(t, schema)
 					diagnostic := requireDiagnostic(t, err)
 					if policy == Strict10 {
