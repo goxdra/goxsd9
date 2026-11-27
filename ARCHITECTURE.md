@@ -37,7 +37,7 @@ errors prevent `Schema`.
 
 ## Schema model
 
-Elements retain identity constraints, XPath, namespace scopes, `Loc`s, keyref targets.
+Typed globals retain identity constraints, XPath, scopes, `Loc`s, keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`; wrong-kind/field-count yield `FailureInvalid`.
 
@@ -93,7 +93,7 @@ causes/related `Loc`s. Conflicts locate fixed/default; type-only unconstrained;
 standalone attributes: ValidateInstance N/A; GenerateGo rejects at declaration
 `Loc` with nil output.
 
-Untyped: empty `block` retains `Loc`; no authored QName/ID/reference;
+Untyped: `block=""` retains `Loc`; no authored type QName/ID/ref;
 consumers reject. Nonempty block rejects.
 Named direct choice/sequence `xs:any`: empty/positive all policies; Compatibility/Strict11 add negatives, `##defined`/`##definedSibling`, strict negative QNames, paired empty `namespace`+`notQName` (strict/lax/skip). Membership before omission; symbolic negatives/derivations/consumers reject.
 Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits member QNames, lax/skip only absent/empty `notQName`; negative symbols reject. Strict/default admits QNames/`##defined` for absent/positive namespace, empty `notQName`/`##defined` for empty namespace. QName membership precedes publication; derivations/consumers reject.
@@ -141,7 +141,7 @@ other byte/short/int/long/unsignedLong validation uses reject.
 
 Generation covers named/inline scalars, default Boolean/integer/decimal
 choices/sequences, all-token choices; other locals/attributes/targets reject.
-No-view, `abstract=true`/`nillable=true`, identity-constrained globals yield `GOXSD9029`, nil output.
+Untyped, identity-constrained, or abstract/nillable=true globals yield `GOXSD9029`, nil output.
 Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
 integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.
 Byte bounds [-128,127]; unsignedLong bounds [0,18446744073709551615]. Named
