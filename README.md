@@ -32,7 +32,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Compatibility/Strict11 named choice/sequence: negative `xs:anyAttribute`: strict/lax/skip with absent/empty `notQName`. Direct `xs:any`: `##defined`/`##definedSibling` with omitted/`##any`/`##other`/positive/empty namespaces; QNames require membership. `xs:anyAttribute`: strict `##defined`/QNames. Inline negative-skip: empty 1/1 sequence without uses/`notQName`. Symbolic negative combinations and consumers reject.
+Compatibility/Strict11 named choice/sequence: negative `xs:anyAttribute` strict/lax/skip, absent/empty `notQName`; `xs:any` `##defined`/`##definedSibling`; strict `xs:anyAttribute` QNames/`##defined`. Global-element anonymous inline `xs:anyAttribute`: explicit negative skip, one written empty default-1/1 sequence, zero uses, absent/empty `notQName`; consumers reject. QNames require membership.
 
 ## CLI
 

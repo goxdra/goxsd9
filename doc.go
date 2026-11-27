@@ -262,9 +262,9 @@
 // may accompany notNamespace while retaining presence and location.
 // ##defined and ##definedSibling stay symbolic; symbolic negative combinations,
 // lax/skip nonempty negative combinations, and wildcard algebra remain unsupported.
-// Lax/skip notQName on inline, group,
-// or extension placements rejects; existing strict explicit-QName placement
-// behavior persists. QName-constrained derived restrictions reject.
+// Nonempty lax/skip notQName on inline, group, or extension placements
+// rejects; existing strict explicit-QName placement behavior persists.
+// QName-constrained derived restrictions reject.
 // Nonzero wildcard particles remain unsupported to validation
 // and generation consumers.
 // Named global direct sequence and choice complex types also expose immutable
@@ -288,9 +288,11 @@
 // Compatibility and Strict11 also expose negative notNamespace with explicit
 // processContents=skip on a global element's anonymous complex type when it
 // contains exactly one written, default-bound empty sequence and no attribute
-// uses or notQName. The sequence remains queryable with its source Loc and
-// empty terms; wildcard lexical order, sorted effective exclusions, adopted
-// target namespace, and wildcard locations use the same immutable views.
+// uses. Absent and explicitly empty notQName lists remain distinct; the latter
+// retains presence, normalized lexical form, namespace bindings, and Loc.
+// The sequence remains queryable with its source Loc and empty terms; wildcard
+// lexical order, sorted effective exclusions, adopted target namespace, and
+// wildcard locations use the same immutable views.
 // A missing or nonempty sequence, nondefault bounds, uses, other modes or
 // constraints, and Strict10 remain unsupported. Validation and generation
 // reject this inline wildcard with located diagnostics and no output.
