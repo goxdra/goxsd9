@@ -4002,6 +4002,9 @@ func validateDirectComplexTypeAnyAttribute(parent, element *syntaxElement, versi
 	if supportsInlineEmptySequenceNegativeAnyAttribute(parent, element, version, globalElementInline) {
 		return nil
 	}
+	if supportsDirectNamedAllNegativeAnyAttribute(parent, element) {
+		return nil
+	}
 	if !supportsDirectNamedComplexTypeAnyAttribute(parent) || !isSupportedDirectNamedComplexTypeAnyAttribute(element) {
 		if hasExplicitAnyAttributeQName(element) {
 			return nil
@@ -4009,6 +4012,22 @@ func validateDirectComplexTypeAnyAttribute(parent, element *syntaxElement, versi
 		return newSchemaAnyAttributeUnsupported(element.loc, version)
 	}
 	return nil
+}
+
+func supportsDirectNamedAllNegativeAnyAttribute(parent, element *syntaxElement) bool {
+	if parent == nil || parent.name.namespace != xsdNamespaceURI || parent.name.local != "complexType" ||
+		len(syntaxAttributesByLocal(parent, "name")) != 1 {
+		return false
+	}
+	model := schemaComplexTypeModel(parent)
+	if model == nil || model.name.namespace != xsdNamespaceURI || model.name.local != "all" ||
+		len(syntaxAttributesByLocal(element, "notNamespace")) != 1 ||
+		len(syntaxAttributesByLocal(element, "namespace")) != 0 {
+		return false
+	}
+	qname := syntaxAttributesByLocal(element, "notQName")
+	return (len(qname) == 0 || len(qname) == 1 && collapseXMLWhitespace(qname[0].value) == "") &&
+		isSupportedDirectNamedComplexTypeAnyAttribute(element)
 }
 
 //nolint:gocognit // Keep the bounded inline owner and wildcard admission together.
