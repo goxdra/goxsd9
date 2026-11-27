@@ -32,7 +32,7 @@ built-in/named short/int/byte/unsignedLong attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Compatibility/Strict11 named choice/sequence: `xs:any` admits `##defined`/`##definedSibling`, paired empty `namespace`+`notQName` (strict/lax/skip); `xs:anyAttribute` admits negative strict (QNames allowed), negative lax/skip (absent/empty `notQName`), strict QNames/`##defined`, paired empty lists (strict). Negative symbols reject; QNames require membership. Consumers reject, including inline-global negative-skip `xs:anyAttribute` (empty sequence, no uses, absent/empty `notQName`).
+Compatibility/Strict11: a global element's anonymous inline complexType admits negative `notNamespace` on `xs:anyAttribute` with one written empty default-1/1 sequence and no attribute uses. Omitted/strict/lax `processContents` require absent `notQName`; skip permits absent/empty. Validation and generation reject. Named direct choice/sequence and other wildcard forms: [contract](doc.go).
 
 ## CLI
 

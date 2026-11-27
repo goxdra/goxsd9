@@ -291,15 +291,17 @@
 // Lax/skip negative lists require absent or empty notQName; their nonempty
 // QName combinations remain unsupported. Symbolic negative combinations,
 // other named shapes, and negative namespace derivation comparisons remain unsupported.
-// Compatibility and Strict11 also expose negative notNamespace with explicit
-// processContents=skip on a global element's anonymous complex type when it
+// Compatibility and Strict11 also expose negative notNamespace with omitted
+// (effective strict), explicit strict, lax, or skip processContents on a
+// global element's anonymous complex type when it
 // contains exactly one written, default-bound empty sequence and no attribute
-// uses. Absent and explicitly empty notQName lists remain distinct; the latter
+// uses. Strict and lax require absent notQName; skip admits an explicitly empty
+// list. Absent and explicitly empty notQName lists remain distinct; the latter
 // retains presence, normalized lexical form, namespace bindings, and Loc.
 // The sequence remains queryable with its source Loc and empty terms; wildcard
 // lexical order, sorted effective exclusions, adopted target namespace, and
 // wildcard locations use the same immutable views.
-// A missing or nonempty sequence, nondefault bounds, uses, other modes or
+// A missing or nonempty sequence, nondefault bounds, uses, other wildcard
 // constraints, and Strict10 remain unsupported. Validation and generation
 // reject this inline wildcard with located diagnostics and no output.
 // Compatibility and Strict11 named-global direct choice/sequence strict
