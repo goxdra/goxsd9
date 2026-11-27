@@ -50,6 +50,20 @@ func TestInlineNegativeAttributeModesExplicitFalseMixed(t *testing.T) {
 	}
 }
 
+func TestInlineNegativeAttributeModesMixedTrueRemainsUnsupported(t *testing.T) {
+	for _, mode := range []string{"", ` processContents="strict"`, ` processContents="lax"`} {
+		root := inlineNegativeModeSchema(`<xs:sequence/>`, ` notNamespace="##local"`+mode)
+		root = strings.Replace(root, `<xs:complexType>`, `<xs:complexType mixed="true">`, 1)
+		schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict11)
+		assertZeroSchema(t, schema)
+		d := requireDiagnostic(t, err)
+		if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode || d.Loc() != anyAttributeTestLoc(root, `mixed=`) ||
+			d.SpecRef() != "xsd11-structures#cSchemaDocument" || len(d.Related()) != 0 || !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("mixed=true %q diagnostic = %s, related=%v, cause=%v", mode, d, d.Related(), err)
+		}
+	}
+}
+
 func inlineNegativeModeDefinition(t *testing.T, schema Schema) ComplexTypeDefinition {
 	t.Helper()
 	components := schema.Components()
