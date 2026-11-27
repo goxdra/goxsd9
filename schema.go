@@ -431,7 +431,7 @@ func (component Component) Document() SourceID {
 }
 
 // Element returns the immutable element-declaration view for a supported
-// global element with a resolved type.
+// global element, including one without an authored type.
 func (component Component) Element() (ElementDeclaration, bool) {
 	if component.element == nil {
 		return ElementDeclaration{}, false
@@ -443,7 +443,7 @@ func (component Component) Element() (ElementDeclaration, bool) {
 }
 
 // ElementDeclaration returns the immutable element-declaration view for a
-// supported global element with a resolved type.
+// supported global element, including one without an authored type.
 func (component Component) ElementDeclaration() (ElementDeclaration, bool) {
 	return component.Element()
 }
@@ -548,8 +548,7 @@ func (declaration AttributeDeclaration) ValueConstraint() (AttributeValueConstra
 	return *cloneAttributeValueConstraint(declaration.facts.valueConstraint), true
 }
 
-// ElementDeclaration is the immutable type-specific view of a supported
-// global element declaration with a resolved type.
+// ElementDeclaration is the immutable view of a supported global element.
 type ElementDeclaration struct {
 	component Component
 	facts     *schemaElementComponent
@@ -575,6 +574,12 @@ func (declaration ElementDeclaration) Loc() Loc {
 	return declaration.component.Loc()
 }
 
+// IsUntyped reports that the global element has neither a type attribute nor
+// an inline type declaration.
+func (declaration ElementDeclaration) IsUntyped() bool {
+	return declaration.facts != nil && declaration.facts.untyped
+}
+
 // DeclaredType returns the expanded QName written in the element's type
 // attribute.
 func (declaration ElementDeclaration) DeclaredType() QName {
@@ -592,12 +597,28 @@ func (declaration ElementDeclaration) IsAbstract() bool {
 	return declaration.facts.abstract
 }
 
+// AbstractLoc returns the location of the authored abstract attribute, if any.
+func (declaration ElementDeclaration) AbstractLoc() Loc {
+	if declaration.facts == nil {
+		return Loc{}
+	}
+	return declaration.facts.abstractLoc
+}
+
 // IsNillable reports the effective nillable fact of the element declaration.
 func (declaration ElementDeclaration) IsNillable() bool {
 	if declaration.facts == nil {
 		return false
 	}
 	return declaration.facts.nillable
+}
+
+// NillableLoc returns the location of the authored nillable attribute, if any.
+func (declaration ElementDeclaration) NillableLoc() Loc {
+	if declaration.facts == nil {
+		return Loc{}
+	}
+	return declaration.facts.nillableLoc
 }
 
 // DisallowedSubstitutions returns the effective substitution methods disallowed
@@ -2670,12 +2691,15 @@ type schemaComponentInput struct {
 }
 
 type schemaElementInput struct {
+	untyped             bool
 	declaredType        QName
 	typeLoc             Loc
 	inlineSimpleType    *schemaSimpleTypeInput
 	inlineComplexType   *schemaComplexTypeInput
 	abstract            bool
+	abstractLoc         Loc
 	nillable            bool
+	nillableLoc         Loc
 	block               schemaBlockPolicy
 	substitutionGroup   []schemaElementSubstitutionGroupInput
 	identityConstraints []schemaIdentityConstraintInput
@@ -3072,6 +3096,7 @@ type schemaModelGroupReferenceInput struct {
 }
 
 type schemaElementComponent struct {
+	untyped                 bool
 	declaredType            QName
 	typeID                  ComponentID
 	hasTypeID               bool
@@ -3079,7 +3104,9 @@ type schemaElementComponent struct {
 	hasTypeReference        bool
 	inlineComplexType       *schemaComplexTypeComponent
 	abstract                bool
+	abstractLoc             Loc
 	nillable                bool
+	nillableLoc             Loc
 	disallowedSubstitutions schemaBlockPolicy
 	substitutionGroup       []schemaElementSubstitutionGroup
 	identityConstraints     []schemaIdentityConstraintComponent
@@ -3713,6 +3740,7 @@ func completeSchemaComponents(
 	return components, byID, nil
 }
 
+//nolint:gocognit,funlen // Keep completed component publication and type-shape invariants together.
 func completeSchemaComponent(
 	record schemaComponentRecord,
 	simpleType schemaSimpleTypeResult,
@@ -3729,11 +3757,18 @@ func completeSchemaComponent(
 		loc:  record.loc,
 	}
 	if element.present {
+		if element.untyped && (!element.declaredType.IsZero() || element.hasTypeID || element.hasTypeReference || record.element == nil || record.element.inlineSimpleType != nil || record.element.inlineComplexType != nil) {
+			return Component{}, newSchemaBridgeInvariant(record.loc, "untyped element result contains authored type facts")
+		}
+		if !element.untyped && element.declaredType.IsZero() && !element.hasTypeReference && (record.element == nil || record.element.inlineComplexType == nil) {
+			return Component{}, newSchemaBridgeInvariant(record.loc, "typed element result has no type facts")
+		}
 		inlineComplexType, err := completeSchemaInlineComplexType(record.element, complexType)
 		if err != nil {
 			return Component{}, err
 		}
 		component.element = &schemaElementComponent{
+			untyped:                 element.untyped,
 			declaredType:            element.declaredType,
 			typeID:                  element.typeID,
 			hasTypeID:               element.hasTypeID,
@@ -3741,7 +3776,9 @@ func completeSchemaComponent(
 			hasTypeReference:        element.hasTypeReference,
 			inlineComplexType:       inlineComplexType,
 			abstract:                element.abstract,
+			abstractLoc:             element.abstractLoc,
 			nillable:                element.nillable,
+			nillableLoc:             element.nillableLoc,
 			disallowedSubstitutions: element.block,
 			substitutionGroup:       cloneSchemaElementSubstitutionGroups(element.substitutionGroup),
 			identityConstraints:     cloneSchemaIdentityConstraintComponents(identityConstraints),
@@ -4190,12 +4227,15 @@ func cloneSchemaElementInput(input *schemaElementInput) *schemaElementInput {
 		return nil
 	}
 	return &schemaElementInput{
+		untyped:             input.untyped,
 		declaredType:        input.declaredType,
 		typeLoc:             input.typeLoc,
 		inlineSimpleType:    cloneSchemaSimpleTypeInput(input.inlineSimpleType),
 		inlineComplexType:   cloneSchemaComplexTypeInput(input.inlineComplexType),
 		abstract:            input.abstract,
+		abstractLoc:         input.abstractLoc,
 		nillable:            input.nillable,
+		nillableLoc:         input.nillableLoc,
 		block:               input.block,
 		substitutionGroup:   cloneSchemaElementSubstitutionGroupInputs(input.substitutionGroup),
 		identityConstraints: cloneSchemaIdentityConstraintInputs(input.identityConstraints),

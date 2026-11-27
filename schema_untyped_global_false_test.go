@@ -15,6 +15,7 @@ type untypedGlobalComponentFact struct {
 	loc      Loc
 	document SourceID
 	hasView  bool
+	untyped  bool
 }
 
 type untypedGlobalDocumentFact struct {
@@ -35,10 +36,10 @@ func untypedGlobalFacts(t *testing.T, schema Schema) untypedGlobalSnapshot {
 	t.Helper()
 	result := untypedGlobalSnapshot{policy: schema.LanguagePolicy()}
 	for _, component := range schema.Components() {
-		_, hasView := component.ElementDeclaration()
+		declaration, hasView := component.ElementDeclaration()
 		result.components = append(result.components, untypedGlobalComponentFact{
 			id: component.ID(), name: component.Name(), kind: component.Kind(),
-			loc: component.Loc(), document: component.Document(), hasView: hasView,
+			loc: component.Loc(), document: component.Document(), hasView: hasView, untyped: declaration.IsUntyped(),
 		})
 		found := schema.FindKind(component.Kind(), component.Name())
 		if len(found) != 1 || found[0].ID() != component.ID() {
@@ -151,7 +152,7 @@ func TestUntypedGlobalFalseFlagsMatchOmission(t *testing.T) {
 					if !reflect.DeepEqual(got, wantFacts) {
 						t.Fatalf("explicit flags changed public facts: got %#v, omission %#v", got, wantFacts)
 					}
-					if got.components[1].hasView || got.components[1].kind != ComponentKindElementDeclaration {
+					if !got.components[1].hasView || !got.components[1].untyped || got.components[1].kind != ComponentKindElementDeclaration {
 						t.Fatalf("untyped component has unexpected view/kind: %#v", got.components[1])
 					}
 					components := schema.Components()
@@ -185,17 +186,11 @@ func TestUntypedGlobalBooleanDiagnosticExits(t *testing.T) {
 		name, attributes, marker string
 		class                    FailureClass
 	}{
-		{"abstract true", ` abstract="true"`, `abstract="true"`, FailureUnsupported},
-		{"abstract one", ` abstract="1"`, `abstract="1"`, FailureUnsupported},
-		{"nillable true", ` nillable="true"`, `nillable="true"`, FailureUnsupported},
-		{"nillable one", ` nillable="1"`, `nillable="1"`, FailureUnsupported},
-		{"both true precedence", ` abstract="true" nillable="1"`, `abstract="true"`, FailureUnsupported},
-		{"both reverse precedence", ` nillable="1" abstract="true"`, `nillable="1"`, FailureUnsupported},
 		{"invalid abstract", ` abstract="maybe"`, `abstract="maybe"`, FailureInvalid},
 		{"invalid nillable", ` nillable="00"`, `nillable="00"`, FailureInvalid},
 		{"invalid empty", ` abstract=""`, `abstract=""`, FailureInvalid},
 		{"invalid XML whitespace", ` nillable="false true"`, `nillable="false true"`, FailureInvalid},
-		{"invalid beats true", ` abstract="true" nillable="maybe"`, `nillable="maybe"`, FailureInvalid},
+		{"invalid with true", ` abstract="true" nillable="maybe"`, `nillable="maybe"`, FailureInvalid},
 	}
 	for _, policy := range untypedGlobalPolicies() {
 		for _, test := range cases {
@@ -303,8 +298,8 @@ func TestUntypedGlobalFalseFlagsKeepGraphFacts(t *testing.T) {
 					if len(matches) != 1 {
 						t.Fatalf("FindKind(%s:%s) = %d, want 1", name.namespace, name.local, len(matches))
 					}
-					if _, ok := matches[0].ElementDeclaration(); ok {
-						t.Fatalf("untyped graph element %s gained a declaration view", name.local)
+					if declaration, ok := matches[0].ElementDeclaration(); !ok || !declaration.IsUntyped() {
+						t.Fatalf("untyped graph element %s lacks an untyped declaration view", name.local)
 					}
 				}
 				consumers := untypedGlobalConsumerFacts(t, schema)
@@ -392,9 +387,9 @@ func TestUntypedGlobalBooleanPrecedenceWithExcludedShapes(t *testing.T) {
 		name, element, marker string
 		class                 FailureClass
 	}{
-		{"true before child", `<xs:element name="item" abstract="true"><xs:alternative type="xs:string"/></xs:element>`, `abstract="true"`, FailureUnsupported},
+		{"true before child", `<xs:element name="item" abstract="true"><xs:alternative type="xs:string"/></xs:element>`, `<xs:alternative`, FailureUnsupported},
 		{"malformed before child", `<xs:element name="item" abstract="maybe"><xs:alternative type="xs:string"/></xs:element>`, `abstract="maybe"`, FailureInvalid},
-		{"true before substitution", `<xs:element name="item" abstract="true" substitutionGroup="t:before"/>`, `abstract="true"`, FailureUnsupported},
+		{"true before substitution", `<xs:element name="item" abstract="true" substitutionGroup="t:before"/>`, `substitutionGroup="t:before"`, FailureUnsupported},
 		{"malformed before substitution", `<xs:element name="item" nillable="maybe" substitutionGroup="t:before"/>`, `nillable="maybe"`, FailureInvalid},
 	}
 	for _, policy := range untypedGlobalPolicies() {

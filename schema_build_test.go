@@ -3385,11 +3385,6 @@ func TestSchemaBridgeRejectsRootAndGlobalLexicalBoundaries(t *testing.T) {
 			policy: Strict10,
 			class:  FailureInvalid,
 		},
-		{
-			name:  "valid unimplemented boolean remains unsupported",
-			root:  `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" abstract="true"/></xs:schema>`,
-			class: FailureUnsupported,
-		},
 	}
 	assertSchemaBridgeDiagnosticCases(t, tests)
 }

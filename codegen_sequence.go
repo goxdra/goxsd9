@@ -724,6 +724,16 @@ func validateCodegenDirectSequenceReferenceTarget(
 			errCodegenDirectSequenceTarget,
 		)
 	}
+	if declaration.IsUntyped() {
+		return codegenSourceTarget{}, ComponentID{}, newCodegenDirectSequenceReferenceTargetUnsupported(
+			schema,
+			reference,
+			fmt.Sprintf("referenced global element %q has no authored type outside Go generation", declaration.Name()),
+			nil,
+			fmt.Errorf("%w: untyped global element", errCodegenUnsupported),
+			version,
+		)
+	}
 	if err := validateCodegenDirectReferenceSubstitution(
 		schema,
 		declaration,

@@ -449,6 +449,9 @@ func rejectCodegenElementFacts(components []Component, version XSDVersion) error
 		if !ok {
 			continue
 		}
+		if declaration.IsUntyped() {
+			continue
+		}
 		if constraints := declaration.IdentityConstraints(); len(constraints) > 0 {
 			return newCodegenUnsupportedForReference(
 				constraints[0].Loc(),
@@ -2006,6 +2009,15 @@ func codegenElementFieldType(
 			fmt.Sprintf("global element %q has no supported declaration view", component.Name()),
 			nil,
 			fmt.Errorf("%w: element declaration view is missing", errCodegenUnsupported),
+			version,
+		)
+	}
+	if declaration.IsUntyped() {
+		return codegenSourceTarget{}, "", false, newCodegenElementUnsupported(
+			component.Loc(),
+			fmt.Sprintf("global element %q has no authored type outside Go generation", component.Name()),
+			nil,
+			fmt.Errorf("%w: untyped global element", errCodegenUnsupported),
 			version,
 		)
 	}
