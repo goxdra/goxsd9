@@ -4137,7 +4137,10 @@ func isSupportedDirectNamedComplexTypeAnyAttribute(element *syntaxElement) bool 
 		if len(qname) == 0 || collapseXMLWhitespace(qname[0].value) == "" {
 			return true
 		}
-		return len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict"
+		if len(processContentsAttributes) == 0 || collapseXMLWhitespace(processContentsAttributes[0].value) == "strict" {
+			return true
+		}
+		return wildcardQNameOnlyExplicitTokens(qname[0].value)
 	}
 	namespace := "##any"
 	if len(namespaceAttributes) == 1 {
@@ -5943,6 +5946,19 @@ func wildcardQNameHasExplicitToken(lexical string) bool {
 		}
 	}
 	return false
+}
+
+func wildcardQNameOnlyExplicitTokens(lexical string) bool {
+	tokens := strings.Fields(lexical)
+	if len(tokens) == 0 {
+		return false
+	}
+	for _, token := range tokens {
+		if token == "##defined" || token == "##definedSibling" {
+			return false
+		}
+	}
+	return true
 }
 
 func unsupportedNondirectWildcardConstraints(model *syntaxElement, version XSDVersion) error {
