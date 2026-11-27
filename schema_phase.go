@@ -1272,7 +1272,7 @@ func validateGlobalSchemaAttribute(element *syntaxElement, kind ComponentKind, a
 		(attribute.name.local == "abstract" || attribute.name.local == "nillable") &&
 		len(syntaxAttributesByLocal(element, "type")) == 0 &&
 		inlineSimpleTypeChild(element) == nil && inlineComplexTypeChild(element) == nil {
-		return "", validateUntypedGlobalElementBooleanAttribute(attribute, version)
+		return "", validateUntypedGlobalElementBooleanAttribute(attribute)
 	}
 	if implementedGlobalElementBooleanAttribute(element, kind, attribute.name.local) {
 		return "", validateSchemaBoolean(attribute)
@@ -1365,8 +1365,8 @@ func validateUntypedGlobalAttributeInheritable(attribute syntaxAttribute, versio
 	return "global attribute attribute \"inheritable\" is not implemented", nil
 }
 
-func validateUntypedGlobalElementBooleanAttribute(attribute syntaxAttribute, version XSDVersion) error {
-	value, err := schemaBooleanValue(attribute)
+func validateUntypedGlobalElementBooleanAttribute(attribute syntaxAttribute) error {
+	_, err := schemaBooleanValue(attribute)
 	if err != nil {
 		return newDiagnostic(
 			FailureInvalid,
@@ -1376,14 +1376,7 @@ func validateUntypedGlobalElementBooleanAttribute(attribute syntaxAttribute, ver
 			err,
 		)
 	}
-	if !value {
-		return nil
-	}
-	return newSchemaSyntaxUnsupportedForVersion(
-		attribute.loc,
-		fmt.Sprintf("global element attribute %q is not implemented", attribute.name.local),
-		version,
-	)
+	return nil
 }
 
 func implementedGlobalElementBooleanAttribute(element *syntaxElement, kind ComponentKind, local string) bool {

@@ -758,6 +758,15 @@ func validateCodegenDirectChoiceReferenceTarget(
 			errCodegenDirectChoiceTarget,
 		)
 	}
+	if declaration.IsUntyped() {
+		return nil, newCodegenDirectChoiceReferenceTargetUnsupported(
+			loc,
+			fmt.Sprintf("referenced global element %q has no authored type outside Go generation", declaration.Name()),
+			related,
+			fmt.Errorf("%w: untyped global element", errCodegenUnsupported),
+			version,
+		)
+	}
 	if err := validateCodegenDirectReferenceSubstitution(
 		schema,
 		declaration,

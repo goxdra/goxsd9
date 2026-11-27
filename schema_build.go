@@ -1425,7 +1425,7 @@ func schemaDocumentDeclarationInput(element *syntaxElement, kind ComponentKind, 
 		if constraintErr != nil {
 			return schemaComponentInput{}, constraintErr
 		}
-		if len(constraints) > 0 && elementType == nil {
+		if len(constraints) > 0 && (elementType == nil || elementType.untyped) {
 			return schemaComponentInput{}, newSchemaIdentityUnsupported(constraints[0].loc, "identity constraints on a global element without a supported declared type are not implemented", version)
 		}
 		if elementType != nil {
@@ -1641,10 +1641,10 @@ func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, v
 		return nil, newSchemaCompositionDiagnostic(inline.loc, "element cannot combine type attribute with an inline simpleType")
 	}
 	if inlineComplex != nil {
-		return schemaElementTypeInputForInlineComplex(inlineComplex, facts, version, abstract, nillable, substitutionGroup, block)
+		return schemaElementTypeInputForInlineComplex(inlineComplex, facts, version, abstract, abstractLoc, nillable, nillableLoc, substitutionGroup, block)
 	}
 	if inline != nil {
-		return schemaElementTypeInputForInline(inline, version, abstract, nillable, substitutionGroup, block)
+		return schemaElementTypeInputForInline(inline, version, abstract, abstractLoc, nillable, nillableLoc, substitutionGroup, block)
 	}
 	declaredType, err := expandSchemaQName(element, attributes[0])
 	if err != nil {
@@ -1654,7 +1654,9 @@ func schemaElementTypeInput(element *syntaxElement, facts schemaDocumentFacts, v
 		declaredType:      declaredType,
 		typeLoc:           attributes[0].loc,
 		abstract:          abstract,
+		abstractLoc:       abstractLoc,
 		nillable:          nillable,
+		nillableLoc:       nillableLoc,
 		block:             block,
 		substitutionGroup: substitutionGroup,
 	}, nil
@@ -1664,7 +1666,10 @@ func schemaElementTypeInputForInlineComplex(
 	inline *syntaxElement,
 	facts schemaDocumentFacts,
 	version XSDVersion,
-	abstract, nillable bool,
+	abstract bool,
+	abstractLoc Loc,
+	nillable bool,
+	nillableLoc Loc,
 	substitutionGroup []schemaElementSubstitutionGroupInput,
 	block schemaBlockPolicy,
 ) (*schemaElementInput, error) {
@@ -1686,7 +1691,9 @@ func schemaElementTypeInputForInlineComplex(
 		typeLoc:           inline.loc,
 		inlineComplexType: complexType,
 		abstract:          abstract,
+		abstractLoc:       abstractLoc,
 		nillable:          nillable,
+		nillableLoc:       nillableLoc,
 		block:             block,
 	}, nil
 }
@@ -1711,7 +1718,7 @@ func schemaElementTypeInputWithoutDeclaredType(
 	substitutionGroup []schemaElementSubstitutionGroupInput,
 	block schemaBlockPolicy,
 ) (*schemaElementInput, error) {
-	if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version, abstract, abstractLoc, nillable, nillableLoc); noTypeErr != nil {
+	if noTypeErr := validateSchemaElementWithoutDeclaredType(element, version); noTypeErr != nil {
 		return nil, noTypeErr
 	}
 	if block.set != 0 {
@@ -1725,21 +1732,26 @@ func schemaElementTypeInputWithoutDeclaredType(
 			version,
 		)
 	}
-	if len(substitutionGroup) == 0 {
-		return nil, nil
+	if len(substitutionGroup) > 0 {
+		return nil, newSchemaSyntaxUnsupportedForVersion(
+			substitutionGroup[0].loc,
+			"substitutionGroup affiliations for global elements without a declared type are not implemented",
+			version,
+		)
 	}
-	return nil, newSchemaSyntaxUnsupportedForVersion(
-		substitutionGroup[0].loc,
-		"substitutionGroup affiliations for global elements without a declared type are not implemented",
-		version,
-	)
+	return &schemaElementInput{
+		untyped: true, abstract: abstract, abstractLoc: abstractLoc,
+		nillable: nillable, nillableLoc: nillableLoc, block: block,
+	}, nil
 }
 
 func schemaElementTypeInputForInline(
 	inline *syntaxElement,
 	version XSDVersion,
 	abstract bool,
+	abstractLoc Loc,
 	nillable bool,
+	nillableLoc Loc,
 	substitutionGroup []schemaElementSubstitutionGroupInput,
 	block schemaBlockPolicy,
 ) (*schemaElementInput, error) {
@@ -1761,7 +1773,9 @@ func schemaElementTypeInputForInline(
 		typeLoc:          inline.loc,
 		inlineSimpleType: simpleType,
 		abstract:         abstract,
+		abstractLoc:      abstractLoc,
 		nillable:         nillable,
+		nillableLoc:      nillableLoc,
 		block:            block,
 	}, nil
 }
@@ -1800,21 +1814,7 @@ func schemaElementSubstitutionGroupInputs(element *syntaxElement, version XSDVer
 	return inputs, nil
 }
 
-func validateSchemaElementWithoutDeclaredType(element *syntaxElement, version XSDVersion, abstract bool, abstractLoc Loc, nillable bool, nillableLoc Loc) error {
-	if abstract {
-		return newSchemaSyntaxUnsupportedForVersion(
-			abstractLoc,
-			"global element abstract is not implemented without a declared type",
-			version,
-		)
-	}
-	if nillable {
-		return newSchemaSyntaxUnsupportedForVersion(
-			nillableLoc,
-			"global element nillable is not implemented without a declared type",
-			version,
-		)
-	}
+func validateSchemaElementWithoutDeclaredType(element *syntaxElement, version XSDVersion) error {
 	for _, node := range element.children {
 		child, ok := node.(*syntaxElement)
 		if !ok || child.name.namespace != xsdNamespaceURI || child.name.local != "simpleType" {
@@ -5427,13 +5427,16 @@ func appendSchemaRelatedLocation(related []Loc, candidate, primary Loc) []Loc {
 
 type schemaElementTypeResult struct {
 	present           bool
+	untyped           bool
 	declaredType      QName
 	typeID            ComponentID
 	hasTypeID         bool
 	typeReference     schemaSimpleTypeReferenceComponent
 	hasTypeReference  bool
 	abstract          bool
+	abstractLoc       Loc
 	nillable          bool
+	nillableLoc       Loc
 	block             schemaBlockPolicy
 	substitutionGroup []schemaElementSubstitutionGroup
 }
@@ -5445,7 +5448,9 @@ func resolvedSchemaElementTypeResult(input *schemaElementInput, typeID Component
 		typeID:       typeID,
 		hasTypeID:    hasTypeID,
 		abstract:     input.abstract,
+		abstractLoc:  input.abstractLoc,
 		nillable:     input.nillable,
+		nillableLoc:  input.nillableLoc,
 		block:        input.block,
 	}
 }
@@ -6122,11 +6127,22 @@ func resolveSchemaElementType(
 	if input == nil {
 		return schemaElementTypeResult{}, newSchemaBridgeInvariant(record.loc, "element type resolution has no type input")
 	}
+	if input.untyped {
+		if !input.declaredType.IsZero() || !input.typeLoc.IsZero() || input.inlineSimpleType != nil || input.inlineComplexType != nil || len(input.substitutionGroup) != 0 {
+			return schemaElementTypeResult{}, newSchemaBridgeInvariant(record.loc, "untyped element input contains authored type facts")
+		}
+		return schemaElementTypeResult{
+			present: true, untyped: true,
+			abstract: input.abstract, abstractLoc: input.abstractLoc,
+			nillable: input.nillable, nillableLoc: input.nillableLoc,
+			block: input.block,
+		}, nil
+	}
 	if input.inlineComplexType != nil {
 		if !complexTypes[index].present || !input.inlineComplexType.hasNodeID {
 			return schemaElementTypeResult{}, newSchemaBridgeInvariant(input.typeLoc, "inline complex type has no resolved model identity")
 		}
-		return schemaElementTypeResult{present: true, abstract: input.abstract, nillable: input.nillable, block: input.block}, nil
+		return schemaElementTypeResult{present: true, abstract: input.abstract, abstractLoc: input.abstractLoc, nillable: input.nillable, nillableLoc: input.nillableLoc, block: input.block}, nil
 	}
 	if input.inlineSimpleType != nil {
 		result, ok := simpleTypes.byInput[input.inlineSimpleType]
@@ -6146,10 +6162,12 @@ func resolveSchemaElementType(
 			)
 		}
 		return schemaElementTypeResult{
-			present:  true,
-			abstract: input.abstract,
-			nillable: input.nillable,
-			block:    input.block,
+			present:     true,
+			abstract:    input.abstract,
+			abstractLoc: input.abstractLoc,
+			nillable:    input.nillable,
+			nillableLoc: input.nillableLoc,
+			block:       input.block,
 			typeReference: schemaSimpleTypeReferenceComponent{
 				kind:           SimpleTypeReferenceAnonymous,
 				loc:            input.typeLoc,
@@ -6261,7 +6279,9 @@ func resolveSchemaScalarType(
 			typeReference:    reference,
 			hasTypeReference: true,
 			abstract:         input.abstract,
+			abstractLoc:      input.abstractLoc,
 			nillable:         input.nillable,
+			nillableLoc:      input.nillableLoc,
 			block:            input.block,
 		}, nil
 	}
@@ -6550,7 +6570,9 @@ func resolveBuiltinSchemaScalarTypeReference(input *schemaElementInput, version 
 		typeReference:    reference,
 		hasTypeReference: true,
 		abstract:         input.abstract,
+		abstractLoc:      input.abstractLoc,
 		nillable:         input.nillable,
+		nillableLoc:      input.nillableLoc,
 		block:            input.block,
 	}, nil
 }

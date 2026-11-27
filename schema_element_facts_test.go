@@ -76,11 +76,28 @@ func TestSchemaBridgeExposesGlobalElementBooleanFacts(t *testing.T) {
 						if !ok {
 							t.Fatalf("component %d has no element view", index)
 						}
+						if declaration.IsUntyped() {
+							t.Fatalf("component %d lost its authored type", index)
+						}
 						if got := declaration.IsAbstract(); got != (fact == "abstract" && lexical.want) {
 							t.Fatalf("component %d IsAbstract() = %t, want %t", index, got, fact == "abstract" && lexical.want)
 						}
 						if got := declaration.IsNillable(); got != (fact == "nillable" && lexical.want) {
 							t.Fatalf("component %d IsNillable() = %t, want %t", index, got, fact == "nillable" && lexical.want)
+						}
+						wantAbstractLoc, wantNillableLoc := Loc{}, Loc{}
+						if lexical.value != "" {
+							start := strings.Index(root, `name="`+components[index].Name().Local()+`"`)
+							loc := schemaBlockTestAttributeLocAfter(t, "root.xsd", root, fact+`="`+lexical.value+`"`, start)
+							if fact == "abstract" {
+								wantAbstractLoc = loc
+							}
+							if fact == "nillable" {
+								wantNillableLoc = loc
+							}
+						}
+						if declaration.AbstractLoc() != wantAbstractLoc || declaration.NillableLoc() != wantNillableLoc {
+							t.Fatalf("component %d Boolean locations = %v/%v, want %v/%v", index, declaration.AbstractLoc(), declaration.NillableLoc(), wantAbstractLoc, wantNillableLoc)
 						}
 					}
 					before := schema.Components()
@@ -149,11 +166,25 @@ func TestSchemaBridgeExposesInlineGlobalElementBooleanFacts(t *testing.T) {
 					if !ok {
 						t.Fatal("global inline element view is missing")
 					}
+					if declaration.IsUntyped() {
+						t.Fatal("inline simple type was classified as untyped")
+					}
 					if got := declaration.IsAbstract(); got != (fact == "abstract" && lexical.want) {
 						t.Fatalf("IsAbstract() = %t, want %t", got, fact == "abstract" && lexical.want)
 					}
 					if got := declaration.IsNillable(); got != (fact == "nillable" && lexical.want) {
 						t.Fatalf("IsNillable() = %t, want %t", got, fact == "nillable" && lexical.want)
+					}
+					wantAbstractLoc, wantNillableLoc := Loc{}, Loc{}
+					attributeLoc := schemaMixedComplexLoc(t, root, fact+`="`+lexical.value+`"`)
+					if fact == "abstract" {
+						wantAbstractLoc = attributeLoc
+					}
+					if fact == "nillable" {
+						wantNillableLoc = attributeLoc
+					}
+					if declaration.AbstractLoc() != wantAbstractLoc || declaration.NillableLoc() != wantNillableLoc {
+						t.Fatalf("inline Boolean locations = %v/%v, want %v/%v", declaration.AbstractLoc(), declaration.NillableLoc(), wantAbstractLoc, wantNillableLoc)
 					}
 					reference, ok := declaration.TypeReference()
 					if !ok || !reference.IsAnonymous() {
@@ -561,11 +592,6 @@ func TestSchemaBridgeKeepsElementFactExclusionsUnsupported(t *testing.T) {
 		policy  LanguagePolicy
 		version XSDVersion
 	}{
-		{
-			name:    "untyped abstract",
-			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" abstract="true"/></xs:schema>`,
-			version: XSDVersion11,
-		},
 		{
 			name:    "anonymous nillable",
 			root:    `<xs:schema xmlns:xs="` + testXSDNamespace + `"><xs:element name="item" nillable="true"><xs:complexType><xs:choice/></xs:complexType></xs:element></xs:schema>`,

@@ -37,7 +37,7 @@ errors prevent `Schema`.
 
 ## Schema model
 
-Elements retain identity constraints, XPath, namespace scopes, `Loc`s, keyref targets.
+Typed globals retain identity constraints, XPath, scopes, `Loc`s, keyref targets.
 IDs/duplicates precede refs; unresolved/invisible/ambiguous targets yield
 `FailureResolution` at `refer`; wrong-kind/field-count yield `FailureInvalid`.
 
@@ -93,13 +93,14 @@ causes/related `Loc`s. Conflicts locate fixed/default; type-only unconstrained;
 standalone attributes: ValidateInstance N/A; GenerateGo rejects at declaration
 `Loc` with nil output.
 
-Named/untyped-global empties: empty `block`, no particles.
-Block `Loc` persists; untyped omit; nonempty policies/consumers reject.
+Untyped: `block=""` retains `Loc`; no authored type QName/ID/ref;
+consumers reject. Nonempty block rejects.
 Named direct choice/sequence `xs:any`: empty/positive all policies; Compatibility/Strict11 add negatives, `##defined`/`##definedSibling`, strict negative QNames, paired empty `namespace`+`notQName` (strict/lax/skip). Membership before omission; symbolic negatives/derivations/consumers reject.
 Named direct `xs:anyAttribute`: Compatibility/Strict11 negative strict admits member QNames, lax/skip only absent/empty `notQName`; negative symbols reject. Strict/default admits QNames/`##defined` for absent/positive namespace, empty `notQName`/`##defined` for empty namespace. QName membership precedes publication; derivations/consumers reject.
 Global-element anonymous complexType negative `xs:anyAttribute`: Compatibility/Strict11, written empty default-1/1 sequence, no uses. `notQName` absent for omitted/strict/lax; absent/empty for skip. Strict10/broader owners/derivations/consumers reject.
 `openContent=none` excludes Strict10; named groups retain refs/ranges.
-Inline-complex `mixed=false/0`, inline-complex/untyped-global `abstract=false/0`/`nillable=false/0` omit; true/1 reject, malformed retain cause/`Loc`. Typed/inline-simple globals expose true.
+Inline-complex `mixed/abstract/nillable=false/0` omit; true/1 reject. Untyped
+globals retain Boolean values/`Loc`s; malformed values retain causes.
 Compatibility/Strict11 omit `defaultAttributesApply`; Strict10/schema `defaultAttributes` reject.
 Inline IDs omit from walks; precisionDecimal sequences validate.
 Local lists use precisionDecimal; unions pair precisionDecimal/negativeInteger.
@@ -140,7 +141,7 @@ other byte/short/int/long/unsignedLong validation uses reject.
 
 Generation covers named/inline scalars, default Boolean/integer/decimal
 choices/sequences, all-token choices; other locals/attributes/targets reject.
-No-view, `abstract=true`/`nillable=true`, identity-constrained globals yield `GOXSD9029`, nil output.
+Untyped, identity-constrained, or abstract/nillable=true globals yield `GOXSD9029`, nil output.
 Default integer/decimal sequence refs retain TargetID/order. Built-in bounded
 integers use `StrictInteger`; `IntegerBounds()` copies effective bounds.
 Byte bounds [-128,127]; unsignedLong bounds [0,18446744073709551615]. Named

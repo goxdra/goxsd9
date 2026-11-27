@@ -58,8 +58,8 @@ func TestUntypedGlobalEffectiveEmptyBlockMatchesOmission(t *testing.T) {
 					if !reflect.DeepEqual(facts, wantFacts) {
 						t.Fatalf("effective-empty block changed public facts: got %#v, omission %#v", facts, wantFacts)
 					}
-					if facts.components[1].hasView || facts.components[1].kind != ComponentKindElementDeclaration {
-						t.Fatalf("untyped item acquired declaration view: %#v", facts.components[1])
+					if !facts.components[1].hasView || !facts.components[1].untyped || facts.components[1].kind != ComponentKindElementDeclaration {
+						t.Fatalf("untyped item lacks declaration view: %#v", facts.components[1])
 					}
 					components := schema.Components()
 					components[1] = Component{}
@@ -73,6 +73,44 @@ func TestUntypedGlobalEffectiveEmptyBlockMatchesOmission(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+//nolint:gocognit // Test each authored-empty provenance under every policy.
+func TestUntypedGlobalEmptyBlockKeepsAuthoredProvenance(t *testing.T) {
+	forms := []struct {
+		name, defaultBlock, block, marker string
+	}{
+		{name: "omitted"},
+		{name: "inherited empty", defaultBlock: ` blockDefault=""`, marker: `blockDefault=""`},
+		{name: "explicit empty", block: ` block=""`, marker: `block=""`},
+		{name: "override nonempty", defaultBlock: ` blockDefault="#all"`, block: ` block=""`, marker: `block=""`},
+	}
+	for _, policy := range untypedGlobalPolicies() {
+		for _, form := range forms {
+			t.Run(policy.name+"/"+form.name, func(t *testing.T) {
+				root := untypedBlockRoot(form.defaultBlock, form.block)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy.policy)
+				if err != nil {
+					t.Fatalf("parse: %v", err)
+				}
+				matches := schema.FindKind(ComponentKindElementDeclaration, mustTestQName(t, "urn:root", "item"))
+				if len(matches) != 1 {
+					t.Fatalf("item matches = %d", len(matches))
+				}
+				declaration, ok := matches[0].ElementDeclaration()
+				if !ok || !declaration.IsUntyped() || len(declaration.DisallowedSubstitutions()) != 0 {
+					t.Fatalf("empty-block declaration = %#v/%t", declaration, ok)
+				}
+				want := Loc{}
+				if form.marker != "" {
+					want = schemaBlockTestAttributeLoc(t, "root.xsd", root, form.marker)
+				}
+				if got := declaration.DisallowedSubstitutionsLoc(); got != want {
+					t.Fatalf("block provenance = %v, want %v", got, want)
+				}
+			})
+		}
 	}
 }
 
@@ -149,8 +187,8 @@ func TestUntypedGlobalEmptyBlockKeepsGraphFacts(t *testing.T) {
 						if len(found) != 1 {
 							t.Fatalf("FindKind(%s:%s) = %d", name.namespace, name.local, len(found))
 						}
-						if _, hasView := found[0].ElementDeclaration(); hasView {
-							t.Fatalf("untyped graph element %s acquired declaration view", name.local)
+						if declaration, hasView := found[0].ElementDeclaration(); !hasView || !declaration.IsUntyped() {
+							t.Fatalf("untyped graph element %s lacks untyped declaration view", name.local)
 						}
 					}
 					assertUntypedBlockConsumersEqual(t, untypedGlobalConsumerFacts(t, schema), wantConsumers)

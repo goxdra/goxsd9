@@ -338,6 +338,15 @@ func validateScalarInstance(schema Schema, root *instanceElement) error {
 	if err != nil {
 		return err
 	}
+	if declaration.IsUntyped() {
+		return newInstanceValidationUnsupported(
+			root.loc,
+			fmt.Sprintf("global element %q has no authored type outside instance validation", declaration.Name()),
+			[]Loc{declaration.Loc()},
+			instanceSchemaValidationVersion(schema),
+			errInstanceNoDeclaredType,
+		)
+	}
 	if factsErr := rejectUnsupportedInstanceElementFacts(schema, declaration, root.loc); factsErr != nil {
 		return factsErr
 	}
@@ -975,6 +984,15 @@ func instanceChoiceReferenceTargetFor(
 			fmt.Sprintf("direct choice element reference target declaration %v does not match referenced name %v", targetDeclaration.Name(), reference.Name()),
 			targetRelated,
 			errInstanceValidationInvariant,
+		)
+	}
+	if targetDeclaration.IsUntyped() {
+		return ElementDeclaration{}, nil, newInstanceValidationUnsupported(
+			loc,
+			fmt.Sprintf("referenced global element %q has no authored type outside instance validation", targetDeclaration.Name()),
+			targetRelated,
+			version,
+			errInstanceNoDeclaredType,
 		)
 	}
 	return targetDeclaration, targetRelated, nil

@@ -51,9 +51,11 @@
 // Compatibility/Strict11 admit inheritable=false/0 on untyped global attributes
 // as omission. These components have no AttributeDeclaration view, and local
 // references to them remain unsupported at the use location.
-// Supported global elements expose ordered immutable unique, key, and keyref
-// facts with lexical XPath and namespace context. Keyrefs resolve to nested
-// identity IDs before publication. Identity-constrained elements are query-only;
+// Admitted typed global elements expose ordered immutable unique, key, and keyref
+// facts with lexical XPath and namespace context. Identity constraints on an
+// untyped global remain unsupported at the first constraint Loc, with no Schema.
+// Keyrefs resolve to nested identity IDs before publication.
+// Identity-constrained elements are query-only;
 // ValidateInstance and GenerateGo return located unsupported diagnostics;
 // XPath evaluation, local constraints, and XSD 1.1 ref reuse remain unsupported.
 // ValidateInstance and GenerateGo are separate consumers of their supported
@@ -364,14 +366,15 @@
 // as omission under every policy. True/1 stays located unsupported, and malformed
 // Boolean values stay located invalid with their lexical cause; neither returns
 // a Schema.
-// Otherwise-supported global elements without a declared type accept those
-// same false spellings as omission. The flags' true/1 spellings remain located
-// unsupported, and existing shape limits apply. These elements retain no
-// declaration view; an explicit empty or XML-whitespace-only block also acts
-// as omission over nonempty blockDefault. Nonempty effective block remains unsupported. With
-// omitted or false flags, ValidateInstance rejects at the instance root and
-// relates the declaration Loc; GenerateGo rejects at the declaration Loc
-// with nil output. Both diagnostics are unsupported.
+// Otherwise-supported global elements without an authored type expose immutable
+// declaration views with IsUntyped, effective abstract/nillable values, and
+// authored attribute locations. Omitted, false/0, and true/1 values are
+// supported under every policy. The declared QName, type ID and type reference
+// remain absent; no synthetic anyType component is published. An explicit
+// empty or XML-whitespace-only block retains its location and overrides
+// blockDefault. Nonempty effective block remains unsupported. ValidateInstance
+// rejects untyped roots and references with located unsupported diagnostics;
+// GenerateGo rejects them with nil output.
 // On supported global inline complex types, unqualified defaultAttributesApply
 // true/false/1/0 is inert under Compatibility/Strict11 after XML whitespace
 // collapse. Strict10 reports a located edition mismatch; malformed Boolean
