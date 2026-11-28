@@ -343,7 +343,7 @@ func TestWildcardQNameExcludedShapes(t *testing.T) {
 						diagnostic.Loc() != wildcardParticleTestLoc(t, root, marker) || !errors.Is(err, ErrUnsupported) {
 						t.Fatalf("excluded shape diagnostic = %s, want located unsupported", diagnostic)
 					}
-					wantSpec := "xsd10-structures#schema-document"
+					wantSpec := "xsd11-structures#cSchemaDocument"
 					if shape == "inline" && model == "sequence" {
 						wantSpec = schemaAnyParticleSpecRef(XSDVersion11)
 					}

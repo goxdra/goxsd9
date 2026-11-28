@@ -365,11 +365,8 @@ func TestSchemaBridgeNegativeSkipWildcardExclusions(t *testing.T) {
 			if !errors.Is(err, ErrUnsupported) {
 				t.Fatalf("diagnostic lost unsupported cause: %v", err)
 			}
-			wantSpec := "xsd10-structures#schema-document"
-			if test.shape == "group_ref" {
-				wantSpec = "xsd11-structures#cSchemaDocument"
-			}
-			if diagnostic.SpecRef() != wantSpec || len(diagnostic.Related()) != 0 {
+			wantSpec := "xsd11-structures#cSchemaDocument"
+			if diagnostic.SpecRef() != wantSpec || len(diagnostic.Related()) != 0 || diagnostic.Unwrap() != nil {
 				t.Fatalf("diagnostic spec/related = %q/%v, want %q/no related", diagnostic.SpecRef(), diagnostic.Related(), wantSpec)
 			}
 		})

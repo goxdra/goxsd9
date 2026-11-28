@@ -384,9 +384,6 @@ func TestNegativeLaxSkipQNameExcludedOwners(t *testing.T) {
 					marker, spec, cause := `notQName=`, schemaAnyParticleSpecRef(XSDVersion11), errSchemaAnyParticleUnsupported
 					if kind == "any" && (shape == "restriction" || shape == "ref" || shape == "inline" && model == "choice") {
 						marker, spec, cause = `notNamespace=`, "xsd11-structures#cSchemaDocument", nil
-						if shape == "inline" {
-							spec = "xsd10-structures#schema-document"
-						}
 					}
 					if kind == "anyAttribute" {
 						marker, spec, cause = `<xs:anyAttribute`, schemaAnyAttributeXSD11SpecRef, errSchemaAnyAttributeUnsupported
@@ -402,6 +399,67 @@ func TestNegativeLaxSkipQNameExcludedOwners(t *testing.T) {
 						t.Fatalf("%s/%s/%s/%s = %s related %v cause %v", kind, model, mode, shape, d, d.Related(), err)
 					}
 				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Each inline-choice exit must retain its located cause and selected edition.
+func TestNegativeLaxSkipQNameInlineChoiceDiagnosticExits(t *testing.T) {
+	tests := []struct {
+		name, old, replacement, marker, related, spec, code string
+		class                                               FailureClass
+		cause                                               error
+	}{
+		{"supported QName", "", "", `notNamespace=`, "", "xsd11-structures#cSchemaDocument", UnsupportedSchemaSyntaxCode, FailureUnsupported, nil},
+		{"malformed QName", `p:a`, `bad:q:name`, `notQName=`, "", schemaWildcardQNameDatatypeXSD11SpecRef, invalidSchemaConditionalCode, FailureInvalid, nil},
+		{"unbound QName", `p:a`, `bad:name`, `notQName=`, "", schemaWildcardQNameDatatypeXSD11SpecRef, invalidSchemaConditionalCode, FailureInvalid, nil},
+		{"excluded QName", `p:a`, `local`, `notQName=`, `notNamespace=`, schemaWildcardQNameNamespaceXSD11SpecRef, invalidSchemaCompositionCode, FailureInvalid, errSchemaWildcardQNameNamespace},
+		{"invalid negative namespace", `##local`, `##any`, `notNamespace=`, "", "", invalidSchemaCompositionCode, FailureInvalid, nil},
+		{"conflicting namespace", `notQName="p:a"`, `namespace="##any" notQName="p:a"`, `namespace=`, "", "", invalidSchemaCompositionCode, FailureInvalid, nil},
+		{"invalid mode", `processContents="lax"`, `processContents="bogus"`, `processContents=`, "", "", invalidSchemaCompositionCode, FailureInvalid, nil},
+		{"invalid bounds", "", "", `<xs:any `, "", "xsd11-structures#coss-particle", invalidSchemaCompositionCode, FailureInvalid, errParticleOccurrenceMinimumExceedsMaximum},
+		{"symbolic QName", `p:a`, `##defined p:a`, `notNamespace=`, "", "xsd11-structures#cSchemaDocument", UnsupportedSchemaSyntaxCode, FailureUnsupported, nil},
+	}
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, mode := range []string{"lax", "skip"} {
+			for _, test := range tests {
+				root := negativeLaxSkipQNameExcludedOwnerRoot("any", "choice", mode, "inline")
+				switch test.name {
+				case "invalid mode":
+					root = strings.Replace(root, `processContents="`+mode+`"`, test.replacement, 1)
+				case "invalid bounds":
+					root = strings.Replace(root, `processContents="`+mode+`"/>`, `processContents="`+mode+`" minOccurs="2" maxOccurs="1"/>`, 1)
+				default:
+					if test.old != "" {
+						root = strings.Replace(root, test.old, test.replacement, 1)
+					}
+				}
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				assertZeroSchema(t, schema)
+				d := requireDiagnostic(t, err)
+				var related []Loc
+				if test.related != "" {
+					related = []Loc{wildcardParticleTestLoc(t, root, test.related)}
+				}
+				if test.name == "invalid bounds" {
+					related = []Loc{wildcardParticleTestLoc(t, root, `minOccurs=`), wildcardParticleTestLoc(t, root, `maxOccurs=`)}
+				}
+				if d.Class() != test.class || d.Code() != test.code || d.Loc() != wildcardParticleTestLoc(t, root, test.marker) ||
+					!reflect.DeepEqual(d.Related(), related) || d.SpecRef() != test.spec ||
+					test.cause != nil && !errors.Is(err, test.cause) || test.cause == nil && d.Unwrap() != nil {
+					t.Fatalf("%s/%s/%s = %s, related %v, cause %v", policy, mode, test.name, d, d.Related(), d.Unwrap())
+				}
+			}
+			root := negativeLaxSkipQNameExcludedOwnerRoot("any", "choice", mode, "inline")
+			root = strings.Replace(root, `version="1.1"`, `version="1.0"`, 1)
+			schema, err := discoverTestSchemaWithPolicy(t, root, nil, Strict10)
+			assertZeroSchema(t, schema)
+			d := requireDiagnostic(t, err)
+			if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode ||
+				d.Loc() != wildcardParticleTestLoc(t, root, `notNamespace=`) || len(d.Related()) != 0 ||
+				d.SpecRef() != "xsd11-structures#cSchemaDocument" || !errors.Is(err, errLanguagePolicyMismatch) {
+				t.Fatalf("Strict10/%s = %s, related %v, cause %v", mode, d, d.Related(), d.Unwrap())
 			}
 		}
 	}

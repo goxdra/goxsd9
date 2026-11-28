@@ -5827,7 +5827,7 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 			}
 		case "minOccurs", "maxOccurs":
 			if !allowDefault {
-				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+				candidate.considerAtVersion(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local), version)
 			}
 		case "namespace", "notNamespace":
 			if attribute.name.local == "namespace" {
@@ -5841,7 +5841,7 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard namespace constraints are not implemented", version))
 					continue
 				}
-				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+				candidate.considerAtVersion(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local), version)
 				continue
 			}
 			if err := validateWildcardNotNamespace(attribute, version); err != nil {
@@ -5863,7 +5863,7 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notNamespace constraints are not implemented", version))
 					continue
 				}
-				candidate.considerAt(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local))
+				candidate.considerAtVersion(attribute.loc, fmt.Sprintf("any attribute %q is not implemented", attribute.name.local), version)
 			}
 		case "processContents":
 			if err := validateSchemaEnum(attribute, "lax", "skip", "strict"); err != nil {
@@ -5876,7 +5876,7 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 				candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard processContents constraints are not implemented", version))
 				continue
 			}
-			candidate.considerAt(attribute.loc, "wildcard particles are not implemented")
+			candidate.considerAtVersion(attribute.loc, "wildcard particles are not implemented", version)
 		case "notQName":
 			if err := validateWildcardNotQName(element, attribute, true); err != nil {
 				return err
@@ -5897,7 +5897,7 @@ func validateAnyParticleWithOptions(element *syntaxElement, version XSDVersion, 
 					candidate.considerError(newSchemaAnyParticleUnsupported(attribute.loc, "element wildcard notQName constraints are not implemented", version))
 					continue
 				}
-				candidate.considerAt(attribute.loc, "wildcard particles are not implemented")
+				candidate.considerAtVersion(attribute.loc, "wildcard particles are not implemented", version)
 			}
 		default:
 			return newSchemaCompositionDiagnostic(attribute.loc, fmt.Sprintf("any has forbidden attribute %q", attribute.name.local))

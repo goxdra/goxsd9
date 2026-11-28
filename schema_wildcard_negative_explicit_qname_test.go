@@ -546,9 +546,6 @@ func TestNegativeExplicitQNameExcludedOwnerMembership(t *testing.T) {
 									marker = `notNamespace=`
 									cause = nil
 									spec = "xsd11-structures#cSchemaDocument"
-									if shape == "inline" {
-										spec = "xsd10-structures#schema-document"
-									}
 								}
 							}
 							if kind == "anyAttribute" && shape == "extension" {
@@ -617,7 +614,7 @@ func TestNegativeExplicitQNameAllAndOpenOwnerMembership(t *testing.T) {
 				}
 				if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode ||
 					d.Loc() != wildcardParticleTestLoc(t, root, `notNamespace=`) || len(d.Related()) != 0 ||
-					d.SpecRef() != "xsd10-structures#schema-document" || d.Unwrap() != nil || !errors.Is(err, ErrUnsupported) {
+					d.SpecRef() != "xsd11-structures#cSchemaDocument" || d.Unwrap() != nil || !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("%s/%s valid membership owner gate = %s related %v spec %s cause %v", policy, owner, d, d.Related(), d.SpecRef(), d.Unwrap())
 				}
 			}

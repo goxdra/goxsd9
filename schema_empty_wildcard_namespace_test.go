@@ -428,7 +428,10 @@ func TestEmptyWildcardNamespaceExcludedShapes(t *testing.T) {
 						}
 						if shape.name == "inline" && model == "choice" {
 							wantWildcardCause = false
-							wantSpec = "xsd10-structures#schema-document"
+							wantSpec = "xsd11-structures#cSchemaDocument"
+							if policy == Strict10 {
+								wantSpec = "xsd10-structures#schema-document"
+							}
 						}
 						if diagnostic.SpecRef() != wantSpec || errors.Is(err, errSchemaAnyParticleUnsupported) != wantWildcardCause {
 							t.Fatalf("%s spec/cause = %q/%v", shape.name, diagnostic.SpecRef(), err)
