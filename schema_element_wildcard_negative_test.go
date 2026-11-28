@@ -202,8 +202,6 @@ func TestSchemaBridgeNegativeWildcardDiagnostics(t *testing.T) {
 		{name: "invalid_process_zero", attributes: ` notNamespace="##local" processContents="maybe" minOccurs="0" maxOccurs="0"`, marker: `processContents="maybe"`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "invalid_occurrence", attributes: ` notNamespace="##local" processContents="lax" minOccurs="2" maxOccurs="1"`, marker: `<xs:any`, policy: Strict11, class: FailureInvalid, code: invalidSchemaCompositionCode},
 		{name: "not_qname", attributes: ` notNamespace="##local" notQName="xs:integer"`, marker: `notQName="xs:integer"`, policy: Strict11, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errSchemaAnyParticleUnsupported},
-		{name: "lax_not_qname", attributes: ` notNamespace="##local" processContents="lax" notQName="xs:integer"`, marker: `notQName="xs:integer"`, policy: Strict11, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errSchemaAnyParticleUnsupported},
-		{name: "skip_not_qname", attributes: ` notNamespace="##local" processContents="skip" notQName="xs:integer"`, marker: `notQName="xs:integer"`, policy: Strict11, class: FailureUnsupported, code: UnsupportedSchemaSyntaxCode, cause: errSchemaAnyParticleUnsupported},
 	}
 	for _, test := range tests {
 		for _, model := range []string{"choice", "sequence"} {
@@ -323,7 +321,6 @@ func TestSchemaBridgeNegativeSkipWildcardExclusions(t *testing.T) {
 	tests := []struct {
 		name, shape, attribute, wantMarker string
 	}{
-		{name: "notQName", shape: "named", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
 		{name: "notQName", shape: "inline", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
 		{name: "notQName", shape: "group_ref", attribute: ` notQName="xs:integer"`, wantMarker: `notQName="xs:integer"`},
 		{name: "emptyQName", shape: "inline", attribute: ` notQName=""`, wantMarker: `notQName=""`},
@@ -368,17 +365,8 @@ func TestSchemaBridgeNegativeSkipWildcardExclusions(t *testing.T) {
 			if !errors.Is(err, ErrUnsupported) {
 				t.Fatalf("diagnostic lost unsupported cause: %v", err)
 			}
-			wantSpec := "xsd10-structures#schema-document"
-			if test.shape == "group_ref" {
-				wantSpec = "xsd11-structures#cSchemaDocument"
-			}
-			if test.name == "notQName" && test.shape == "named" {
-				wantSpec = schemaAnyParticleSpecRef(XSDVersion11)
-				if !errors.Is(err, errSchemaAnyParticleUnsupported) {
-					t.Fatalf("direct notQName lost wildcard cause: %v", err)
-				}
-			}
-			if diagnostic.SpecRef() != wantSpec || len(diagnostic.Related()) != 0 {
+			wantSpec := "xsd11-structures#cSchemaDocument"
+			if diagnostic.SpecRef() != wantSpec || len(diagnostic.Related()) != 0 || diagnostic.Unwrap() != nil {
 				t.Fatalf("diagnostic spec/related = %q/%v, want %q/no related", diagnostic.SpecRef(), diagnostic.Related(), wantSpec)
 			}
 		})

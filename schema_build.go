@@ -7017,7 +7017,9 @@ func resolveSchemaComplexTypeDirectBody(
 	if body.anyAttribute != nil && body.anyAttribute.qnameConstraint.present &&
 		(body.anyAttribute.processContents != "strict" ||
 			body.anyAttribute.namespaceConstraint.lexical == "##other") &&
-		(body.anyAttribute.namespaceConstraint.variety != WildcardNamespaceConstraintNot || body.anyAttribute.qnameConstraint.lexical != "") {
+		(body.anyAttribute.namespaceConstraint.variety != WildcardNamespaceConstraintNot ||
+			body.anyAttribute.namespaceConstraint.lexical == "##other" ||
+			body.anyAttribute.qnameConstraint.lexical != "" && !wildcardQNameOnlyExplicitTokens(body.anyAttribute.qnameConstraint.lexical)) {
 		return nil, newSchemaAnyAttributeUnsupported(body.anyAttribute.loc, version)
 	}
 	if particle != nil {
@@ -10284,7 +10286,8 @@ func resolveSchemaWildcardParticle(input schemaWildcardParticleInput, owner sche
 	if err != nil {
 		return nil, err
 	}
-	if input.namespaceConstraint.variety == WildcardNamespaceConstraintNot && input.qnameConstraint.lexical != "" && input.processContents != "strict" {
+	if input.namespaceConstraint.variety == WildcardNamespaceConstraintNot && input.qnameConstraint.lexical != "" &&
+		input.processContents != "strict" && !wildcardQNameOnlyExplicitTokens(input.qnameConstraint.lexical) {
 		return nil, newSchemaAnyParticleUnsupported(input.qnameConstraint.loc, "element wildcard notQName constraints are not implemented", version)
 	}
 	if !input.occurrences.mapsToParticle() {

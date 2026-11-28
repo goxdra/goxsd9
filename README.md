@@ -35,7 +35,7 @@ QName local attributes; consumers reject.
 Direct named-complex `xs:all` retains ordered built-in/named effective
 integer/decimal/Boolean/token/NMTOKEN/negativeInteger/long/int/short/byte/unsignedLong,
 built-in string, built-in/named normalizedString/positiveInteger/nonPositiveInteger/nonNegativeInteger, refs with exact bounds; consumers reject.
-Compatibility/Strict11: a global element's anonymous inline complexType admits negative `notNamespace` on `xs:anyAttribute` with one written empty default-1/1 sequence and no attribute uses. Omitted/strict/lax `processContents` require absent `notQName`; skip permits absent/empty. Validation and generation reject. Named direct strict negative symbolic wildcards: [contract](doc.go).
+Compatibility/Strict11: global-element inline complexType admits negative `xs:anyAttribute` with one empty default-bound sequence and no uses; omitted/strict/lax require absent `notQName`, skip admits empty. Named direct choice/sequence complex types admit QName-only negative `notQName` under strict/lax/skip; symbolic `notQName` with negative `notNamespace` rejects lax/skip. Consumers reject. [Contract](doc.go).
 
 ## CLI
 

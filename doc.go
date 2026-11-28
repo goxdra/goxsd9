@@ -265,12 +265,13 @@
 // valid empty namespace sets and strict, lax, or skip processing. Explicit QNames,
 // alone or mixed with one or both keywords, require namespace membership. Normalized
 // token order, in-scope bindings, and sorted explicit names remain separate
-// facts. An explicitly empty notQName list or strict/default explicit QNames
-// may accompany notNamespace while retaining presence and location.
+// facts. An explicitly empty notQName list or explicit QName-only list may
+// accompany notNamespace with strict, lax, or skip processing, retaining
+// presence and location.
 // An explicitly empty namespace enumeration may likewise accompany an empty
 // notQName list under Compatibility and Strict11 with strict, lax, or skip processing.
 // ##defined and ##definedSibling stay symbolic. Negative combinations with
-// nonempty notQName require omitted or strict processing; wildcard algebra
+// symbolic notQName require omitted or strict processing; wildcard algebra
 // remains unsupported.
 // Nonempty lax/skip notQName on inline, group, or extension placements
 // rejects; existing strict explicit-QName placement behavior persists.
@@ -292,10 +293,10 @@
 // global direct choice/sequence attribute wildcards. NamespaceConstraint
 // reports sorted, distinct effective exclusions; Namespace preserves the
 // normalized lexical order. Empty notQName lists retain presence and location
-// without excluding names. Strict/default explicit QNames also retain lexical
-// tokens, namespace bindings, and sorted unique exclusions after membership.
-// Negative lists with nonempty notQName require omitted or strict processing;
-// lax/skip, other named shapes, and negative namespace derivation comparisons
+// without excluding names. Explicit QNames retain lexical tokens, namespace
+// bindings, and sorted unique exclusions after membership for all three modes.
+// Negative lists with explicit QName-only notQName admit lax/skip processing;
+// symbolic lax/skip, other named shapes, and negative namespace derivation comparisons
 // remain unsupported. ##defined stays symbolic and may mix with member QNames.
 // Compatibility and Strict11 also expose negative notNamespace with omitted
 // (effective strict), explicit strict, lax, or skip processContents on a

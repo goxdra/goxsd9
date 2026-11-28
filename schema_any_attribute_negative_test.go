@@ -247,8 +247,6 @@ func TestAnyAttributeNegativeDirectDiagnostics(t *testing.T) {
 		{"bad-process", ` notNamespace="##local" processContents="bad"`, `processContents=`, invalidSchemaCompositionCode, "", FailureInvalid, nil},
 		{"negative-qname-lax", ` notNamespace="##local" notQName="##defined" processContents="lax"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 		{"negative-qname-skip", ` notNamespace="##local" notQName="##defined" processContents="skip"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
-		{"explicit-qname-lax", ` notNamespace="##local" notQName="t:value" processContents="lax"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
-		{"explicit-qname-skip", ` notNamespace="##local" notQName="t:value" processContents="skip"`, `<xs:anyAttribute`, UnsupportedSchemaSyntaxCode, schemaAnyAttributeXSD11SpecRef, FailureUnsupported, errSchemaAnyAttributeUnsupported},
 	}
 	for _, model := range []string{"choice", "sequence"} {
 		for _, form := range forms {

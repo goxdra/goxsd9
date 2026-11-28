@@ -21,8 +21,16 @@ func negativeExplicitQNameSchema(kind, model, version, attributes string) string
 	return `<xs:schema xmlns:xs="` + testXSDNamespace + `" xmlns:t="urn:root" xmlns:p="urn:p" xmlns:q="urn:p" targetNamespace="urn:root" version="` + version + `"><xs:element name="root" type="t:Record"/><xs:complexType name="Record">` + particle + `</xs:complexType></xs:schema>`
 }
 
-//nolint:gocognit // Public location, order, and copied wildcard facts share one fixture.
-func negativeExplicitQNameFacts(t *testing.T, root, kind, bounds string, schema Schema) {
+func wildcardParticleTestLocOptional(t *testing.T, root, marker string) Loc {
+	t.Helper()
+	if !strings.Contains(root, marker) {
+		return Loc{}
+	}
+	return wildcardParticleTestLoc(t, root, marker)
+}
+
+//nolint:gocognit,funlen // Public location, order, and copied wildcard facts share one fixture.
+func negativeExplicitQNameFacts(t *testing.T, root, kind, bounds, mode string, schema Schema) {
 	t.Helper()
 	components := schema.Components()
 	if len(components) != 2 || components[0].Name() != mustTestQName(t, "urn:root", "root") || components[1].Name() != mustTestQName(t, "urn:root", "Record") {
@@ -39,21 +47,38 @@ func negativeExplicitQNameFacts(t *testing.T, root, kind, bounds string, schema 
 	if !ok {
 		t.Fatal("Record has no complex type")
 	}
+	var terms []Particle
+	switch model := definition.Particle().(type) {
+	case ChoiceParticle:
+		terms = model.Alternatives()
+	case SequenceParticle:
+		terms = model.Particles()
+	default:
+		t.Fatalf("direct particle = %T", definition.Particle())
+	}
+	wantTerms := 1
+	if kind == "any" {
+		wantTerms = 2
+	}
+	if len(terms) != wantTerms || terms[0].Loc() != wildcardParticleTestLoc(t, root, `<xs:element name="first"`) ||
+		terms[0].Occurrences().String() != "1/1" || definition.Particle().Occurrences().String() != "1/1" {
+		t.Fatalf("direct lexical terms = %#v", terms)
+	}
 	var namespace WildcardNamespaceConstraint
 	var qname WildcardQNameConstraint
 	if kind == "any" {
 		wildcard := directWildcardFromParticle(t, definition.Particle())
-		if wildcard.Loc() != wildcardParticleTestLoc(t, root, `<xs:any `) || wildcard.Occurrences().String() != bounds || wildcard.ProcessContents() != "strict" {
+		if wildcard.Loc() != wildcardParticleTestLoc(t, root, `<xs:any `) || wildcard.Occurrences().String() != bounds || wildcard.ProcessContents() != mode {
 			t.Fatalf("element wildcard location/bounds/mode = %s/%s/%s", wildcard.Loc(), wildcard.Occurrences(), wildcard.ProcessContents())
 		}
 		namespace, qname = wildcard.NamespaceConstraint(), wildcard.QNameConstraint()
-		if wildcard.NamespaceLoc() != namespace.Loc() || !wildcard.ProcessContentsLoc().IsZero() {
+		if wildcard.NamespaceLoc() != namespace.Loc() || wildcard.ProcessContentsLoc() != wildcardParticleTestLocOptional(t, root, `processContents="`+mode+`"`) {
 			t.Fatal("element wildcard location provenance changed")
 		}
 	}
 	if kind == "anyAttribute" {
 		wildcard := definitionAnyAttribute(t, definition)
-		if wildcard.Loc() != wildcardParticleTestLoc(t, root, `<xs:anyAttribute `) || wildcard.ProcessContents() != "strict" || !wildcard.ProcessContentsLoc().IsZero() {
+		if wildcard.Loc() != wildcardParticleTestLoc(t, root, `<xs:anyAttribute `) || wildcard.ProcessContents() != mode || wildcard.ProcessContentsLoc() != wildcardParticleTestLocOptional(t, root, `processContents="`+mode+`"`) {
 			t.Fatalf("attribute wildcard location/mode = %s/%s", wildcard.Loc(), wildcard.ProcessContents())
 		}
 		namespace, qname = wildcard.NamespaceConstraint(), wildcard.QNameConstraint()
@@ -108,10 +133,72 @@ func TestNegativeExplicitQNameDirectFacts(t *testing.T) {
 								if bounds != "" {
 									wantBounds = "2/4"
 								}
-								negativeExplicitQNameFacts(t, root, kind, wantBounds, schema)
+								negativeExplicitQNameFacts(t, root, kind, wantBounds, "strict", schema)
 							}
 						})
 					}
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // The new mode admission must retain all previously immutable strict facts.
+func TestNegativeExplicitQNameLaxSkipDirectFacts(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, version := range []string{"1.0", "1.1"} {
+			for _, kind := range []string{"any", "anyAttribute"} {
+				for _, model := range []string{"choice", "sequence"} {
+					for _, mode := range []string{"lax", "skip"} {
+						bounds := ""
+						if kind == "any" {
+							bounds = ` minOccurs="2" maxOccurs="18446744073709551617"`
+						}
+						attributes := ` notNamespace="##local ##targetNamespace urn:z ##local" notQName="p:z q:a p:z" processContents="` + mode + `"` + bounds
+						root := negativeExplicitQNameSchema(kind, model, version, attributes)
+						for run := 0; run < 2; run++ {
+							schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+							if err != nil {
+								t.Fatalf("%s/%s/%s/%s/%s run %d: %v", policy, version, kind, model, mode, run, err)
+							}
+							wantBounds := "1/1"
+							if kind == "any" {
+								wantBounds = "2/18446744073709551617"
+							}
+							negativeExplicitQNameFacts(t, root, kind, wantBounds, mode, schema)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+//nolint:gocognit // Both direct models and policies must preserve 0/0 omission.
+func TestNegativeExplicitQNameLaxSkipZeroOccurrenceOmission(t *testing.T) {
+	for _, policy := range []LanguagePolicy{Compatibility, Strict11} {
+		for _, model := range []string{"choice", "sequence"} {
+			for _, mode := range []string{"lax", "skip"} {
+				root := negativeExplicitQNameSchema("any", model, "1.1", ` notNamespace="##local" notQName="p:a" processContents="`+mode+`" minOccurs="0" maxOccurs="0"`)
+				schema, err := discoverTestSchemaWithPolicy(t, root, nil, policy)
+				if err != nil {
+					t.Fatalf("%s/%s/%s 0/0: %v", policy, model, mode, err)
+				}
+				definition, ok := schema.Components()[1].ComplexType()
+				if !ok {
+					t.Fatal("Record has no complex type")
+				}
+				var terms []Particle
+				switch particle := definition.Particle().(type) {
+				case ChoiceParticle:
+					terms = particle.Alternatives()
+				case SequenceParticle:
+					terms = particle.Particles()
+				default:
+					t.Fatalf("direct particle = %T", definition.Particle())
+				}
+				if len(terms) != 1 || terms[0].Loc() != wildcardParticleTestLoc(t, root, `<xs:element name="first"`) {
+					t.Fatalf("%s/%s/%s terms after omission = %#v", policy, model, mode, terms)
 				}
 			}
 		}
@@ -274,8 +361,6 @@ func TestNegativeExplicitQNameUnsupportedModes(t *testing.T) {
 	for _, kind := range []string{"any", "anyAttribute"} {
 		for _, model := range []string{"choice", "sequence"} {
 			for _, form := range []struct{ name, attributes, marker string }{
-				{"lax", ` notNamespace="##local" processContents="lax" notQName="p:a"`, `notQName=`},
-				{"skip", ` notNamespace="##local" processContents="skip" notQName="p:a"`, `notQName=`},
 				{"lax defined", ` notNamespace="##local" processContents="lax" notQName="##defined"`, `notQName=`},
 				{"skip sibling", ` notNamespace="##local" processContents="skip" notQName="##definedSibling"`, `notQName=`},
 				{"lax mixed", ` notNamespace="##local" processContents="lax" notQName="##defined p:a"`, `notQName=`},
@@ -461,9 +546,6 @@ func TestNegativeExplicitQNameExcludedOwnerMembership(t *testing.T) {
 									marker = `notNamespace=`
 									cause = nil
 									spec = "xsd11-structures#cSchemaDocument"
-									if shape == "inline" {
-										spec = "xsd10-structures#schema-document"
-									}
 								}
 							}
 							if kind == "anyAttribute" && shape == "extension" {
@@ -532,7 +614,7 @@ func TestNegativeExplicitQNameAllAndOpenOwnerMembership(t *testing.T) {
 				}
 				if d.Class() != FailureUnsupported || d.Code() != UnsupportedSchemaSyntaxCode ||
 					d.Loc() != wildcardParticleTestLoc(t, root, `notNamespace=`) || len(d.Related()) != 0 ||
-					d.SpecRef() != "xsd10-structures#schema-document" || d.Unwrap() != nil || !errors.Is(err, ErrUnsupported) {
+					d.SpecRef() != "xsd11-structures#cSchemaDocument" || d.Unwrap() != nil || !errors.Is(err, ErrUnsupported) {
 					t.Fatalf("%s/%s valid membership owner gate = %s related %v spec %s cause %v", policy, owner, d, d.Related(), d.SpecRef(), d.Unwrap())
 				}
 			}
